@@ -1,0 +1,12 @@
+$ vitest run --passWithNoTests src/features/commerce/MembershipAccess.test.tsx src/features/commerce/CustomerMembershipPlans.test.tsx
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/features/commerce/CustomerMembershipPlans.test.tsx (3 tests) 175ms
+ ✓ src/features/commerce/MembershipAccess.test.tsx (3 tests) 463ms
+
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+   Start at  18:38:52
+   Duration  2.72s (transform 532ms, setup 906ms, collect 2.10s, tests 638ms, environment 954ms, prepare 154ms)
+

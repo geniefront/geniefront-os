@@ -1,0 +1,23 @@
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/pages/Checkout.tips.test.tsx (9 tests) 1970ms
+   ✓ submits the server quoted member price and keeps discounted-service tips in the new money channel 660ms
+   ✓ requires choosing one line price benefit before an additional authorized discount can be submitted 389ms
+ ✓ src/features/commerce/DepositRetentionActions.test.tsx (5 tests) 765ms
+ ✓ src/components/AppointmentDrawer.test.tsx (10 tests) 482ms
+ ✓ src/features/commerce/DepositPaymentActions.test.tsx (3 tests) 389ms
+ ✓ src/features/printing/ReceiptDocument.test.tsx (5 tests) 53ms
+ ✓ src/features/commerce/GuestCancellationPanel.test.tsx (2 tests) 1301ms
+   ✓ confirms only selected guests and their exact refund quote, reusing the command key after an interruption 1181ms
+ ✓ src/features/commerce/AppointmentDepositPanel.test.tsx (3 tests) 1083ms
+   ✓ keeps the financial decision hidden without waiver permission and disabled while offline 375ms
+   ✓ requires a reason and reuses the same command key after an interrupted approval 696ms
+ ✓ src/features/commerce/CustomerMembershipPlans.test.tsx (3 tests) 596ms
+   ✓ saves a new version with the expected existing version and explicit recurring terms 534ms
+
+ Test Files  8 passed (8)
+      Tests  40 passed (40)
+   Start at  21:41:39
+   Duration  23.55s (transform 881ms, setup 2.37s, collect 8.71s, tests 6.64s, environment 4.31s, prepare 337ms)
+

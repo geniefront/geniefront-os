@@ -1,0 +1,49 @@
+{
+  "at": "2026-10-02T16:53:21.549543+00:00",
+  "scope": "P4 invoice-owned immutable plan/price/benefit contracts required before next-period plan changes",
+  "migration": 183,
+  "checks": {
+    "apiFiles": 3,
+    "apiTests": 76,
+    "bookingFiles": 1,
+    "bookingTests": 11,
+    "typecheckPackages": 16,
+    "finalBookingTypes": true,
+    "guards": true,
+    "bookingBuild": true,
+    "migrationEmptyUpgradeReplay": true,
+    "populatedUpgradeInvoices": 39,
+    "advisorsWarnings": 166,
+    "newInvoiceFunctionFindings": 0
+  },
+  "originalSandbox": {
+    "memberships": 3,
+    "invoices": 6,
+    "benefitPeriods": 28,
+    "originalMonthlyAvailableUnits": 1,
+    "paymentCount": 14,
+    "paymentFingerprint": "99c54d5375794365efd655bf0a22cfda",
+    "originalFinancialFieldsUnchanged": true,
+    "publicResourceTokensReused": true,
+    "nativeChineseMobileAndEnglishDesktop": true,
+    "lostSuccessfulReadThenNativeRefreshRecovered": true
+  },
+  "migrationCorrection": "The first preserved upgrade rolled back because the old append-only UPDATE trigger returned OLD even for the migration role. The final migration wraps the specific trigger suspension, backfill, restoration and validation in one transaction; 39 populated fixture invoices proved the correction before successful promotion. Preview was prematurely restarted once and then stopped until the corrected promotion completed.",
+  "planChangeScheduled": false,
+  "nextPeriodPlanChangeImplemented": false,
+  "remainingPlanChangeWork": [
+    "Explicit customer consent to future plan terms and effective date",
+    "Durable original-subscription schedule creation/update and failure recovery",
+    "Validation of approved historical and new provider price bindings",
+    "New paid invoice terms selected by the approved effective phase; old cycles remain on their invoice contract",
+    "Cancellation interactions, changed cadence, test-clock renewal and actual end-to-end customer UI"
+  ],
+  "allAcceptancePassed": false,
+  "productionPublished": false,
+  "goalComplete": false,
+  "references": [
+    "https://docs.stripe.com/billing/subscriptions/subscription-schedules",
+    "https://docs.stripe.com/api/subscription_schedules/create",
+    "https://docs.stripe.com/api/subscription_schedules/update"
+  ]
+}

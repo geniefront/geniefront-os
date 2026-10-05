@@ -1,0 +1,46 @@
+{
+  "at": "2026-10-02T01:53:03.302Z",
+  "prices": [
+    {
+      "kind": "manual",
+      "original_cents": 4000,
+      "discount_cents": 1000,
+      "cycle_id": null,
+      "plan_version_id": null,
+      "rule_snapshot": {
+        "allocation": "uncovered_unpriced_lines",
+        "manualAuthorized": true
+      }
+    },
+    {
+      "kind": "membership",
+      "original_cents": 5000,
+      "discount_cents": 500,
+      "cycle_id": "37522966-3381-4ba9-b14a-1c7d7cbd3364",
+      "plan_version_id": "0b3051b8-1577-45db-a801-646949734f78",
+      "rule_snapshot": {
+        "rounding": "half_up_per_line",
+        "expiresAt": "2026-11-02 01:27:17+00",
+        "discountBps": 1000,
+        "commissionPolicy": "staff_gross_or_net"
+      }
+    }
+  ],
+  "financial": {
+    "subtotal_cents": 19000,
+    "discount_cents": 1500,
+    "total_cents": 18500,
+    "tip_cents": 1000,
+    "refund_cents": 18500,
+    "remaining_commission_base": 0,
+    "remaining_tip_earnings": 0,
+    "returned_membership": 10000,
+    "returned_cash": 8500
+  },
+  "foreignPriceRows": 0,
+  "scope": "Read-only actual browser paid membership prices and service refunds",
+  "offlineCashOnlyQaRecording": true,
+  "originalMembershipPurchaseRefunded": false,
+  "productionPublished": false,
+  "goalComplete": false
+}

@@ -1,9 +1,11 @@
+import {customerFamilies} from '../customerIdentity';
 /**
  * 礼品卡列表查询（Marketing.tsx / Checkout.tsx，P1 营销体系）
  */
 
 import type postgres from 'postgres';
 import { pickText, type CommandContext, asInt } from '@gf/contracts';
+import {normalizeCardCode} from '@gf/payroll';
 
 export interface GiftCardRowDto {
   id: string;
@@ -45,9 +47,11 @@ export async function loadGiftCards(
   const [countRow] = await tx<{ total: string }[]>`
     select count(*)::text as total
     from gift_cards gc
-    left join customers c1 on c1.id = gc.purchaser_customer_id
-    left join customers c2 on c2.id = gc.holder_customer_id
-    where gc.org_id = ${ctx.orgId}
+    left join ${customerFamilies(tx)}f1 on f1.id=gc.purchaser_customer_id
+    left join ${customerFamilies(tx)}f2 on f2.id=gc.holder_customer_id
+    left join customers c1 on c1.id = f1.root_id
+    left join customers c2 on c2.id = f2.root_id
+    where gc.org_id = ${ctx.orgId} and (gc.location_id=${ctx.locationId} or gc.scope='org')
       ${whereStatus}
       ${whereQ}`;
 
@@ -70,9 +74,11 @@ export async function loadGiftCards(
            gc.created_at::text as created_at
     from gift_cards gc
     left join gift_card_templates t on t.id = gc.template_id
-    left join customers c1 on c1.id = gc.purchaser_customer_id
-    left join customers c2 on c2.id = gc.holder_customer_id
-    where gc.org_id = ${ctx.orgId}
+    left join ${customerFamilies(tx)}f1 on f1.id=gc.purchaser_customer_id
+    left join ${customerFamilies(tx)}f2 on f2.id=gc.holder_customer_id
+    left join customers c1 on c1.id = f1.root_id
+    left join customers c2 on c2.id = f2.root_id
+    where gc.org_id = ${ctx.orgId} and (gc.location_id=${ctx.locationId} or gc.scope='org')
       ${whereStatus}
       ${whereQ}
     order by gc.created_at desc
@@ -112,15 +118,16 @@ export async function loadGiftCardVerify(
   ctx: CommandContext,
   code: string,
 ): Promise<GiftCardVerifyDto> {
-  const cleanCode = code.trim();
+  const cleanCode = normalizeCardCode(code);
   const [gc] = await tx<{
     id: string; code: string; balance_cents: number;
     recipient_name: string | null; status: string;
     expires_at: string | null;
   }[]>`
-    select id, code, balance_cents, recipient_name, status, expires_at::text
+    select id, code, case when commerce_frozen or credential_disabled then 0 else greatest(0,balance_cents-reserved_cents) end as balance_cents, recipient_name, status, expires_at::text
     from gift_cards
-    where org_id = ${ctx.orgId} and (code = ${cleanCode} or lower(code) = lower(${cleanCode}))
+    where org_id = ${ctx.orgId} and (location_id=${ctx.locationId} or scope='org')
+      and replace(code,'-','') = ${cleanCode}
     limit 1`;
 
   if (!gc) {
@@ -145,4 +152,3 @@ export async function loadGiftCardVerify(
     status: effectiveStatus,
   };
 }
-

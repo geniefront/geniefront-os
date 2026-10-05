@@ -10,11 +10,11 @@ describe('voice provider policies', () => {
     expect(planForPriceId('price_basic')).toBe('essential');
     expect(planForPriceId('unknown')).toBeNull();
   });
-  it('sets a provider-side maximum and records both call legs', () => {
+  it('keeps the legacy bridge encrypted and records both call legs', () => {
     const xml = xaiDialXml('+17579999968', 'voice.example.com:5060', 'https://api.example.com');
-    expect(xml).toContain('timeLimit="600"');
+    expect(xml).not.toContain('timeLimit=');
     expect(xml).toContain('record="record-from-answer-dual"');
-    expect(xml).toContain('<Sip>sip:+17579999968@voice.example.com:5060</Sip>');
+    expect(xml).toContain('<Sip>sip:+17579999968@voice.example.com:5060;transport=tls</Sip>');
     expect(() => xaiDialXml('+17579999968', 'host</Sip>', 'https://api.example.com')).toThrow();
   });
 });

@@ -1,5 +1,8 @@
 # 24 · Platform operator console (`apps/platform`)
 
+> **2026-09-27 账号清理更新：** 当前环境账号和 seed 命令以[环境账号清单](qa/TEST_ACCOUNTS.md)为准。下文旧账号、演示店及旧密码仅适用于历史记录或隔离测试 fixture，不能作为现行 local/staging/prod 登录配置；原 `ops` 管理员保留。
+
+
 Internal GenieFront ops. Not a customer app. Not a database admin.
 
 ## Operator identity

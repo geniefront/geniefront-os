@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 import { withTenant, closeDb } from '@gf/db';
 import { type CommandContext, type Permission } from '@gf/contracts';
 import { buildContext } from './actor';
-import { dispatch } from './bus';
+import { dispatchWithCommerceSale as dispatch } from './test/commerceSaleDispatch';
 import './handlers/customer';
 import './handlers/ticket';
 import './handlers/kiosk';

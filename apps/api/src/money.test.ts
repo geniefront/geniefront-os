@@ -14,6 +14,9 @@ import { randomUUID } from 'node:crypto';
 import { withTenant, closeDb } from '@gf/db';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
+import { loadOrders } from './queries/orders';
+import {loadDayMoney} from './handlers/dayclose';
+import {loadDayClose} from './queries/money';
 import './handlers/ticket';
 import './handlers/dayclose';
 import './handlers/payroll';
@@ -27,6 +30,20 @@ let service = '';
 let servicePrice = 0;
 
 const tenant = { orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null };
+
+it('finds the displayed receipt number with consistent row and count filters', async () => {
+  const ctx = await ctxFor(owner);
+  const ticket = await openTicket(ctx, 'Displayed receipt lookup QA');
+  const q = `ORD-${ticket.ticketId.slice(0, 5).toUpperCase()}`;
+  const result = await withTenant(tenant, tx => loadOrders(tx, ctx, { q }));
+  expect(result.rows.some(row => row.ticketId === ticket.ticketId)).toBe(true);
+  expect(result.total).toBe(result.rows.length);
+  const lower = await withTenant(tenant, tx => loadOrders(tx, ctx, { q: q.toLowerCase() }));
+  expect(lower.rows.map(row => row.ticketId)).toEqual(result.rows.map(row => row.ticketId));
+  const exact = await withTenant(tenant, tx => loadOrders(tx, ctx, { ticketId: ticket.ticketId, q }));
+  expect(exact.total).toBe(1);
+  expect(exact.rows[0]?.ticketId).toBe(ticket.ticketId);
+});
 
 async function ctxFor(membershipId: string) {
   const [r] = await withTenant(tenant, (tx) => tx<{ user_id: string }[]>`
@@ -394,6 +411,53 @@ describe('⭐ 组单：一人付全部', () => {
     expect(earn[0]!.n).toBe(3);
   });
 
+  it('replays a group payment once and rejects a changed financial request with the same key',async()=>{
+    const ctx=await ctxFor(owner),one=await openTicket(ctx,'Group retry one'),two=await openTicket(ctx,'Group retry two');
+    const group=await run<{groupId:string}>('ticket.group',{ticketIds:[one.ticketId,two.ticketId]},ctx);
+    const input={groupId:group.groupId,ticketIds:[one.ticketId,two.ticketId],payments:[{method:'cash',amountCents:one.subtotalCents+two.subtotalCents,tipCents:0}]},key=randomUUID();
+    const first=await dispatch('ticket.closeGroup',input,ctx,{idempotencyKey:key}),replay=await dispatch('ticket.closeGroup',input,ctx,{idempotencyKey:key});
+    expect(replay.replayed).toBe(true);expect(replay.result).toEqual(first.result);
+    await expect(dispatch('ticket.closeGroup',{...input,payments:[{...input.payments[0]!,amountCents:input.payments[0]!.amountCents+100}]},ctx,{idempotencyKey:key})).rejects.toMatchObject({code:'IDEMPOTENCY_KEY_REUSED',details:{reason:'different_request'}});
+    const [facts]=await withTenant(tenant,tx=>tx`select (select count(*)::int from payments where ticket_id=any(${input.ticketIds}::uuid[])) as payments,(select input_fingerprint is not null from command_idempotency where location_id=${SPA_LOC} and key=${key}) as fingerprint`);
+    expect(facts).toMatchObject({payments:2,fingerprint:true});
+  });
+
+  it('keeps inclusive group tax inside each original price when splitting cash and card',async()=>{
+    const ctx=await ctxFor(owner),[prior]=await withTenant(tenant,tx=>tx`select sales_tax_rate_percent,tax_calculation_mode from location_checkout_settings where location_id=${SPA_LOC}`);
+    try{
+      await withTenant(tenant,tx=>tx`update location_checkout_settings set sales_tax_rate_percent=6.5,tax_calculation_mode='inclusive' where location_id=${SPA_LOC}`);
+      const one=await openTicket(ctx,'Inclusive group one'),two=await openTicket(ctx,'Inclusive group two'),ids=[one.ticketId,two.ticketId];
+      const group=await run<{groupId:string}>('ticket.group',{ticketIds:ids,label:'Inclusive tax QA'},ctx),total=one.subtotalCents+two.subtotalCents+1001;
+      const result=await run<{tickets:Array<{totalCents:number}>}>('ticket.closeGroup',{groupId:group.groupId,ticketIds:ids,payments:[{method:'cash',amountCents:Math.floor(total/2),tipCents:501},{method:'card',amountCents:total-Math.floor(total/2),tipCents:500}]},ctx);
+      expect(result.tickets.reduce((n,t)=>n+t.totalCents,0)).toBe(total);
+      const [facts]=await withTenant(tenant,tx=>tx`select sum(total_cents)::int as total,sum(tax_cents)::int as tax from tickets where id=any(${ids}::uuid[])`);expect(facts!.total).toBe(total);expect(facts!.tax).toBeGreaterThan(0);
+    }finally{await withTenant(tenant,tx=>tx`update location_checkout_settings set sales_tax_rate_percent=${prior!.sales_tax_rate_percent},tax_calculation_mode=${prior!.tax_calculation_mode} where location_id=${SPA_LOC}`);}
+  });
+
+  it('quotes and settles grouped service and tip stages separately with one cash tender',async()=>{
+    const ctx=await ctxFor(owner),one=await openTicket(ctx,'Stage group one'),two=await openTicket(ctx,'Stage group two'),ids=[one.ticketId,two.ticketId];
+    await withTenant(tenant,tx=>tx`update tickets set checkout_timing_snapshot='service_then_tip' where id=any(${ids}::uuid[])`);
+    const group=await run<{groupId:string}>('ticket.group',{ticketIds:ids},ctx),base=one.subtotalCents+two.subtotalCents;
+    const serviceInput={groupId:group.groupId,ticketIds:ids,ticketSelections:ids.map(ticketId=>({ticketId,paymentStage:'service',tipCents:0})),payments:[{method:'cash',amountCents:base,tenderedCents:base+1000,changeCents:1000}]};
+    const first=await run<{quoteHash:string;readyToPay:boolean}>('ticket.quoteGroup',serviceInput,ctx);expect(first.readyToPay).toBe(true);
+    await run('ticket.closeGroup',{...serviceInput,expectedQuoteHash:first.quoteHash},ctx);
+    const mid=await withTenant(tenant,tx=>tx`select service_settled_at,tip_settled_at from tickets where id=any(${ids}::uuid[])`);expect(mid.every(t=>t.service_settled_at&&!t.tip_settled_at)).toBe(true);
+    const tipInput={groupId:group.groupId,ticketIds:ids,ticketSelections:ids.map(ticketId=>({ticketId,paymentStage:'tip',tipCents:500})),payments:[{method:'cash',amountCents:1000,tipCents:1000}]};
+    await expect(run('ticket.quoteGroup',tipInput,ctx)).rejects.toMatchObject({details:{reason:'tip_stage_not_available'}});
+    const items=await withTenant(tenant,tx=>tx<{id:string}[]>`select id from ticket_items where ticket_id=any(${ids}::uuid[])`);
+    for(const item of items){await run('ticket.startItem',{ticketItemId:item.id,membershipId:tech[0]!},ctx);await run('ticket.finishItem',{ticketItemId:item.id,membershipId:tech[0]!},ctx);}
+    const second=await run<{quoteHash:string;amountDueCents:number}>('ticket.quoteGroup',tipInput,ctx);expect(second.amountDueCents).toBe(1000);
+    await run('ticket.closeGroup',{...tipInput,expectedQuoteHash:second.quoteHash},ctx);
+    const [final]=await withTenant(tenant,tx=>tx`select sum(amount_cents)::int as amount,sum(tendered_cents)::int as tendered,sum(change_cents)::int as change from payments where ticket_id=any(${ids}::uuid[])`);
+    expect(final).toMatchObject({amount:base+1000,tendered:base+1000,change:1000});
+    const statuses=await withTenant(tenant,tx=>tx`select status from tickets where id=any(${ids}::uuid[])`);expect(statuses.every(t=>t.status==='closed')).toBe(true);
+  });
+  it('never creates a partial group when one requested ticket is missing',async()=>{
+    const ctx=await ctxFor(owner),ticket=await openTicket(ctx,'Atomic group');
+    await expect(run('ticket.group',{ticketIds:[ticket.ticketId,randomUUID()]},ctx)).rejects.toMatchObject({code:'VALIDATION_FAILED',details:{reason:'group_ticket_unavailable'}});
+    const [row]=await withTenant(tenant,tx=>tx`select group_id from tickets where id=${ticket.ticketId}`);expect(row!.group_id).toBeNull();
+  });
+
   it('不属于这一组的单不能混进来结', async () => {
     const ctx = await ctxFor(owner);
     const t1 = await openTicket(ctx, '组内');
@@ -546,4 +610,24 @@ describe('⭐ 现金小费发放', () => {
     // 今天该发的已经发完，只剩下 60 分的零头继续挂着
     expect(again.totalPaidCents).toBe(0);
   });
+});
+
+it('returns a closed prior-day sale today while preserving its original close and tip earnings',async()=>{
+ await resetMoney();const ctx=await ctxFor(owner),date=await today(),prior=new Date(Date.parse(date+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+ const ticket=await openTicket(ctx,'Cross-day original refund');
+ await run('ticket.pay',{ticketId:ticket.ticketId,payments:[{method:'cash',amountCents:ticket.subtotalCents+1000,tipCents:1000}]},ctx);
+ await withTenant(tenant,async tx=>{await tx`update tickets set business_date=${prior} where id=${ticket.ticketId}`;await tx`update earnings set business_date=${prior} where ticket_id=${ticket.ticketId}`;});
+ const money=await withTenant(tenant,tx=>loadDayMoney(tx,SPA_LOC,prior));
+ await run('dayclose.saveCount',{businessDate:prior,countedCashCents:money.cashTakeCents+money.movementsCents-money.tipPaidOutCents,openingFloatCents:0,closingFloatCents:0},ctx);
+ await run('dayclose.finalize',{businessDate:prior,force:true},ctx);
+ const original=await withTenant(tenant,tx=>loadDayClose(tx,ctx,prior)),beforeToday=await withTenant(tenant,tx=>loadDayMoney(tx,SPA_LOC,date));
+ await expect(withTenant(tenant,tx=>tx`update tickets set refund_cents=1 where id=${ticket.ticketId}`)).rejects.toBeDefined();
+ await expect(withTenant(tenant,tx=>tx`update tickets set subtotal_cents=subtotal_cents+1 where id=${ticket.ticketId}`)).rejects.toBeDefined();
+ await run('ticket.refund',{ticketId:ticket.ticketId,refundAmountCents:ticket.subtotalCents+1000,refundTipCents:1000,reason:'other'},ctx);
+ const after=await withTenant(tenant,tx=>loadDayClose(tx,ctx,prior)),todayMoney=await withTenant(tenant,tx=>loadDayMoney(tx,SPA_LOC,date));
+ expect(after.money).toEqual(original.money);expect(after.latestMoney.tipCashCents).toBe(original.money.tipCashCents);
+ expect(todayMoney.tipCashCents-beforeToday.tipCashCents).toBe(-1000);expect(todayMoney.movementsCents-beforeToday.movementsCents).toBe(-ticket.subtotalCents-1000);
+ expect(todayMoney.netCents-beforeToday.netCents).toBe(-ticket.subtotalCents);
+ await expect(withTenant(tenant,tx=>tx`update tickets set refund_cents=refund_cents-1 where id=${ticket.ticketId}`)).rejects.toBeDefined();
+ await run('dayclose.reopen',{businessDate:prior,reason:'isolation fixture cleanup'},ctx);
 });

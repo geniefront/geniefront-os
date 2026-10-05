@@ -1,0 +1,31 @@
+{
+  "at": "2026-10-01T05:44:40.723Z",
+  "browserWaiverVerified": true,
+  "actualApi": true,
+  "database": "gf_commerce_ci",
+  "appointmentId": "047907a4-97e6-4bdf-9cda-1f9fe1b12fb4",
+  "holdId": "b91b2386-a2ac-4ae8-8be0-91c5ec0322e8",
+  "facts": {
+    "status": "booked",
+    "deposit_status": "waived",
+    "hold_status": "waived",
+    "amount_cents": 2000,
+    "service_total_cents": 10000,
+    "order_id": null,
+    "waiver_reason": "隔离验收：店长批准免收定金",
+    "waived_at": "2026-10-01 05:41:12.058994+00",
+    "money_rows": 0,
+    "active_items": 1,
+    "confirmation_rows": 1
+  },
+  "publicSummary": {
+    "status": "waived",
+    "availableCents": 0,
+    "serviceRemainingCents": 10000,
+    "hasPaymentAction": false
+  },
+  "stripeVerified": false,
+  "inFlightProviderRefundVerified": false,
+  "notificationDelivery": "capture",
+  "goalComplete": false
+}

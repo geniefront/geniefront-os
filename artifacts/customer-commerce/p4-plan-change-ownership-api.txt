@@ -1,0 +1,16 @@
+$ vitest run src/customerMemberships.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ✓ src/customerMemberships.test.ts (45 tests) 10143ms
+   ✓ keeps the original expiry when a fully returned service restores a membership unit after its period has ended 2209ms
+   ✓ recognizes the flexible portal cancel_at fact even when the provider period-end boolean remains false 341ms
+   ✓ conserves membership, package, discount, deposit, gift, credit, cash, tax, fee and tips through three original-source returns 741ms
+   ✓ conserves all six payment sources across a quoted three-ticket group and each original service return 844ms
+   ✓ merges an explicitly selected identity without rewriting paid records, duplicating subscriptions or granting a shared-phone stranger its assets 1129ms
+
+ Test Files  1 passed (1)
+      Tests  45 passed (45)
+   Start at  17:36:22
+   Duration  12.80s (transform 646ms, setup 1.35s, collect 1.19s, tests 10.14s, environment 0ms, prepare 37ms)
+

@@ -1,0 +1,16 @@
+{
+  "date": "2026-09-30T17:20:26.223Z",
+  "scenario": "Browser offline gift purchase and original cash refund",
+  "auth": "existing local QA identity; business writes in isolated DB",
+  "fixtureOnly": true,
+  "stripeVerified": false,
+  "result": {
+    "status": "refunded",
+    "amount_cents": 8000,
+    "face_value_cents": 10000,
+    "balance_cents": 0,
+    "reserved_cents": 0,
+    "refund_status": "succeeded",
+    "refund_cents": 8000
+  }
+}

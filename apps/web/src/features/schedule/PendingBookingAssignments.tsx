@@ -7,14 +7,14 @@ import {Button} from '@/components/ui/Button';
 import {useRescheduleAppointment} from './api';
 export function PendingBookingAssignments({appointmentId,date,items,staff,onChanged}:{
  appointmentId:string;date:string;
- items:Array<{itemId:string;serviceName:string;staffId:string|null;startsAt:string}>;
+ items:Array<{itemId:string;serviceName:string;staffId:string|null;startsAt:string;status?:string}>;
  staff:Array<{membershipId:string;name:string;isBookable?:boolean}>;
  onChanged:()=>void;
 }) {
  const {t}=useLanguage(),canAssign=useCan('appointment.write'),errorMessage=useErrorMessage();
  const mutation=useRescheduleAppointment(date),lock=useRef(false);
  const [selected,setSelected]=useState<Record<string,string>>({});
- const pending=items.filter(i=>!i.staffId);
+ const pending=items.filter(i=>!i.staffId&&i.status!=='cancelled');
  if(!pending.length||!canAssign)return null;
  async function assign(item:typeof items[number]) {
   const membershipId=selected[item.itemId];if(!membershipId||lock.current)return;

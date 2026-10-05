@@ -1,0 +1,17 @@
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/features/commerce/DepositRetentionActions.test.tsx (5 tests) 779ms
+   ✓ requires an explicit amount and reason and preserves the selected guest quote on interrupted retries 341ms
+ ✓ src/components/AppointmentDrawer.test.tsx (10 tests) 395ms
+ ✓ src/pages/Checkout.tips.test.tsx (4 tests) 285ms
+ ✓ src/features/commerce/DepositPaymentActions.test.tsx (3 tests) 384ms
+ ✓ src/features/commerce/GuestCancellationPanel.test.tsx (2 tests) 254ms
+ ✓ src/features/commerce/AppointmentDepositPanel.test.tsx (3 tests) 253ms
+ ✓ src/features/printing/ReceiptDocument.test.tsx (3 tests) 40ms
+
+ Test Files  7 passed (7)
+      Tests  30 passed (30)
+   Start at  07:38:42
+   Duration  10.13s (transform 656ms, setup 1.22s, collect 3.73s, tests 2.39s, environment 2.00s, prepare 192ms)
+

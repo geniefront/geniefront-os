@@ -1,0 +1,175 @@
+
+═══ 迁移 ═══
+
+连接身份：postgres @ gf_commerce_ci
+
+1) 建表（drizzle）
+  → drizzle/0000_crazy_squadron_supreme.sql ...   · identifier "rotation_participants_location_id_business_date_membership_id_pk" will be truncated to "rotation_participants_location_id_business_date_membership_id_p"
+OK
+  → drizzle/0001_tranquil_khan.sql ... OK
+  → drizzle/0002_high_tiger_shark.sql ... OK
+  → drizzle/0003_lying_changeling.sql ... OK
+  → drizzle/0004_mature_killmonger.sql ... OK
+  → drizzle/0005_petite_warbound.sql ... OK
+  → drizzle/0006_stiff_mauler.sql ... OK
+  → drizzle/0007_nostalgic_roxanne_simpson.sql ... OK
+  → drizzle/0008_lean_scorpion.sql ... OK
+  → drizzle/0009_green_hellfire_club.sql ... OK
+  → drizzle/0010_narrow_randall_flagg.sql ... OK
+
+2) 守护 SQL（RLS / 约束 / 审计）
+  → sql/0001_rls_and_guards.sql ... OK
+  → sql/0002_reviews_rls.sql ... OK
+  → sql/0003_user_scoped_identity.sql ... OK
+  → sql/0004_identity_permissions.sql ... OK
+  → sql/0005_tickets_rls.sql ... OK
+  → sql/0006_tip_policies_rls.sql ... OK
+  → sql/0007_setup_constraints.sql ... OK
+  → sql/0008_resource_capacity.sql ... OK
+  → sql/0009_money_and_roster_rls.sql ... OK
+  → sql/0010_phase1b_permissions.sql ... OK
+  → sql/0011_realtime_and_attendance.sql ... OK
+  → sql/0012_broadcast_wrapper.sql ... OK
+  → sql/0013_presence_policy.sql ... OK
+  → sql/0014_blueprint.sql ...   · ✓ price-lists 私有桶与策略已就绪
+OK
+  → sql/0015_phone.sql ... OK
+  → sql/0016_kiosk.sql ...   · ✓ signatures 私有桶与策略已就绪
+OK
+  → sql/0017_phase2_permissions.sql ... OK
+  → sql/0018_billing.sql ... OK
+  → sql/0019_ledger_order.sql ... OK
+  → sql/0020_stripe_events_processed_at.sql ... OK
+  → sql/0021_plans_and_included_quota.sql ... OK
+  → sql/0022_topup_tiers.sql ... OK
+  → sql/0023_credits_and_minutes.sql ... OK
+  → sql/0024_retire_money_ledger_columns.sql ... OK
+  → sql/0025_store_contact_numbers.sql ... OK
+  → sql/0026_forwarding_mode.sql ... OK
+  → sql/0027_forwarding_modes.sql ... OK
+  → sql/0028_name_auto.sql ... OK
+  → sql/0029_email_outbox.sql ... OK
+  → sql/0030_signup.sql ... OK
+  → sql/0031_ghost_staff.sql ... OK
+  → sql/0032_gap_days.sql ... OK
+  → sql/0033_public_booking.sql ... OK
+  → sql/0034_sms.sql ... OK
+  → sql/0035_service_addon.sql ... OK
+  → sql/0036_phone_tool_token.sql ... OK
+  → sql/0037_call_transcript.sql ... OK
+  → sql/0038_form_share.sql ... OK
+  → sql/0039_trial.sql ... OK
+  → sql/0040_self_reschedule.sql ... OK
+  → sql/0041_ai_change_policy.sql ... OK
+  → sql/0042_public_key_fn.sql ... OK
+  → sql/0043_gift_cards.sql ... OK
+  → sql/0044_discounts_notifications.sql ... OK
+  → sql/0045_storefront_brief.sql ... OK
+  → sql/0046_off_hours.sql ... OK
+  → sql/0047_google_signin.sql ... OK
+  → sql/0048_marketing_resources_pairing.sql ... OK
+  → sql/0049_permissions_and_pairing_rls.sql ... OK
+  → sql/0050_desk_enhancements.sql ... OK
+  → sql/0051_staff_directory_enhancements.sql ... OK
+  → sql/0052_financial_bi_subscription_enhancements.sql ... OK
+  → sql/0053_settings_enhancements.sql ... OK
+  → sql/0054_profile_and_notifications.sql ... OK
+  → sql/0055_security_hardening.sql ... OK
+  → sql/0056_one_live_ticket_per_appointment.sql ... OK
+  → sql/0057_ticket_refund_ledger.sql ... OK
+  → sql/0058_day_close_credit_service_execution.sql ... OK
+  → sql/0059_trustworthy_operations_models.sql ... OK
+  → sql/0060_record_only_finance_scope.sql ... OK
+  → sql/0061_isolated_seed_reset.sql ... OK
+  → sql/0062_storefront_delivery_and_device_control.sql ... OK
+  → sql/0063_stripe_events_status.sql ... OK
+  → sql/0064_kiosk_enterprise_hardening.sql ... OK
+  → sql/0065_kiosk_signature_encryption.sql ... OK
+  → sql/0066_unify_walkin_visit_flow.sql ... OK
+  → sql/0067_phone_e164_consistency.sql ... OK
+  → sql/0068_tech_tip_and_assignment_flow.sql ... OK
+  → sql/0069_checkout_timing.sql ... OK
+  → sql/0070_onboarding_import_sources.sql ... OK
+  → sql/0071_stripe_event_retry_lease.sql ... OK
+  → sql/0072_stripe_invoice_tenant.sql ... OK
+  → sql/0073_10dlc_internal_review.sql ... OK
+  → sql/0074_platform_console.sql ... OK
+  → sql/0075_stripe_ids_system_owned.sql ... OK
+  → sql/0076_customer_same_org_fk.sql ... OK
+  → sql/0077_support_notes_operator_only.sql ... OK
+  → sql/0078_idempotency_retention.sql ... OK
+  → sql/0079_sms_inbound_isolation.sql ... OK
+  → sql/0080_stripe_ids_one_org.sql ... OK
+  → sql/0081_stripe_single_org_definer.sql ... OK
+  → sql/0082_test_inbox.sql ... OK
+  → sql/0083_definer_execute_lockdown.sql ... OK
+  → sql/0084_review_sync.sql ... OK
+  → sql/0085_subscription_lifecycle.sql ... OK
+  → sql/0086_notification_defaults_and_unsubscribe.sql ... OK
+  → sql/0087_notification_default_sms_length.sql ... OK
+  → sql/0088_messaging_policy_2026_09.sql ... OK
+  → sql/0089_platform_messaging_panel.sql ... OK
+  → sql/0090_outbox_delivery_gaps.sql ... OK
+  → sql/0091_email_suppression.sql ... OK
+  → sql/0092_marketing_campaigns.sql ... OK
+  → sql/0093_notification_template_refresh.sql ... OK
+  → sql/0094_blueprint_extraction_status.sql ... OK
+  → sql/0095_hosted_booking_slug.sql ... OK
+  → sql/0096_hosted_shop_slug_resolve.sql ... OK
+  → sql/0097_restrict_staff_own_appointment_items.sql ... OK
+  → sql/0098_manage_token_resolution.sql ... OK
+  → sql/0099_manage_token_wrap.sql ... OK
+  → sql/0100_manage_url_templates.sql ... OK
+  → sql/0101_hosted_booking_function_hardening.sql ... OK
+  → sql/0102_harden_form_access_log.sql ... OK
+  → sql/0103_harden_template_seed.sql ... OK
+  → sql/0104_blueprint_packages.sql ... OK
+  → sql/0105_copilot_sessions.sql ... OK
+  → sql/0106_form_access_log_seed_reset.sql ... OK
+  → sql/0107_elastic_email_phase1.sql ... OK
+  → sql/0108_ticket_item_overbook.sql ... OK
+  → sql/0109_staff_contact_email.sql ... OK
+  → sql/0110_copilot_tasks.sql ... OK
+  → sql/0111_queue_resource_capacity_by_guest.sql ... OK
+  → sql/0112_sms_inbound_route_by_recipient.sql ... OK
+  → sql/0113_phone_line_ai_answer_default_off.sql ... OK
+  → sql/0114_staff_directory_id_contract.sql ... OK
+  → sql/0115_sms_inbound_routing_scope.sql ... OK
+  → sql/0116_blueprint_item_staff_count.sql ... OK
+  → sql/0117_services_updated_at.sql ... OK
+  → sql/0118_service_bundles.sql ... OK
+  → sql/0119_health_form_feature_defaults.sql ... OK
+  → sql/0120_license_codes.sql ... OK
+  → sql/0121_license_expiry_notice.sql ... OK
+  → sql/0122_license_sweep_functions.sql ... OK
+  → sql/20260912142621_v1_issue_permissions_and_indexes.sql ... OK
+  → sql/20260912181312_health_summary_cache.sql ... OK
+  → sql/20260919163537_voice_booking_plan.sql ... OK
+  → sql/20260919164811_voice_processing_jobs.sql ... OK
+  → sql/20260919182357_voice_manual_quota_defaults.sql ... OK
+  → sql/20260920032253_public_booking_sms_claims.sql ... OK
+  → sql/20260920032914_public_booking_party_resources.sql ... OK
+  → sql/20260920123000_voice_staff_schedules.sql ... OK
+  → sql/20260920164621_booking_notification_links.sql ... OK
+  → sql/20260921030000_sms_delivery_receipts.sql ... OK
+  → sql/20260921030124_public_support_messages.sql ... OK
+  → sql/20260921155847_service_short_names.sql ... OK
+  → sql/20260921164813_booking_auto_assignment.sql ... OK
+  → sql/20260921171225_settings_media_owner_transfer.sql ... OK
+  → sql/20260921173817_voice_context_references.sql ... OK
+  → sql/20260921183108_voice_availability_snapshots.sql ... OK
+  → sql/20260921184523_remove_booking_confirmation_code.sql ... OK
+  → sql/20260921185620_voice_call_appointment_history.sql ... OK
+  → sql/20260930154700_customer_commerce.sql ... OK
+  → sql/20260930195316_customer_commerce_review.sql ... OK
+  → sql/20260930201833_customer_commerce_settlement.sql ... OK
+  → sql/20260930211958_package_unit_ranges.sql ... OK
+  → sql/20260930215757_commerce_accounts_v2.sql ... OK
+  → sql/20260930221431_gift_card_credentials.sql ... OK
+  · role "postgres" has already been granted membership in role "app_user" by role "postgres"
+
+✓ app_user 已可登录（受 RLS 约束，无 BYPASSRLS）
+✓ RLS 覆盖检查通过
+
+完成：新应用 157 个文件
+

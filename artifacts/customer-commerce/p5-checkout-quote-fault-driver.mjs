@@ -1,0 +1,18 @@
+// Discard one already-committed local HTTP response, then observe the native saved-request replay.
+import {spawnSync} from 'node:child_process';import {readFile,writeFile,chmod} from 'node:fs/promises';
+const cli='/Users/naiyouzhu/.npm/_npx/6de2aa2fded2970c/node_modules/agent-browser/bin/agent-browser.js',session='commerce-payout-desk-final',mode=process.argv[2];
+const state=JSON.parse(await readFile('/tmp/commerce-checkout-quote-retry-private.json','utf8')),file='/tmp/commerce-checkout-quote-retry-attempt.json';
+function evaluate(code){const r=spawnSync(process.execPath,[cli,'--session',session,'eval','--stdin'],{input:code,encoding:'utf8'});if(r.status!==0)throw new Error('Owned QA browser failed');return JSON.parse(r.stdout.trim());}
+if(mode==='install'){
+ console.log(JSON.stringify(evaluate(`(()=>{if(location.origin!=='http://localhost:5297')throw new Error('Local QA only');const original=window.fetch.bind(window);let lost=false;window.fetch=async(...args)=>{const response=await original(...args);let request;try{request=JSON.parse(args[1]?.body??'null');}catch{}if(!lost&&String(args[0]).endsWith('/v1/commands/ticket.pay')&&request?.input?.ticketId===${JSON.stringify(state.ticketId)}&&response.ok){lost=true;window.__checkoutLoss={key:new Headers(args[1]?.headers).get('Idempotency-Key'),requestInput:request.input,originalHttpStatus:response.status,responseLossInjected:true};throw new Error('QA response lost after committed payment');}return response;};return {installed:true};})()`)));
+}else if(mode==='capture'){
+ const data=evaluate(`(()=>{const loss=window.__checkoutLoss,pending=Object.keys(sessionStorage).filter(k=>k.startsWith('gf-ticket-payment:')).map(k=>JSON.parse(sessionStorage.getItem(k))).find(p=>p.input?.ticketId===${JSON.stringify(state.ticketId)});if(!loss||!pending||loss.key!==pending.key||loss.originalHttpStatus!==201||loss.requestInput.expectedQuoteHash!==pending.input.expectedQuoteHash)throw new Error('Original committed payment and saved quote required');return {...loss,saved:pending};})()`);
+ await writeFile(file,JSON.stringify(data),{mode:0o600});await chmod(file,0o600);console.log(JSON.stringify({committedHttpStatus:data.originalHttpStatus,originalQuoteAndKeySaved:true}));
+}else if(mode==='observe'){
+ const data=JSON.parse(await readFile(file,'utf8'));
+ console.log(JSON.stringify(evaluate(`(()=>{const original=window.fetch.bind(window);window.fetch=async(...args)=>{const response=await original(...args);let request;try{request=JSON.parse(args[1]?.body??'null');}catch{}if(String(args[0]).endsWith('/v1/commands/ticket.pay')&&request?.input?.ticketId===${JSON.stringify(state.ticketId)}){const result=await response.clone().json();window.__checkoutReplay={httpStatus:response.status,replayed:result.replayed,sameKey:new Headers(args[1]?.headers).get('Idempotency-Key')===${JSON.stringify(data.key)},sameQuote:request.input.expectedQuoteHash===${JSON.stringify(data.saved.input.expectedQuoteHash)}};}return response;};return {observing:true};})()`)));
+}else if(mode==='verify'){
+ const result=evaluate('window.__checkoutReplay');if(!result||result.httpStatus!==200||!result.replayed||!result.sameKey||!result.sameQuote)throw new Error('Original actual replay missing');
+ const data=JSON.parse(await readFile(file,'utf8'));await writeFile(file,JSON.stringify({...data,replay:result}),{mode:0o600});
+ const report={at:new Date().toISOString(),ticketId:state.ticketId,originalHttpStatus:201,responseLostAfterRealCommit:true,refreshedNativeRetry:true,...result};await writeFile('artifacts/customer-commerce/p5-checkout-quote-native-replay.json',JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));
+}else throw new Error('Unknown mode');

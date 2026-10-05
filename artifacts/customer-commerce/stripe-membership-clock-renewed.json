@@ -1,0 +1,76 @@
+{
+  "at": "2026-10-01T22:48:26.926Z",
+  "scope": "P4 actual original subscription clock renewal and recovery",
+  "stage": "renewed",
+  "stripeVerified": true,
+  "originalBrowserPurchaseReused": true,
+  "productionPublished": false,
+  "realEmailSent": false,
+  "clock": {
+    "id": "clock_1ULsl0JDnwwxW56msI7Dg7cW",
+    "status": "ready",
+    "frozenTime": 1793546400,
+    "autoDeletesAt": 1793486838
+  },
+  "stripe": {
+    "subscriptionId": "sub_1ULkq4JDnwwxW56mHU9Z4JaK",
+    "customerId": "cus_VMTmCJNfec1Bb5",
+    "accountId": "acct_1ULVaEJDnwwxW56m",
+    "status": "active",
+    "livemode": false,
+    "effectiveGoodPaymentMethod": true,
+    "invoices": [
+      {
+        "id": "in_1ULslKJDnwwxW56myZhhnCZM",
+        "status": "paid",
+        "paidCents": 9900,
+        "totalCents": 9900,
+        "attemptCount": 1,
+        "periodStart": 1793542798,
+        "periodEnd": 1796134798
+      },
+      {
+        "id": "in_1ULkq2JDnwwxW56mEGHi13gy",
+        "status": "paid",
+        "paidCents": 9900,
+        "totalCents": 9900,
+        "attemptCount": 0,
+        "periodStart": 1790864398,
+        "periodEnd": 1793542798
+      }
+    ]
+  },
+  "db": {
+    "provider_status": "active",
+    "cancel_at_period_end": false,
+    "terminated_at": null,
+    "invoices": 2,
+    "cash_cents": 19800,
+    "cycles": 2,
+    "planned_cycles": 1,
+    "ledger_rows": 1,
+    "signed_paid_events": 2,
+    "signed_failed_events": 0
+  },
+  "notices": [
+    {
+      "entity_type": "customer_membership_cancellationNotice",
+      "n": 2,
+      "status": "captured"
+    },
+    {
+      "entity_type": "customer_membership_payment",
+      "n": 2,
+      "status": "captured"
+    },
+    {
+      "entity_type": "customer_membership_renewalRestored",
+      "n": 2,
+      "status": "captured"
+    }
+  ],
+  "applicationClockAdvanced": false,
+  "futureBenefitsIssued": false,
+  "lifecycleAcceptanceComplete": false,
+  "goalComplete": false
+}

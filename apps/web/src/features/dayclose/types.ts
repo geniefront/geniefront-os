@@ -1,3 +1,4 @@
+import type {CommerceDaySummary} from '@gf/contracts';
 /**
  * 打烊日结数据类型定义。
  *
@@ -13,6 +14,7 @@ export interface CashMovementItem {
 }
 
 export interface DayCloseMoney {
+  commerce?:CommerceDaySummary;
   grossCents: number;
   discountCents: number;
   netCents: number;
@@ -50,6 +52,9 @@ export interface DayCloseSnapshot {
   cardVarianceCents: number | null;
   cardVarianceReason: string | null;
   money: DayCloseMoney;
+  latestMoney?:DayCloseMoney;
+  closedSnapshotAvailable?:boolean;
+  hasPostCloseChanges?:boolean;
   openTicketCount: number;
   movements: CashMovementItem[];
   tipPayouts: TipPayoutPlanItem[];

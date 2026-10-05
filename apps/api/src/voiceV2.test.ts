@@ -96,6 +96,11 @@ beforeAll(async () => {
   });
   app = buildServer();
   await app.ready();
+  // Production prewarming belongs to a separate process. Explicitly run its
+  // calculation in this isolated DB fixture instead of relying on a GET to do it.
+  const { refreshVoiceSnapshot } = await import('./voice/snapshotRefresh');
+  const { hashToolToken } = await import('./telnyx/toolToken');
+  await refreshVoiceSnapshot(ctx, hashToolToken(token), true);
 });
 afterAll(async () => {
   await app?.close();
@@ -375,7 +380,7 @@ it("isolates stored references from another tenant and expires them", async () =
 });
 
 it("publishes store-only snapshots and invalidates catalog changes once per transaction", async () => {
-  const { refreshVoiceSnapshot } = await import("./voice/contextCache");
+  const { refreshVoiceSnapshot } = await import("./voice/snapshotRefresh");
   const { hashToolToken } = await import("./telnyx/toolToken");
   const { readInitialSnapshot } = await import("./voice/references");
   const ctx = {
@@ -447,6 +452,40 @@ it("coordinates refresh across workers and rejects an expired lease owner", asyn
       publishInitialSnapshot(tx, ctx, row!.scope, replacement!, row!.payload),
     ),
   ).toBe(true);
+});
+
+it('queues a missing snapshot and lets the worker populate it without booking anything', async () => {
+  const { refreshVoiceSnapshot } = await import('./voice/snapshotRefresh');
+  const { hashToolToken } = await import('./telnyx/toolToken');
+  const ctx = { ...tenant, userId: null, actorKind: 'api' as const, locale: 'en' as const,
+    timezone: 'America/New_York', permissions: new Set(['appointment.write' as const, 'call.draft' as const]) };
+  await withTenant(ctx, tx => tx`delete from voice_availability_snapshots where location_id=${locationId}`);
+  const cold = await get();
+  expect(cold.statusCode).toBe(503);
+  expect(cold.json().details).toMatchObject({ reason: 'context_refreshing', retryable: true });
+  const [queued] = await withTenant(ctx, tx => tx`select payload,lease_id from voice_availability_snapshots where location_id=${locationId}`);
+  expect(queued).toMatchObject({ payload: null, lease_id: null });
+  expect(await refreshVoiceSnapshot(ctx, hashToolToken(token))).toBe(true);
+  expect((await get()).statusCode).toBe(200);
+});
+
+it('a cold-cache enqueue preserves an existing lease and failure backoff', async () => {
+  const { requestInitialSnapshot, claimInitialSnapshot, failInitialSnapshot, readInitialSnapshot } = await import('./voice/references');
+  const ctx = { ...tenant, userId: null, actorKind: 'api' as const, locale: 'en' as const,
+    timezone: 'America/New_York', permissions: new Set(['appointment.write' as const, 'call.draft' as const]) };
+  const before = await withTenant(ctx, tx => readInitialSnapshot(tx, ctx));
+  const lease = await withTenant(ctx, tx => claimInitialSnapshot(tx, ctx, before!.scope, true));
+  await withTenant(ctx, tx => requestInitialSnapshot(tx, ctx, before!.scope, true));
+  expect(await withTenant(ctx, tx => claimInitialSnapshot(tx, ctx, before!.scope, true))).toBeNull();
+  await withTenant(ctx, tx => failInitialSnapshot(tx, ctx, lease!.leaseId));
+  const failed = await withTenant(ctx, tx => readInitialSnapshot(tx, ctx));
+  await withTenant(ctx, tx => requestInitialSnapshot(tx, ctx, before!.scope, true));
+  const after = await withTenant(ctx, tx => readInitialSnapshot(tx, ctx));
+  expect(after!.retryAfter).toBe(failed!.retryAfter);
+  expect(after!.payload).toEqual(before!.payload);
+  expect(after!.revision).toBe(before!.revision);
+  expect(await withTenant(ctx, tx => claimInitialSnapshot(tx, ctx, before!.scope, true))).toBeNull();
+  await withTenant(ctx, tx => tx`update voice_availability_snapshots set retry_after=now() where location_id=${locationId}`);
 });
 it("does not lose a booking or schedule invalidation that arrives while a refresh is running", async () => {
   const { claimInitialSnapshot, publishInitialSnapshot, readInitialSnapshot } =

@@ -1,0 +1,15 @@
+
+Running 7 tests using 1 worker
+
+
+
+[1/7] e2e/commerce/receipts.spec.ts:13:1 › public purchase catalog offers six languages on desktop and mobile
+[2/7] e2e/commerce/receipts.spec.ts:20:1 › paid amended booking shows only the surviving service and exact $2 deposit
+[3/7] e2e/commerce/receipts.spec.ts:28:1 › naturally expired reservation has no payment action after page closure
+[4/7] e2e/commerce/receipts.spec.ts:35:1 › original $500 package receipt retains its restored unit and $450 purchase refund
+[5/7] e2e/commerce/receipts.spec.ts:41:1 › refunded unlimited receipt stays inactive instead of advertising zero usable sessions
+[6/7] e2e/commerce/receipts.spec.ts:45:1 › ended original membership retains protected invoice history and six-language access
+[7/7] e2e/commerce/receipts.spec.ts:51:1 › desk switches to Traditional Chinese and disables writes while offline
+  7 passed (4.4s)
+(node:24422) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)

@@ -10,6 +10,7 @@
 
 import { createHash } from 'node:crypto';
 import { adminSql, adminDatabaseSource } from './admin';
+import { assertRegressionTarget } from './qa/regressionSafety';
 import { ROLE_PRESETS } from '@gf/contracts';
 
 const SB_URL = process.env.SUPABASE_URL ?? process.env.TEST_SUPABASE_URL ?? '';
@@ -183,6 +184,7 @@ async function guardRealNumbers(about: readonly string[]): Promise<void> {
 }
 
 async function main() {
+  assertRegressionTarget(process.env);
   if (adminDatabaseSource !== 'process') {
     throw new Error(
       'seed 拒绝隐式读取 .env 的 MIGRATION_DATABASE_URL；请在命令中显式传入隔离数据库连接串。',
@@ -203,10 +205,16 @@ async function main() {
     const locs = [NAIL_LOC, SPA_LOC];
     const [transfers] = await tx`select to_regclass('gf_private.owner_transfers') as present`;
     if (transfers?.present) await tx`delete from gf_private.owner_transfers where location_id = any(${locs})`;
+    await tx`update customer_paid_memberships set termination_id=null where location_id=any(${locs})`;
     const LOCATION_SCOPED = new Set([
       'stripe_events', 'user_last_location', 'pairing_sessions',
       'location_webhooks', 'location_10dlc_registrations', 'location_intake_templates',
       'location_scheduling_rules', 'location_checkout_settings',
+      'ticket_price_adjustments','customer_membership_service_refunds','customer_membership_ledger','customer_membership_termination_cycles','customer_membership_refund_requests','customer_membership_terminations','customer_membership_cycles','customer_membership_invoices','customer_membership_plan_changes','customer_paid_memberships','customer_membership_plan_versions','customer_membership_plans',
+      'ticket_item_settlements','ticket_item_source_allocations','ticket_item_source_returns','ticket_item_commission_sources','ticket_item_commission_returns','ticket_item_graph_receipts',
+      'ticket_source_refunds','ticket_source_receipts','ticket_settlement_sources','commerce_payout_transactions','commerce_payout_observations','commerce_payouts','commerce_access_tokens', 'commerce_events', 'commerce_tasks', 'commerce_refunds',
+    'commerce_deposit_retention_releases', 'commerce_deposit_retentions', 'appointment_guest_cancellations', 'commerce_review_items', 'tip_allocations', 'payments', 'commerce_deposit_requests', 'commerce_deposit_requotes', 'commerce_payments',
+      'customer_package_ledger', 'commerce_appointment_holds', 'commerce_deposit_ledger', 'commerce_deposit_requests', 'commerce_deposit_requotes',
     ]);
 
     await tx`
@@ -222,24 +230,31 @@ async function main() {
 
     // 1. 幂等倒序清理
     for (const t of [
+      'ticket_item_commission_returns','ticket_item_source_returns','ticket_item_graph_receipts','ticket_item_commission_sources','ticket_item_source_allocations','ticket_item_settlements',
+      'ticket_source_refunds','ticket_source_receipts','ticket_settlement_sources',
+      'ticket_price_adjustments','customer_membership_service_refunds','customer_membership_ledger',
+      'commerce_deposit_ledger',
       'copilot_messages', 'copilot_sessions',
       'ai_business_summaries',
       'support_request_notes', 'support_requests',
       'day_close_events', 'ticket_refunds', 'ticket_service_notes', 'resource_occupancies',
       'in_app_notifications', 'user_notification_preferences', 'user_device_sessions',
       'location_webhooks', 'location_10dlc_registrations', 'location_intake_templates',
-      'location_scheduling_rules', 'location_checkout_settings',
+      'location_scheduling_rules', 'location_checkout_settings', 'email_outbox',
+      'commerce_payout_transactions','commerce_payout_observations','commerce_payouts','commerce_refunds','customer_membership_termination_cycles','customer_membership_refund_requests','customer_membership_terminations','customer_membership_cycles','customer_membership_invoices','customer_membership_plan_changes','customer_paid_memberships','customer_membership_plan_versions','customer_membership_plans',
+      'commerce_access_tokens', 'commerce_events', 'commerce_tasks', 'commerce_deposit_retention_releases', 'commerce_deposit_retentions', 'appointment_guest_cancellations', 'commerce_review_items', 'tip_allocations', 'payments', 'commerce_deposit_requests', 'commerce_deposit_requotes', 'commerce_payments',
+      'customer_package_ledger',
       'customer_credit_ledger', 'customer_packages', 'package_templates', 'coupon_templates',
       'gift_cards', 'gift_card_templates',
       'earnings', 'tip_payouts', 'cash_movements', 'day_closes',
       'order_bundle_instances', 'service_bundle_components', 'service_bundles',
-      'tip_allocations', 'payments', 'ticket_discounts', 'ticket_item_staff', 'ticket_items',
+      'commerce_appointment_holds','commerce_orders','commerce_accounts', 'ticket_discounts', 'ticket_item_staff', 'ticket_items',
       'tickets', 'ticket_groups', 'tip_policies',
       'time_punches', 'staff_sessions', 'booking_manage_attempts',
       'email_sender_settings', 'email_domain_requests', 'email_accounts', 'email_validation_cache',
       'form_access_log', 'form_submissions', 'form_share_links', 'form_templates',
       'walkin_queue',
-      'voice_appointment_activity', 'voice_availability_snapshots', 'voice_context_references', 'voice_processing_jobs', 'call_drafts', 'phone_calls', 'phone_lines', 'sms_inbound', 'sms_consent', 'sms_outbox', 'email_outbox',
+      'voice_appointment_activity', 'voice_availability_snapshots', 'voice_context_references', 'voice_processing_jobs', 'call_drafts', 'phone_calls', 'phone_lines', 'sms_inbound', 'sms_consent', 'sms_outbox',
       'license_redemptions', 'license_codes',
       'credit_ledger', 'usage_events', 'stripe_events', 'billing_invoices', 'billing_accounts', 'location_subscriptions',
       'pairing_sessions', 'discount_reasons', 'notification_rules', 'notification_templates',

@@ -1,0 +1,169 @@
+{
+  "at": "2026-10-02",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "family": "discount",
+  "checks": [
+    {
+      "locale": "en",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "privateTokenInUrl": false,
+      "providerIdInText": false,
+      "invoiceRefundVisible": true,
+      "hasRenewalLabel": false
+    },
+    {
+      "locale": "zh-Hans",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "privateTokenInUrl": false,
+      "providerIdInText": false,
+      "invoiceRefundVisible": true,
+      "hasRenewalLabel": false
+    },
+    {
+      "locale": "zh-Hant",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "privateTokenInUrl": false,
+      "providerIdInText": false,
+      "invoiceRefundVisible": true,
+      "hasRenewalLabel": false
+    },
+    {
+      "locale": "es",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "privateTokenInUrl": false,
+      "providerIdInText": false,
+      "invoiceRefundVisible": true,
+      "hasRenewalLabel": false
+    },
+    {
+      "locale": "ko",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "privateTokenInUrl": false,
+      "providerIdInText": false,
+      "invoiceRefundVisible": true,
+      "hasRenewalLabel": false
+    },
+    {
+      "locale": "vi",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "privateTokenInUrl": false,
+      "providerIdInText": false,
+      "invoiceRefundVisible": true,
+      "hasRenewalLabel": false
+    }
+  ],
+  "screenshotsInspected": true,
+  "productionChanged": false,
+  "settledLanguageChecks": [
+    {
+      "locale": "en",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "privateTokenInUrl": false,
+      "providerIdInText": false,
+      "discountServicePresent": true,
+      "invoiceRefundVisible": true
+    },
+    {
+      "locale": "zh-Hans",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "privateTokenInUrl": false,
+      "providerIdInText": false,
+      "discountServicePresent": true,
+      "invoiceRefundVisible": true
+    },
+    {
+      "locale": "zh-Hant",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "privateTokenInUrl": false,
+      "providerIdInText": false,
+      "discountServicePresent": true,
+      "invoiceRefundVisible": true
+    },
+    {
+      "locale": "es",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "privateTokenInUrl": false,
+      "providerIdInText": false,
+      "discountServicePresent": true,
+      "invoiceRefundVisible": true
+    },
+    {
+      "locale": "ko",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "privateTokenInUrl": false,
+      "providerIdInText": false,
+      "discountServicePresent": true,
+      "invoiceRefundVisible": true
+    },
+    {
+      "locale": "vi",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "privateTokenInUrl": false,
+      "providerIdInText": false,
+      "discountServicePresent": true,
+      "invoiceRefundVisible": true
+    }
+  ],
+  "initialLanguageScreenshotsRetained": true,
+  "managerMobileReviewAndProtectedCurrentValueInspected": true,
+  "actualEndedPortal": {
+    "host": "billing.stripe.com",
+    "title": "GENIEFRONT Billing",
+    "sandboxBadge": true,
+    "originalInvoice49Visible": true,
+    "noRenewalActionVisible": true,
+    "privateUrlSaved": false
+  },
+  "originalInvoiceRefundAndLedgerScreenshotInspected": true,
+  "browserErrorChecks": [
+    {
+      "session": "commerce-member-termination-desk",
+      "readSucceeded": true,
+      "recordedErrorOutputPresent": false,
+      "errorMarkers": 0,
+      "privateUrlSaved": false
+    },
+    {
+      "session": "commerce-member-termination-year",
+      "readSucceeded": true,
+      "recordedErrorOutputPresent": false,
+      "errorMarkers": 0,
+      "privateUrlSaved": false
+    },
+    {
+      "session": "commerce-member-termination-discount",
+      "readSucceeded": true,
+      "recordedErrorOutputPresent": false,
+      "errorMarkers": 0,
+      "privateUrlSaved": false
+    }
+  ],
+  "ownedBrowserSessionsClosed": true
+}

@@ -76,9 +76,9 @@ G=$'\033[32m'; R=$'\033[31m'; D=$'\033[2m'; N=$'\033[0m'
 log() { echo "${D}▸${N} $*"; }
 
 # Runtime containers never receive migration credentials, service-role keys, or VPS credentials.
-# 供应商与平台的管理凭据（Supabase 管理 token、Auth SMTP 账号密码）只在本机运维脚本里使用，
+# Supabase 管理 token、Auth SMTP 账号密码只在本机运维脚本里使用，
 # 应用运行时用不到，也不得进入容器环境。
-DENY='^(SUPABASE_SERVICE_ROLE_KEY|SUPABASE_ACCESS_TOKEN|MIGRATION_DATABASE_URL|APP_DB_PASSWORD|ELASTICEMAIL_SMTP_.*|TEST_.*|DATABASE_TEST_TARGET|GF_QA_.*|CLOUDFLARE_.*|VPS_.*|DEEPSEEK_.*)='
+DENY='^(SUPABASE_SERVICE_ROLE_KEY|SUPABASE_ACCESS_TOKEN|MIGRATION_DATABASE_URL|APP_DB_PASSWORD|ELASTICEMAIL_SMTP_.*|MAILEROO_SMTP_.*|TEST_.*|DATABASE_TEST_TARGET|GF_QA_.*|CLOUDFLARE_.*|VPS_.*|DEEPSEEK_.*)='
 RUNTIME_ENV="$(mktemp)"
 trap 'rm -f "$RUNTIME_ENV"' EXIT
 grep -E '^[A-Z][A-Z0-9_]*=' "$ENV_FILE" | grep -vE "$DENY" > "$RUNTIME_ENV"
@@ -157,14 +157,18 @@ for host in "${HOSTS[@]}"; do
   healthy=0
   for _ in $(seq 1 30); do
     sleep 2
-    if ssh "$host" 'curl -sf --max-time 3 http://127.0.0.1:3000/health' >/dev/null 2>&1; then
+    if ssh "$host" "curl -sf --max-time 3 http://127.0.0.1:3000/health >/dev/null &&
+      cd '${REMOTE_DIR}' &&
+      worker_id=\$(RUNTIME_ENV_FILE=.env TAG='${TAG}' docker compose --env-file .env ps -q voice-snapshots) &&
+      test -n \"\$worker_id\" &&
+      test \"\$(docker inspect --format '{{.State.Health.Status}}' \"\$worker_id\")\" = healthy" >/dev/null 2>&1; then
       healthy=1
       break
     fi
   done
   if [[ $healthy -ne 1 ]]; then
     echo "${R}✗ ${host} 未通过健康检查${N}"
-    ssh "$host" "cd '${REMOTE_DIR}' && RUNTIME_ENV_FILE=.env docker compose --env-file .env logs --tail=40 api"
+    ssh "$host" "cd '${REMOTE_DIR}' && RUNTIME_ENV_FILE=.env docker compose --env-file .env logs --tail=40 api voice-snapshots"
     exit 1
   fi
   echo "  ${G}✓ ${host} 健康${N}"

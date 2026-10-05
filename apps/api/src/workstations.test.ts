@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { withTenant, closeDb } from '@gf/db';
 import { buildContext } from './actor';
@@ -357,6 +358,9 @@ describe('前台 5 大核心工作台后端专项测试', () => {
           5000, 0, 0, 0, 5000
         ) returning id`);
       refundTicketId = t!.id;
+      // The historical sale needs an original receipt; a closed status alone is not proof of payment.
+      await withTenant(tenant, tx => tx`insert into payments(org_id,location_id,ticket_id,method,amount_cents,tip_cents)
+        values(${NAIL_ORG},${NAIL_LOC},${refundTicketId},'cash',5000,0)`);
 
       // 2. 执行全额退款
       const res = await dispatch<{
@@ -374,6 +378,7 @@ describe('前台 5 大核心工作台后端专项测试', () => {
           notes: '客户对效果不满意，予以全额现金退款',
         },
         ownerCtx,
+        { idempotencyKey: randomUUID() },
       );
 
       expect(res.result.status).toBe('refunded');

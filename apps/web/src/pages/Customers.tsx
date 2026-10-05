@@ -1,3 +1,4 @@
+import {customerMergeText} from '@gf/contracts';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { apiGet } from '@/lib/api';
@@ -105,7 +106,7 @@ function Money({ cents, hiddenLabel }: { cents: number | null; hiddenLabel: stri
 function CustomersContent() {
   const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
   const errorMessage = useErrorMessage();
-  const { t } = useLanguage();
+  const { t,language } = useLanguage();
   const { timeZone, dateTime } = useStoreTime();
   const storeToday = instantToWallDate(new Date().toISOString(), timeZone);
   const canViewContact = useCan('customer.view_contact');
@@ -204,10 +205,13 @@ function CustomersContent() {
   const mergeCandidates = useMemo(() => {
     const candidates = (mergeQuery.data?.rows ?? []).filter((r) => r.id !== selectedId);
     if (!mergeSearchQuery.trim()) return candidates.slice(0, 5);
-    return fuzzySearch(candidates, mergeSearchQuery, {
+    const ranked = fuzzySearch(candidates, mergeSearchQuery, {
       keys: ['displayName', 'phone'],
       threshold: 0.45,
     });
+    // Server matches include original alias names and phones absent from the root row.
+    const rankedIds = new Set(ranked.map(candidate => candidate.id));
+    return [...ranked, ...candidates.filter(candidate => !rankedIds.has(candidate.id))];
   }, [mergeQuery.data?.rows, mergeSearchQuery, selectedId]);
 
   // 打开新建弹窗
@@ -365,6 +369,9 @@ function CustomersContent() {
     }
   };
 
+  const retrySavedMerge=async()=>{if(!mergeMutation.pendingMerge)return;try{const result=await mergeMutation.mutateAsync(mergeMutation.pendingMerge);setSelectedId(result.targetCustomerId);setMergeModalOpen(false);setSelectedSourceCustomer(null);toast.success(customerMergeText(language,'done'));}catch(error){toast.danger(errorMessage(error));}};
+  const mergeRecovery=mergeMutation.pendingMerge?<div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm"><p>{customerMergeText(language,'pending')}</p><GuardedButton permission="customer.merge" isPending={mergeMutation.isPending} onClick={()=>void retrySavedMerge()}>{customerMergeText(language,'retry')}</GuardedButton></div>:null;
+
   // Send SMS
   const handleSendSms = async () => {
     if (!selectedId || !currentDetail || !smsContent.trim()) return;
@@ -443,6 +450,7 @@ function CustomersContent() {
 
   return (
     <div className="gf-service-page space-y-6 max-w-7xl mx-auto w-full pb-16">
+      {mergeRecovery}
       {/* 1. Page Header */}
       <PageHeader
         title={t(voiceOnly ? 'customers' : 'crm.custTitle')}
@@ -689,6 +697,8 @@ function CustomersContent() {
               </div>
             ) : currentDetail ? (
               <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                {!!currentDetail.identityAliases?.length&&<div className="rounded-xl border border-teal-200 bg-teal-50 p-3 text-sm break-words"><strong>{customerMergeText(language,'aliases')}</strong><p>{currentDetail.identityAliases.map(a=>a.displayName).join(' · ')}</p></div>}
+                {currentDetail.canonicalCustomerId&&currentDetail.canonicalCustomerId!==currentDetail.id&&<Button onClick={()=>setSelectedId(currentDetail.canonicalCustomerId!)}>{customerMergeText(language,'open')}</Button>}
                 {/* 1. Header Profile Banner */}
                 <div className="p-4 rounded-2xl bg-gradient-to-r from-teal-500/10 via-emerald-500/5 to-white border border-teal-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
                   <div className="flex items-center gap-3">
@@ -1366,7 +1376,7 @@ function CustomersContent() {
               isPending={mergeMutation.isPending}
               className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
               onClick={handleSmartMerge}
-              disabled={!canMerge || !selectedSourceCustomer || mergeMutation.isPending}
+              disabled={!canMerge || !selectedSourceCustomer || mergeMutation.isPending || !!mergeMutation.pendingMerge}
             >
               {mergeMutation.isPending ? <span className="sr-only">{t('loading')}</span> : (t('mergeCustomer') || t('crm.custConfirmMerge'))}
             </Button>
@@ -1374,13 +1384,13 @@ function CustomersContent() {
         }
       >
         <div className="space-y-4 py-1 text-xs">
+          {mergeRecovery}
           <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900">
             <p className="font-semibold">
-              
-              {t('crm.custMergeIntro')}{currentDetail?.displayName}】
+              {t('crm.custMergeTarget')} {currentDetail?.displayName}
             </p>
             <p className="text-[11px] mt-0.5 text-amber-700">
-              {t('mergeCustomerDesc') || t('crm.custMergeWarn')}
+              {customerMergeText(language,'description')}
             </p>
           </div>
 

@@ -1,0 +1,60 @@
+{
+  "at": "2026-10-02T06:17:45.599Z",
+  "scope": "Original online package service consumed after template changes",
+  "actualStripeSandboxPurchaseReused": true,
+  "ticketId": "263324a7-9a28-4af1-af90-dbee2b0ba794",
+  "asset": {
+    "id": "f33d0d45-311a-44f5-b637-0948308106d2",
+    "total_sessions": 10,
+    "remaining_sessions": 9,
+    "purchase_snapshot": {
+      "kind": "package",
+      "name": "QA 10 service package",
+      "scope": "location",
+      "reason": null,
+      "version": 1,
+      "currency": "usd",
+      "sessions": 10,
+      "consentAt": "2026-10-02T06:00:45.248Z",
+      "validDays": 365,
+      "serviceIds": [
+        "a23e999b-79c5-4fe7-807e-46e085f469a5"
+      ],
+      "templateId": "c7d1eca6-a1c8-4926-bedf-6f080913950d",
+      "amountCents": 50000,
+      "coverageMode": "any_included",
+      "recipientName": "",
+      "recipientNote": "",
+      "consentVersion": "commerce-v1",
+      "faceValueCents": 0,
+      "recipientEmail": null,
+      "commissionBasis": "sale_price",
+      "unitAllocationVersion": 2
+    },
+    "current_template_price": 60000,
+    "current_template_sessions": 12
+  },
+  "facts": {
+    "status": "closed",
+    "subtotal_cents": 10000,
+    "total_cents": 10000,
+    "refund_cents": 0,
+    "new_cash_cents": 0,
+    "commission_base_cents": 5000
+  },
+  "ledger": [
+    {
+      "entry": "issue",
+      "quantity": 10,
+      "value_cents": 50000
+    },
+    {
+      "entry": "redeem",
+      "quantity": -1,
+      "value_cents": -5000
+    }
+  ],
+  "originalPurchaseCashCents": 50000,
+  "originalPurchaseRefunded": false,
+  "productionChanged": false
+}

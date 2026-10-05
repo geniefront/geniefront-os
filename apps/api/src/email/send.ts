@@ -36,6 +36,7 @@ import { isCaptureMode, mailpitEndpoint, captureForRecipient } from '../comms/mo
 import { sesSendEmail, SesError } from '@gf/aws';
 import { resendSendEmail, ResendError } from './resend';
 import { emailProvider, providerConfigured } from './provider';
+import { mailerooSendEmail, MailerooError } from './maileroo';
 
 export interface SendResult {
   ok: boolean;
@@ -62,7 +63,7 @@ export interface SendResult {
  * `email_outbox_kind` 约束。
  */
 const CUSTOMER_FACING_KINDS = new Set([
-  'appointment_confirm',
+  'appointment_confirm','appointment_deposit_pending','appointment_deposit_retained',
   'appointment_changed',
   'appointment_cancelled',
   'appointment_reminder',
@@ -134,6 +135,8 @@ async function captureEmail(msg: OutgoingEmail): Promise<SendResult> {
 }
 
 export interface OutgoingEmail {
+  orgId?: string;
+  locationId?: string | undefined;
   replyTo?: string | null;
   outboxId?: string;
   to: string;
@@ -192,6 +195,10 @@ export async function sendEmail(msg: OutgoingEmail): Promise<SendResult> {
     : undefined;
 
   try {
+    if (emailProvider() === 'maileroo') {
+      const res = await mailerooSendEmail({ ...msg, from });
+      return { ok: true, providerId: res.reference_id };
+    }
     if (emailProvider() === 'elasticemail') {
       const res = await elasticSendEmail({ ...msg, from });
       if (!res.MessageID) return { ok: false, ambiguous: true, error: 'elastic_missing_message_id' };
@@ -214,13 +221,13 @@ export async function sendEmail(msg: OutgoingEmail): Promise<SendResult> {
     });
     return { ok: true, providerId: res.id };
   } catch (e) {
-    if (e instanceof SesError || e instanceof ResendError || e instanceof ElasticError) {
+    if (e instanceof SesError || e instanceof ResendError || e instanceof ElasticError || e instanceof MailerooError) {
       /*
        * ⭐ 4xx（地址非法、发件域名未验证、SES 沙箱下收件人未验证）
        * **重试多少次结果都相同**。不标记为永久失败的话，一个错误地址会在每次
        * 补发扫描中重试一遍，长期占据队首。
        */
-      return { ok: false, error: e.message.slice(0, 200), permanent: e.permanent, ambiguous: e instanceof ElasticError && (e.status >= 500 || e.status === 408) };
+      return { ok: false, error: e.message.slice(0, 200), permanent: e.permanent, ambiguous: (e instanceof ElasticError || e instanceof MailerooError) && (e.status >= 500 || e.status === 408) };
     }
     // 网络层或凭据缺失 —— 下次补发扫描时重试
     return { ok: false, error: 'email_network_or_timeout', ambiguous: true };

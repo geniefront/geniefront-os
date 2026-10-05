@@ -95,6 +95,7 @@ export function Topbar({ shop, step }: { shop: Shop; step: BookStep | null }) {
   const languages = [
     ["en", "English"],
     ["zh-Hans", "中文"],
+    ["zh-Hant", "繁體中文"],
     ["es", "Español"],
     ["vi", "Tiếng Việt"],
     ["ko", "한국어"],

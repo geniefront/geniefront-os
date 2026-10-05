@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/pages/Checkout.tips.test.tsx (4 tests) 1877ms
+   ✓ #23 submits matching channel tips, total and staff splits 927ms
+   ✓ #22 and #23 keep cash change and retained-tip allocations consistent 435ms
+   ✓ requires frontdesk confirmation to apply a paid deposit and charges the tip through the new payment channel 406ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  23:05:31
+   Duration  14.40s (transform 2.41s, setup 1.85s, collect 7.26s, tests 1.88s, environment 2.42s, prepare 271ms)
+

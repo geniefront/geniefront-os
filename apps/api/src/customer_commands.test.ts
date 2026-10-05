@@ -8,6 +8,7 @@ import { buildContext } from './actor';
 import { dispatch } from './bus';
 import './handlers/customer';
 import { loadCustomerDetail } from './queries/customer';
+import { canonicalCustomer, canonicalCustomerMap, customerAssetIds } from './customerIdentity';
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -178,6 +179,52 @@ describe('customer.setBlocked', () => {
 });
 
 describe('customer.merge', () => {
+  it('keeps explicit alias chains tenant scoped and serializes identity readers with a merge', async () => {
+    const ids: string[] = [];
+    for (const name of ['Alias original', 'Alias middle', 'Alias final']) {
+      const saved = await dispatch<{ customerId: string }>('customer.saveProfile', { name, phoneE164: '+16175550194' }, ownerCtx);
+      ids.push(saved.result.customerId); createdCustomerIds.push(saved.result.customerId);
+    }
+    const [source, middle, target] = ids as [string, string, string];
+    await dispatch('customer.merge', { sourceCustomerId: source, targetCustomerId: middle }, ownerCtx, { idempotencyKey: crypto.randomUUID() });
+    let release!: () => void;
+    let ready!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const acquired = new Promise<void>(resolve => { ready = resolve; });
+    const reader = withTenant(tenant, async tx => {
+      expect(await canonicalCustomer(tx, source)).toBe(middle);
+      ready(); await gate;
+      expect(await canonicalCustomer(tx, source)).toBe(middle);
+    });
+    await acquired;
+    try {
+      const [lock] = await withTenant(tenant, tx => tx<{ available: boolean }[]>`select pg_try_advisory_xact_lock(hashtext(app_org_id()::text),hashtext('customer.merge')) as available`);
+      expect(lock!.available).toBe(false);
+    } finally { release(); await reader; }
+    await dispatch('customer.merge', { sourceCustomerId: middle, targetCustomerId: target }, ownerCtx, { idempotencyKey: crypto.randomUUID() });
+    await withTenant(tenant, async tx => {
+      expect(await canonicalCustomer(tx, source)).toBe(target);
+      expect([...(await canonicalCustomerMap(tx, ids)).values()]).toEqual([target, target, target]);
+      const family = await tx<{ id: string }[]>`select id from customers where id in ${customerAssetIds(tx, target)}`;
+      expect(family.map(r => r.id).sort()).toEqual([...ids].sort());
+      const [root] = await tx<{ id: string }[]>`select gf_customer_root(${source}::uuid) as id`;
+      expect(root!.id).toBe(target);
+    });
+    const otherTenant = { orgId: '22222222-2222-4222-8222-222222222222', locationId: 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb', membershipId: null };
+    const [foreign] = await withTenant(otherTenant, tx => tx<{ id: string }[]>`select id from customers limit 1`);
+    expect(foreign).toBeDefined();
+    await expect(dispatch('customer.merge', { sourceCustomerId: target, targetCustomerId: foreign!.id }, ownerCtx, { idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await withTenant(tenant, async tx => {
+      const [security] = await tx<{ foreign_root: string | null; anon: boolean; authenticated: boolean; invoker: boolean }[]>`select gf_customer_root(${foreign!.id}::uuid) as foreign_root,
+        has_function_privilege('anon','gf_customer_root(uuid)','execute') as anon,
+        has_function_privilege('authenticated','gf_customer_root(uuid)','execute') as authenticated,
+        not prosecdef as invoker from pg_proc where oid='gf_customer_root(uuid)'::regprocedure`;
+      expect(security).toEqual({ foreign_root: null, anon: false, authenticated: false, invoker: true });
+      expect(await canonicalCustomer(tx, source)).toBe(target);
+    });
+    await expect(withTenant(tenant, tx => canonicalCustomer(tx, foreign!.id))).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(await withTenant(tenant, tx => loadCustomerDetail(tx, ownerCtx, foreign!.id))).toBeNull();
+  });
   it('合并两个重复的客户档案', async () => {
     // 建立第二个客户
     const res2 = await dispatch<{ customerId: string; created: boolean }>(

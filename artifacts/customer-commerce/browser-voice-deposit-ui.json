@@ -1,0 +1,40 @@
+{
+  "at": "2026-10-01T10:19:12.231096+00:00",
+  "scope": "Actual owned Chrome sessions against local captured QA API; online hosted sandbox and staff cash recording",
+  "onlineMobileViewport": [
+    390,
+    844
+  ],
+  "offlineMobileViewport": [
+    390,
+    844
+  ],
+  "onlineLocales": [
+    "en",
+    "zh-Hans"
+  ],
+  "deskLocale": "zh-Hans",
+  "screenshots": [
+    "voice-online-pending-mobile.png",
+    "voice-online-paid-mobile-zh.png",
+    "voice-offline-pending-mobile.png",
+    "voice-offline-paid-mobile.png",
+    "voice-offline-pending-desk.png",
+    "voice-offline-record-modal.png",
+    "voice-offline-paid-desk.png",
+    "voice-pending-stage-desk.png"
+  ],
+  "screenshotsVisuallyInspected": true,
+  "browserErrors": {
+    "online": [],
+    "offline": [],
+    "desk": []
+  },
+  "pendingDrawerStageCorrected": true,
+  "physicalPhoneConversationVerified": false,
+  "physicalCashVerified": false,
+  "realEmailDeliveryVerified": false,
+  "productionPublished": false,
+  "goalComplete": false,
+  "earlierPendingDeskScreenshot": "voice-offline-pending-desk.png predates the stage-label correction; voice-pending-stage-desk.png verifies current awaiting-payment labels"
+}

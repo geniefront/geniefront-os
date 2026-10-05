@@ -116,6 +116,39 @@ beforeEach(() => {
 });
 
 describe('BookPage', () => {
+  it('shows the percentage deposit and saved cancellation policy before accepting an explicit acknowledgement',async()=>{
+    getHostedShop.mockResolvedValue({...shop,onlineBooking:{...shop.onlineBooking,depositRequired:true,depositMethod:'percentage',depositPercentBps:2000,
+      depositPolicyVersion:'qa-policy-v2',retainDepositAfterCutoff:false,cancellationPolicyNotice:'QA deposit policy'}});
+    book.mockResolvedValue({bookingId:'qa-deposit',manageToken:null,status:'booked',replayed:false});
+    const user=userEvent.setup();renderBook();await throughToTime(user);
+    await user.click(screen.getByTestId(`slot-${nySlot}`));await screen.findByRole('heading',{name:'Contact'});
+    await user.type(screen.getByLabelText('Name'),'Deposit QA');await user.type(screen.getByLabelText('Mobile phone'),'6175550199');
+    expect(screen.getByRole('heading',{name:'Deposit to pay: $9'})).toBeInTheDocument();
+    expect(screen.getByText('Cancel at least 4 hours before the appointment to refund the unused deposit.')).toBeInTheDocument();
+    const submit=screen.getByRole('button',{name:'Book appointment'});expect(submit).toBeDisabled();
+    await user.click(screen.getByRole('checkbox',{name:'I agree to the deposit amount and cancellation policy.'}));
+    expect(submit).toBeEnabled();await user.click(submit);await waitFor(()=>expect(book).toHaveBeenCalledOnce());
+    expect(book.mock.calls[0]![0]).toMatchObject({depositConsent:{accepted:true,policyVersion:'qa-policy-v2',serviceTotalCents:4500,amountCents:900}});
+  });
+  it('refreshes a changed deposit quote and requires fresh acknowledgement while keeping the contact details',async()=>{
+    const initial={...shop,onlineBooking:{...shop.onlineBooking,depositRequired:true,depositMethod:'percentage',depositPercentBps:2000,depositPolicyVersion:'qa-policy-v1'}};
+    getHostedShop.mockResolvedValue(initial);
+    book.mockRejectedValueOnce(new ApiError('VALIDATION_FAILED',400,{reason:'deposit_quote_changed'}));
+    const user=userEvent.setup();renderBook();await throughToTime(user);
+    await user.click(screen.getByTestId(`slot-${nySlot}`));await screen.findByRole('heading',{name:'Contact'});
+    await user.type(screen.getByLabelText('Name'),'Deposit QA');await user.type(screen.getByLabelText('Mobile phone'),'6175550199');
+    await user.click(screen.getByRole('checkbox',{name:'I agree to the deposit amount and cancellation policy.'}));
+    await user.click(screen.getByRole('button',{name:'Book appointment'}));
+    await screen.findByText(/service quote or deposit policy changed/);
+    expect(screen.getByRole('button',{name:'Book appointment'})).toBeDisabled();
+    getHostedShop.mockResolvedValue({...initial,onlineBooking:{...initial.onlineBooking,depositPercentBps:2500,depositPolicyVersion:'qa-policy-v2'}});
+    await user.click(screen.getByRole('button',{name:'Try again'}));await screen.findByText('Pick a time');
+    await user.click(await screen.findByTestId(`slot-${nySlot}`));await screen.findByRole('heading',{name:'Contact'});
+    expect(screen.getByLabelText('Name')).toHaveValue('Deposit QA');
+    expect(screen.getByRole('heading',{name:'Deposit to pay: $11.25'})).toBeInTheDocument();
+    expect(screen.getByRole('checkbox',{name:'I agree to the deposit amount and cancellation policy.'})).not.toBeChecked();
+    expect(book).toHaveBeenCalledOnce();
+  });
   it('adds add-on duration and reloads availability with addon ids', async () => {
     const user = userEvent.setup();
     renderBook();
@@ -364,7 +397,11 @@ describe('BookPage', () => {
 it.each(['success', 'failure'])('#25 keeps the latest date when the stale request ends in %s', async outcome => {
   const user = userEvent.setup();
   renderBook(); await throughToTime(user);
-  const days = screen.getAllByTestId(/^day-\d/).filter(el=>(el.getAttribute('data-testid')??'').slice(4)>bookingToday(shop.timezone,shop.businessDayCutoff) && el.getAttribute('aria-disabled')!=='true').slice(0, 2);
+  // Month-end runs have no two future dates in the visible month. Move forward
+  // and exclude the adjacent-month cells, which React Aria deliberately disables.
+  await user.click(screen.getByTestId('later-days'));
+  const days = screen.getAllByTestId(/^day-\d/).filter(el=>(el.getAttribute('data-testid')??'').slice(4)>bookingToday(shop.timezone,shop.businessDayCutoff)
+    && !el.hasAttribute('data-outside-month') && !el.hasAttribute('data-disabled') && el.getAttribute('aria-disabled')!=='true').slice(0, 2);
   const dates = days.map(button => button.getAttribute('data-testid')!.slice(4));
   let resolveOld!: (value: Availability) => void;
   let rejectOld!: (reason: Error) => void;
@@ -373,7 +410,11 @@ it.each(['success', 'failure'])('#25 keeps the latest date when the stale reques
     if (date === dates[0]) { resolveOld = resolve; rejectOld = reject; }
     else resolveNew = resolve;
   }));
-  await user.click(days[0]!); await user.click(days[1]!);
+  await user.click(days[0]!);
+  await waitFor(()=>expect(resolveOld).toBeTypeOf('function'));
+  // React Aria rebuilds calendar cells after selection; use the current second cell.
+  await user.click(screen.getByTestId(`day-${dates[1]}`));
+  await waitFor(()=>expect(resolveNew).toBeTypeOf('function'));
   const newSlot = `${dates[1]}T18:00:00.000Z`;
   const oldSlot = `${dates[0]}T18:00:00.000Z`;
   resolveNew(avail({ date: dates[1]!, slots: [{ startsAt: newSlot, staff: null }] }));

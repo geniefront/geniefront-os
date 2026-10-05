@@ -1,0 +1,57 @@
+$ vitest run src/commerce.test.ts src/giftcard.test.ts src/marketing.test.ts src/bundle.test.ts src/v1Issues.test.ts src/workstations_backend.test.ts src/logRedact.unit.test.ts src/stripe/subscriptionLifecycle.test.ts src/customer.test.ts src/email/maileroo.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+{"level":30,"time":1790813087893,"pid":54107,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","req":{"id":"req-1","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","stripe-signature":"t=1790813087,v1=2e13cac6fc057f661d0c7e2acc4b37af2c4bb175a8e02bf4792e0dfdb0d25bc2","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790813087898,"pid":54107,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","res":{"statusCode":200},"responseTime":3.122332999999344,"msg":"request completed"}
+{"level":30,"time":1790813087898,"pid":54107,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","req":{"id":"req-2","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790813087903,"pid":54107,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790813087905,"pid":54107,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","res":{"statusCode":401},"responseTime":5.794624999998632,"msg":"request completed"}
+{"level":30,"time":1790813087907,"pid":54107,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","req":{"id":"req-3","method":"POST","url":"/v1/commerce/accounts/refresh","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"57"}},"msg":"incoming request"}
+{"level":30,"time":1790813087907,"pid":54107,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790813087908,"pid":54107,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","res":{"statusCode":401},"responseTime":0.6057910000017728,"msg":"request completed"}
+ ✓ src/commerce.test.ts (35 tests) 30409ms
+   ✓ records real offline receipt facts separately from $100 face liability; duplicate issuance stays one 587ms
+   ✓ blocks legacy issuance without explicit payment and applies financial roles to aliases 471ms
+   ✓ delivers a separate buyer receipt and recipient card without exposing the buyer order token or sale price 401ms
+   ✓ disables and replaces lost credentials without duplicating value, revokes old access, and delivers only the current card 2291ms
+   ✓ never turns manually gifted face value into refundable purchase cash 1200ms
+   ✓ accepts signed thin events through the complete server auth stack and keeps account administration protected 3765ms
+   ✓ never issues online assets until a signed paid fact, and deduplicates events and payments 388ms
+   ✓ rejects wrong connected account, mode and amount without granting credit 493ms
+   ✓ limits purchase refunds to unused paid value and freezes it against concurrent redemption 1053ms
+   ✓ restores reserved assets when Stripe refund fails and ignores a later payment replay after refund 1060ms
+   ✓ lets only one API instance claim a task and rejects an old lease result 372ms
+   ✓ preserves package purchase rules and price after catalog changes and refunds exactly unused value 998ms
+   ✓ conserves original cents and quantities through package consume, purchase refund, restore and reconsume 1158ms
+   ✓ never restores historical unidentified or financially frozen package redemptions 1074ms
+   ✓ serializes two desks consuming the last package session 386ms
+   ✓ treats unlimited as a dated entitlement and caps manual purchase refund at actual money received 957ms
+   ✓ routes disputes without metadata by account/payment, freezes remaining value, and keeps terminal results through stale events 1412ms
+   ✓ captures Dashboard refunds with no commerce metadata and prevents spending or another purchase refund 1966ms
+   ✓ retains review when an external refund exceeds the value still available to reverse 1105ms
+   ✓ does not issue assets when a verified dispute precedes Checkout payment; won resolution fulfills once 737ms
+   ✓ records verified balance facts in their settlement currency and rejects changed or cross-account financial facts 641ms
+   ✓ reconciles a missed paid webhook only after inspecting a pre-existing provider refund (failure injection, not Stripe sandbox) 951ms
+   ✓ recovers a valid late paid fact after an expired Checkout without issuing twice 756ms
+   ✓ reschedules reconciliation under its lease and keeps operator retries permissioned 464ms
+   ✓ retains existing v1 onboarding and uses verified v2 capabilities and thin events without crossing modes 1079ms
+   ✓ handles Connect disconnection without metadata, stops new online sales, and preserves funded assets 557ms
+   ✓ keeps gift promotional-value cent rounding consistent across multiple purchase refunds 1548ms
+   ✓ freezes the whole package while a partial purchase refund is pending, preserving cent allocation 1236ms
+ ✓ src/bundle.test.ts (34 tests) 2790ms
+   ✓ P5 结账 / 退款 / 提成对组合套餐安全 > 次卡：只核销散项，不覆盖套餐子项（B17） 352ms
+ ✓ src/stripe/subscriptionLifecycle.test.ts (16 tests) 745ms
+ ✓ src/workstations_backend.test.ts (15 tests) 379ms
+ ✓ src/marketing.test.ts (12 tests) 742ms
+ ✓ src/giftcard.test.ts (22 tests) 1303ms
+ ✓ src/v1Issues.test.ts (13 tests) 725ms
+ ✓ src/customer.test.ts (12 tests) 235ms
+ ✓ src/email/maileroo.test.ts (9 tests) 10ms
+ ✓ src/logRedact.unit.test.ts (1 test) 1ms
+
+ Test Files  10 passed (10)
+      Tests  169 passed (169)
+   Start at  20:04:21
+   Duration  82.56s (transform 4.46s, setup 39.71s, collect 5.09s, tests 37.34s, environment 0ms, prepare 115ms)
+

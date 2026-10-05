@@ -43,6 +43,7 @@ const Payouts = lazy(() => import('./pages/Payouts').then((m) => ({ default: m.P
 const DayClose = lazy(() => import('./pages/DayClose').then((m) => ({ default: m.DayClose })));
 const Customers = lazy(() => import('./pages/Customers').then((m) => ({ default: m.Customers })));
 const Marketing = lazy(() => import('./pages/Marketing').then((m) => ({ default: m.Marketing })));
+const Commerce = lazy(() => import('./pages/Commerce').then((m) => ({ default: m.Commerce })));
 const EmployeePerformance = lazy(() => import('./pages/EmployeePerformance').then((m) => ({ default: m.EmployeePerformance })));
 const Calls = lazy(() => import('./pages/Calls').then((m) => ({ default: m.Calls })));
 const Messages = lazy(() => import('./pages/Messages').then((m) => ({ default: m.Messages })));
@@ -399,7 +400,8 @@ function SessionGate() {
 
           {/* Group 4: CRM & Marketing */}
           <Route path="customers/*" element={<Customers />} />
-          <Route path="marketing" element={<Marketing />} />
+          <Route path="marketing" element={<RequireAnyPermission permissions={['commerce.read','settings.manage']}><Marketing /></RequireAnyPermission>} />
+          <Route path="commerce" element={<RequireAnyPermission permissions={['commerce.read']}><Commerce/></RequireAnyPermission>} />
           <Route path="employee-performance" element={<EmployeePerformance />} />
 
           {/* Group 5: Communications */}

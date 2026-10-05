@@ -1,0 +1,23 @@
+$ vitest run --passWithNoTests src/features/commerce/CustomerMembershipPlans.test.tsx src/features/commerce/DepositRetentionActions.test.tsx src/features/commerce/AppointmentDepositPanel.test.tsx src/features/commerce/GuestCancellationPanel.test.tsx src/features/commerce/DepositPaymentActions.test.tsx src/components/AppointmentDrawer.test.tsx src/features/printing/ReceiptDocument.test.tsx src/pages/Checkout.tips.test.tsx
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/features/printing/ReceiptDocument.test.tsx (3 tests) 78ms
+ ✓ src/features/commerce/CustomerMembershipPlans.test.tsx (3 tests) 368ms
+   ✓ saves a new version with the expected existing version and explicit recurring terms 343ms
+ ✓ src/features/commerce/GuestCancellationPanel.test.tsx (2 tests) 548ms
+   ✓ confirms only selected guests and their exact refund quote, reusing the command key after an interruption 513ms
+ ✓ src/features/commerce/AppointmentDepositPanel.test.tsx (3 tests) 466ms
+   ✓ requires a reason and reuses the same command key after an interrupted approval 324ms
+ ✓ src/components/AppointmentDrawer.test.tsx (10 tests) 553ms
+ ✓ src/pages/Checkout.tips.test.tsx (4 tests) 330ms
+ ✓ src/features/commerce/DepositPaymentActions.test.tsx (3 tests) 802ms
+   ✓ records the exact held deposit only after receiving a reference and preserves its idempotency key after an interrupted response 577ms
+ ✓ src/features/commerce/DepositRetentionActions.test.tsx (5 tests) 1090ms
+   ✓ requires an explicit amount and reason and preserves the selected guest quote on interrupted retries 585ms
+
+ Test Files  8 passed (8)
+      Tests  33 passed (33)
+   Start at  10:49:32
+   Duration  3.78s (transform 1.06s, setup 4.34s, collect 9.27s, tests 4.24s, environment 6.27s, prepare 503ms)
+

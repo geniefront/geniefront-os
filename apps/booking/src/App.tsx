@@ -4,6 +4,8 @@ import { Card, Shell } from './components/Chrome';
 import { BookingExperiencePage } from './pages/BookingExperiencePage';
 import { BookPage } from './pages/BookPage';
 import { ManageBookingPage } from './pages/ManageBookingPage';
+import { CommercePage } from './pages/CommercePage';
+import {MembershipsPage} from './pages/MembershipsPage';
 import { LanguageProvider, useLanguage } from './lib/i18n';
 
 const AppointmentPreview = import.meta.env.DEV ? lazy(() => import('./dev/AppointmentPreview')) : null;
@@ -29,6 +31,8 @@ export function App() {
           <Route path="/l/:slug/g/:token" element={<ManageBookingPage />} />
           <Route path="/l/:slug" element={<ManageBookingPage />} />
           <Route path="/:slug/bundles" element={<BookPage />} />
+          <Route path="/:slug/shop" element={<CommercePage />} />
+          <Route path="/:slug/memberships" element={<MembershipsPage />} />
           <Route path="/:slug" element={<ExperienceRoute />} />
           <Route path="*" element={<MissingShop />} />
         </Routes>

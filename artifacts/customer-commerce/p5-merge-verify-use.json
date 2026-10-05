@@ -1,0 +1,26 @@
+{
+  "at": "2026-10-02T16:03:11.329Z",
+  "membershipId": "0ef40a69-adf7-4425-a928-72ae89bc470e",
+  "sourceCustomerId": "6d4f62e5-499c-435a-9989-6ca80865cb7d",
+  "targetCustomerId": "b075d5fc-61ba-4f8f-bba7-d25ac9f40908",
+  "newStripePayment": false,
+  "productionChanged": false,
+  "data": {
+    "ticketId": "a8bb08c2-8980-4fc4-acf1-8ef414866c2e",
+    "originalContractOwnerPreserved": true,
+    "facts": {
+      "customer_id": "b075d5fc-61ba-4f8f-bba7-d25ac9f40908",
+      "status": "closed",
+      "total_cents": 10000,
+      "refund_cents": 0,
+      "units": "{}",
+      "uses": 1,
+      "restores": 0,
+      "new_money": 0,
+      "member_return": 0,
+      "commission_base": 9900,
+      "invoices": 3,
+      "future_cycles": 2
+    }
+  }
+}

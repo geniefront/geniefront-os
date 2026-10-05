@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-03T03:15:26.928578+00:00",
+  "errors": {
+    "buyer": [],
+    "historicalDesk": [
+      {
+        "column": 18,
+        "line": 331,
+        "text": "Error: useSession must be used within a SessionProvider\n    at useSession (http://localhost:5297/src/lib/session.tsx?t=1790992319478:332:19)\n    at SessionGate (http://localhost:5297/src/App.tsx?t=1790994554375:134:75)\n    at Object.react_stack_bottom_frame (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=9244f30b:18509:20)\n    at renderWithHooks (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=9244f30b:5654:24)\n    at updateFunctionComponent (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=9244f30b:7475:21)\n    at beginWork (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=9244f30b:8525:20)\n    at runWithFiberInDEV (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=9244f30b:997:72)\n    at performUnitOfWork (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=9244f30b:12561:98)\n    at workLoopSync (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=9244f30b:12424:43)\n    at renderRootSync (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=9244f30b:12408:13)",
+        "url": null
+      }
+    ],
+    "finalDesk": []
+  },
+  "historicalDeskErrorDuringViteHotUpdate": true,
+  "freshDeskReproduced": false
+}

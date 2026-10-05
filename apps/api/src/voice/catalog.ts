@@ -14,7 +14,7 @@ export async function voiceCatalog(
   locationId: string,
 ) {
   const [loc] =
-    await tx`select name,timezone,address,phone,business_hours,settings,business_day_cutoff::text as cutoff,
+    await tx`select name,timezone,currency,address,phone,business_hours,settings,business_day_cutoff::text as cutoff,
     holiday_calendar,status from locations where id=${locationId}`;
   if (!loc || ["closed", "suspended"].includes(loc.status))
     throw new AppError(ERROR_CODES.NOT_FOUND);
@@ -57,6 +57,7 @@ export async function voiceCatalog(
   const today = businessDateOf(now, timezone, "00:00");
   const shop = {
     locationId,
+    currency:loc.currency as string,
     timezone,
     businessDayCutoff: loc.cutoff as string,
     businessHours: loc.business_hours as PublicShopRow["businessHours"],
@@ -100,6 +101,7 @@ export async function voiceCatalog(
         maxPartySize: profile.maxPartySize,
         maxDaysAhead: shop.onlineBooking.maxDaysAhead,
         minMinutesAhead: shop.onlineBooking.minMinutesAhead,
+        slotIntervalMinutes: shop.onlineBooking.slotIntervalMinutes ?? 30,
         allowClientPickStaff: shop.onlineBooking.allowClientPickStaff,
       },
     },

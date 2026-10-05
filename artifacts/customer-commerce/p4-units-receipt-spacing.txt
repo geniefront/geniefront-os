@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/features/printing/ReceiptDocument.test.tsx (4 tests) 131ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  20:55:36
+   Duration  4.39s (transform 1.58s, setup 1.35s, collect 1.08s, tests 131ms, environment 1.10s, prepare 298ms)
+

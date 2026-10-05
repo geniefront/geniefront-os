@@ -107,6 +107,8 @@ export interface OrderPaymentDto {
 }
 
 export interface OrderRowDto {
+  membershipCoveredCents?:number;
+  packageCoveredCents?:number;
   ticketId: string;
   businessDate: string;
   status: string;
@@ -158,4 +160,12 @@ export interface RefundTicketInput {
   reason: 'customer_dissatisfied' | 'wrong_charge' | 'duplicate' | 'other';
   method: 'original_payment' | 'cash' | 'store_credit';
   notes?: string;
+  reviewHash?: string;
+  refundItems?:Array<{ticketItemId:string;amountCents:number}>;
+}
+export interface TicketRefundPreview {
+  reviewHash: string; amountCents: number; tipCents: number; taxCents: number; feeCents: number;
+  destinations: Array<{kind:'cash'|'card'|'gift_card'|'store_credit'|'deposit'|'membership'|'package';amountCents:number}>;
+  itemGraphAvailable?:boolean;
+  items?:Array<{ticketItemId:string;name:string;remainingCents:number}>;
 }

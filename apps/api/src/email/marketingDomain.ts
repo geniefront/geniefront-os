@@ -42,6 +42,7 @@ import { AppError, ERROR_CODES } from '@gf/contracts';
 import { sesIdentities, SesError } from '@gf/aws';
 import { resendListDomains, ResendError } from './resend';
 import { emailProvider } from './provider';
+import { mailerooDomain } from './maileroo';
 
 /**
  * 营销邮件的发件域。
@@ -127,6 +128,10 @@ const httpClient: SendingDomainClient = {
   status: async (name) => {
     assertNotTestProcess();
     try {
+      if (emailProvider() === 'maileroo') {
+        const domain = await mailerooDomain(name);
+        return { name, status: domain ? domain.status ? 'verified' : 'pending' : 'not_found' };
+      }
       if (emailProvider() === 'ses') {
         const d = await sesIdentities.get(name);
         /*
@@ -181,7 +186,7 @@ export const marketingDomainStatus = (env = process.env): Promise<SendingDomain>
  * 打一张 DNS 表反而会把排查方向引偏。
  */
 export function explainDomainProblem(d: SendingDomain, env = process.env): string {
-  const provider = emailProvider(env) === 'ses' ? 'AWS SES' : 'Resend';
+  const provider = {ses:'AWS SES',resend:'Resend',elasticemail:'Elastic Email',maileroo:'Maileroo'}[emailProvider(env)];
   const lines = [
     `营销发件域 ${d.name} 在 ${provider} 侧的状态是 ${d.status}，未达到 verified。`,
     '',

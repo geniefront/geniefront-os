@@ -1,3 +1,4 @@
+import {customerAssetIds} from '../customerIdentity';
 import {
   customerSaveProfile, customerSavePreferences, customerSetBlocked, customerMerge, customerSendSms,
   AppError, ERROR_CODES,
@@ -217,45 +218,11 @@ registerHandler(customerMerge, async ({ input, ctx, tx, audit }) => {
     });
   }
 
-  // 1. 迁移预约
-  const appts = await tx<{ count: string }[]>`
-    with updated as (
-      update appointments
-      set customer_id = ${input.targetCustomerId}
-      where customer_id = ${input.sourceCustomerId} and org_id = ${ctx.orgId}
-      returning id
-    ) select count(*)::text as count from updated`;
-
-  // 2. 迁移工单
-  const tkts = await tx<{ count: string }[]>`
-    with updated as (
-      update tickets
-      set customer_id = ${input.targetCustomerId}
-      where customer_id = ${input.sourceCustomerId} and org_id = ${ctx.orgId}
-      returning id
-    ) select count(*)::text as count from updated`;
-
-  // 3. 迁移礼品卡
-  await tx`
-    update gift_cards
-    set purchaser_customer_id = case when purchaser_customer_id = ${input.sourceCustomerId} then ${input.targetCustomerId} else purchaser_customer_id end,
-        holder_customer_id = case when holder_customer_id = ${input.sourceCustomerId} then ${input.targetCustomerId} else holder_customer_id end
-    where (purchaser_customer_id = ${input.sourceCustomerId} or holder_customer_id = ${input.sourceCustomerId})
-      and org_id = ${ctx.orgId}`;
-
-  // Asset entries remain immutable. Balance readers include the source via merged_into_id.
-
-  // 5. 迁移次卡套餐
-  await tx`
-    update customer_packages
-    set customer_id = ${input.targetCustomerId}
-    where customer_id = ${input.sourceCustomerId} and org_id = ${ctx.orgId}`;
-
-  // 6. 迁移问卷提交
-  await tx`
-    update form_submissions
-    set customer_id = ${input.targetCustomerId}
-    where customer_id = ${input.sourceCustomerId} and org_id = ${ctx.orgId}`;
+  // Keep original bookings, closed tickets, asset ownership and signed form identities.
+  // Their read/write paths resolve this explicitly approved alias family instead.
+  const [history]=await tx<{appointments:number;tickets:number}[]>`select
+   (select count(*)::int from appointments where customer_id in ${customerAssetIds(tx,input.sourceCustomerId)} and org_id=${ctx.orgId}) as appointments,
+   (select count(*)::int from tickets where customer_id in ${customerAssetIds(tx,input.sourceCustomerId)} and org_id=${ctx.orgId}) as tickets`;
 
   // 6.5 合并客户偏好（allergies, freeNotes, preferred/avoid staff）
   const [sourcePref] = await tx<{
@@ -323,13 +290,13 @@ registerHandler(customerMerge, async ({ input, ctx, tx, audit }) => {
       merged_into_id = ${input.targetCustomerId}
     where id = ${input.sourceCustomerId} or merged_into_id = ${input.sourceCustomerId}`;
 
-  const mergedCount = Number(appts[0]?.count ?? 0) + Number(tkts[0]?.count ?? 0);
+  const mergedCount = history!.appointments+history!.tickets;
 
   audit({
     entityType: 'customer',
     entityId: input.targetCustomerId,
     before: { targetCustomerId: input.targetCustomerId, sourceCustomerId: input.sourceCustomerId },
-    after: { merged: true, mergedCount, mergedTags },
+    after: { merged: true, mergedCount, mergedTags,ownershipMode:'aliases_preserve_original_records' },
   });
 
   return {

@@ -641,15 +641,16 @@ describe('预约到收银的真实闭环', () => {
       await run('ticket.finishItem', { ticketItemId, membershipId });
     }
 
-    /*
-     * 复用服务款阶段的幂等键会被判定为重放：命令不执行，小费收不进来，
-     * 且不会报错 —— 这正是 D7 描述的失败形态，故在此固定住。
-     */
-    await run('ticket.pay', {
+    // A financial key replays only its original stage/input; reusing it for tips must fail explicitly.
+    const sameService=await run('ticket.pay',{
+      ticketId:opened.result.ticketId,paymentStage:'service',
+      payments:[{method:'card',amountCents:serviceDueCents,tipCents:0}],
+    },serviceKey);expect(sameService.replayed).toBe(true);
+    await expect(run('ticket.pay', {
       ticketId: opened.result.ticketId,
       paymentStage: 'tip',
       payments: [{ method: 'cash', amountCents: 2000, tipCents: 2000 }],
-    }, serviceKey);
+    }, serviceKey)).rejects.toMatchObject({code:'IDEMPOTENCY_KEY_REUSED',details:{reason:'different_request'}});
     const [replayed] = await withTenant(tenant, (tx) => tx<{ tip_settled_at: string | null }[]>`
       select tip_settled_at::text from tickets where id = ${opened.result.ticketId}`);
     expect(replayed?.tip_settled_at).toBeNull();
@@ -782,9 +783,10 @@ describe('预约到收银的真实闭环', () => {
 
   it('不能把预约挂到另一个客户名下', async () => {
     const appointmentId = await createAppointment();
+    const [otherCustomer] = await withTenant(tenant, tx => tx<{id:string}[]>`insert into customers(org_id,primary_location_id,display_name) values(${ORG_ID},${LOCATION_ID},'Other booking customer QA') returning id`);
     await expect(run('ticket.open', {
       appointmentId,
-      customerId: randomUUID(),
+      customerId: otherCustomer!.id,
       items: [{ serviceId, membershipId, minutes: 45 }],
     })).rejects.toMatchObject({
       code: 'VALIDATION_FAILED',

@@ -1,8 +1,11 @@
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { PendingBookingAssignments } from '@/features/schedule/PendingBookingAssignments';
 import { useEntitlements } from '@/features/billing/useEntitlements';
-import { appointmentAllowsSchedulingChanges } from '@gf/contracts';
+import { appointmentAllowsSchedulingChanges,depositText,depositAdjustmentText } from '@gf/contracts';
 import {AppointmentCall} from '@/features/schedule/AppointmentCall';
+import {AppointmentDepositServiceDialog} from '@/features/commerce/AppointmentDepositServiceDialog';
+import {AppointmentDepositPanel} from '@/features/commerce/AppointmentDepositPanel';
+import {GuestCancellationPanel} from '@/features/commerce/GuestCancellationPanel';
 import { HealthSummary } from '@/features/forms/HealthSummary';
 import { queueTicketItems } from '@/features/queue/ticketItems';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -81,7 +84,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     [appointmentId, ticketsQ.data?.tickets],
   );
   const activeTicketFallbackStaffId = activeTicket?.items.find((item) => item.membershipId && item.membershipId !== UNASSIGNED_STAFF_ID)?.membershipId
-    ?? appointment?.items.find((item) => item.staffId && item.staffId !== UNASSIGNED_STAFF_ID)?.staffId
+    ?? appointment?.items.find((item) => item.status !== 'cancelled' && item.staffId && item.staffId !== UNASSIGNED_STAFF_ID)?.staffId
     ?? staff.find((member) => member.membershipId !== UNASSIGNED_STAFF_ID && member.isBookable)?.membershipId
     ?? '';
   const [tab, setTab] = useState<Tab>('service');
@@ -96,6 +99,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   const [staffId, setStaffId] = useState(UNASSIGNED_STAFF_ID);
   const [roomId, setRoomId] = useState('');
   const [addOpen, setAddOpen] = useState(false);
+  const [replaceServiceOpen,setReplaceServiceOpen]=useState(false);
   /*
    * 加项弹窗每次打开铸一次幂等键。此前是提交时现生成 —— 超时不代表没写进去，
    * 前台重按一次就会加出第二条服务项目，而这条会一路进结账金额。
@@ -145,7 +149,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   useEffect(() => {
     // 弹窗打开后由 openReschedule 负责预填（可能锁定某个具体项目），此处不再覆盖
     if (rescheduleOpen) return;
-    const first = appointment?.items[0];
+    const first = appointment?.items.find(item => item.status !== 'cancelled');
     if (!first) return;
     setDate(instantToWallDate(first.startsAt, timezone));
     const minutes = instantToWallMinutes(first.startsAt, timezone);
@@ -241,7 +245,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
    */
   const openReschedule = (item?: AppointmentItemDetail | null) => {
     if (!canChangeSchedule) return;
-    const target = item ?? appointment?.items[0];
+    const target = item ?? appointment?.items.find(item => item.status !== 'cancelled');
     if (target) {
       setDate(instantToWallDate(target.startsAt, timezone));
       const minutes = instantToWallMinutes(target.startsAt, timezone);
@@ -257,7 +261,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     if (!canChangeSchedule) return;
     const anchor = rescheduleItemId
       ? appointment?.items.find((it) => it.itemId === rescheduleItemId)
-      : appointment?.items[0];
+      : appointment?.items.find(item => item.status !== 'cancelled');
     const [hours, minutes] = time.split(':').map(Number);
     if (!appointmentId || !anchor || hours == null || minutes == null) return;
     try {
@@ -350,7 +354,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   const runShare = async () => {
     if (!appointmentId) return;
     try {
-      setShare(await shareM.mutateAsync({ customerId: appointment?.customer.id ?? null, appointmentId, locale: language }));
+      setShare(await shareM.mutateAsync({ customerId: appointment?.customer.id ?? null, appointmentId, locale: language === 'zh-Hant' ? 'zh-Hans' : language }));
     } catch (error) { toast.danger(errorMessage(error)); }
   };
 
@@ -379,7 +383,9 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     activeTicketItems: activeTicket ? activeTicket.items : null,
     initialStatus,
   });
-  const statusRank = appointmentStepperRank(derivedStage, appointment.items);
+  const pendingDeposit = appointment.deposit?.status === 'pending';
+  const pendingDepositLabel = depositText(language,'pending');
+  const statusRank = pendingDeposit ? 0 : appointmentStepperRank(derivedStage, appointment.items);
   // 详情与看板共用的状态映射：当前阶段 + 履约 / 付款 + 下一步动作（U06 / §6.4）
   const boardState = deriveAppointmentBoardState({
     appointmentStatus: appointment.status,
@@ -396,7 +402,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     priceCents: item.totalCents, staffName: item.staffName, resourceName: item.roomName,
     startsAt: item.startedAt,
   })) : appointment.items;
-  const totalCents = activeTicket?.subtotalCents ?? appointment.items.reduce((sum, item) => sum + item.priceCents, 0);
+  const totalCents = activeTicket?.subtotalCents ?? appointment.items.filter(item=>item.status!=='cancelled').reduce((sum, item) => sum + item.priceCents, 0);
 
   return shell(<>
     <section className="shrink-0 border-b border-slate-200 bg-gradient-to-br from-slate-50 to-white px-5 pb-4 pt-5">
@@ -450,22 +456,24 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
           <Badge variant={terminalStatus === 'no_show' ? 'warning' : 'outline'} className="text-[11px] font-black">
             {t(terminalStatus === 'no_show' ? 'schedule.adStatusNoShow' : 'schedule.adStatusCancelled')}
           </Badge>
-          <span className="text-[11px] font-semibold text-slate-500">{t('schedule.adStatusTerminalHint')}</span>
+          <span className="text-[11px] font-semibold text-slate-500">{appointment.deposit ? depositText(language,'retentionTerminalHint') : t('schedule.adStatusTerminalHint')}</span>
         </div>
       ) : (
         <div className="grid grid-cols-4 gap-1 border-t border-slate-200/80 pt-3">
-          {[t('schedule.adStageBooked'), t('schedule.adStageArrived'), t('schedule.adStageInService'), t('schedule.adStageFinished')].map((label, index) => { const reached = statusRank >= index + 1; return <div key={label} className={cn('flex flex-col items-center gap-1 text-[10px] font-bold', reached ? 'text-teal-700' : 'text-slate-400')}><span className={cn('grid h-5 w-5 place-items-center rounded-full text-[10px]', reached ? 'bg-teal-500 text-white shadow-sm' : 'bg-slate-200 text-slate-500')}>{reached && statusRank > index + 1 ? <Check size={12}/> : index + 1}</span><span>{label}</span></div>; })}
+          {[pendingDeposit ? pendingDepositLabel : t('schedule.adStageBooked'), t('schedule.adStageArrived'), t('schedule.adStageInService'), t('schedule.adStageFinished')].map((label, index) => { const reached = statusRank >= index + 1; return <div key={label} className={cn('flex flex-col items-center gap-1 text-[10px] font-bold', reached ? 'text-teal-700' : 'text-slate-400')}><span className={cn('grid h-5 w-5 place-items-center rounded-full text-[10px]', reached ? 'bg-teal-500 text-white shadow-sm' : 'bg-slate-200 text-slate-500')}>{reached && statusRank > index + 1 ? <Check size={12}/> : index + 1}</span><span>{label}</span></div>; })}
         </div>
       )}
     </section>
     <div className="flex shrink-0 border-b border-slate-200 bg-white" role="tablist">{tabs.filter(([id]) => !voiceOnly || id === 'service').map(([id, label, Icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={cn('flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-xs font-bold transition', tab === id ? 'border-teal-500 bg-teal-50/50 text-teal-800' : 'border-transparent text-slate-500 hover:bg-slate-50')}><Icon size={14}/>{label}</button>)}</div>
     <main className="flex-1 overflow-y-auto bg-slate-50/70 p-4">
       {tab === 'service' && <div className="space-y-4">{<AppointmentCall appointmentId={appointment.appointmentId}/>}
+        {appointment.deposit&&<AppointmentDepositPanel deposit={appointment.deposit}/>}
+        {appointment.guestCancellation&&<GuestCancellationPanel appointment={appointment}/>}
         {!voiceOnly && !terminalStatus && (
           <section className="space-y-2.5 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
             <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
               <span className="rounded-lg bg-slate-100 px-2 py-1 text-slate-500">{t('schedule.adFulfillmentLabel')}</span>
-              <span className="rounded-lg bg-teal-50 px-2 py-1 text-teal-800">{t(STAGE_LABEL_KEY[boardState.stage])}</span>
+              <span className="rounded-lg bg-teal-50 px-2 py-1 text-teal-800">{pendingDeposit ? pendingDepositLabel : t(STAGE_LABEL_KEY[boardState.stage])}</span>
               {boardState.fulfillment.total > 1 && boardState.fulfillment.done < boardState.fulfillment.total && boardState.fulfillment.done > 0 && (
                 <span className="rounded-lg bg-amber-50 px-2 py-1 text-amber-800">
                   {t('schedule.adPartialDone', { p0: boardState.fulfillment.done, p1: boardState.fulfillment.total })}
@@ -473,14 +481,14 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
               )}
               <span className="rounded-lg bg-slate-100 px-2 py-1 text-slate-500">{t('schedule.adPaymentLabel')}</span>
               <span className={cn('rounded-lg px-2 py-1', boardState.paid ? 'bg-emerald-50 text-emerald-800' : boardState.paymentStage ? 'bg-rose-50 text-rose-800' : 'bg-slate-100 text-slate-500')}>
-                {boardState.paid ? t('schedule.adPaid') : boardState.paymentStage ? t('schedule.adPaymentDue') : t('schedule.adPaymentNone')}
+                {pendingDeposit ? pendingDepositLabel : boardState.paid ? t('schedule.adPaid') : boardState.paymentStage ? t('schedule.adPaymentDue') : t('schedule.adPaymentNone')}
               </span>
             </div>
             <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
               <span className="text-[11px] font-semibold text-slate-500">
-                {t('schedule.adNextStep')}: {t(nextActionLabelKey(boardState.nextAction, { checkoutTiming: appointment.ticket?.checkoutTiming }))}
+                {t('schedule.adNextStep')}: {pendingDeposit ? depositText(language,'pendingNotice') : t(nextActionLabelKey(boardState.nextAction, { checkoutTiming: appointment.ticket?.checkoutTiming }))}
               </span>
-              {boardState.nextAction.kind !== 'blocked' && (
+              {!pendingDeposit && boardState.nextAction.kind !== 'blocked' && (
                 <Button size="sm" variant="secondary" className="h-7 gap-1 bg-teal-50 px-2.5 text-[11px] font-bold text-teal-800" onPress={() => { onClose(); navigate(appointmentId ? `/queue?focus=${appointmentId}` : '/queue'); }}>
                   {t('schedule.adGoToBoard')}
                   <ChevronRight size={13} />
@@ -496,9 +504,10 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
         </section>}
 
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
-          <div className="flex items-center justify-between gap-2"><SectionTitle icon={<Scissors size={15}/>} label={t('schedule.adBookedServices')} /><div className="flex gap-1.5"><GuardedButton isDisabled={!canChangeSchedule} permission="appointment.write" size="sm" variant="secondary" className="h-7 gap-1 bg-teal-50 px-2.5 text-[11px] font-bold text-teal-800" onPress={() => openReschedule(null)}><CalendarClock size={13}/>{t('schedule.adReschedule')}</GuardedButton><GuardedButton disabled={!canChangeSchedule} permission={activeTicket ? 'ticket.write' : 'appointment.write'} size="sm" variant="secondary" className="h-7 gap-1 bg-violet-50 px-2.5 text-[11px] font-bold text-violet-800" onPress={() => { setServiceId(''); setAddStaffId(activeTicket ? activeTicketFallbackStaffId : appointment.items[0]?.staffId ?? ''); setAddAttemptKey(crypto.randomUUID()); setAddOpen(true); }}><Plus size={13}/>{t('schedule.adAddOn')}</GuardedButton></div></div>
+          <div className="flex items-center justify-between gap-2"><SectionTitle icon={<Scissors size={15}/>} label={t('schedule.adBookedServices')} /><div className="flex gap-1.5"><GuardedButton isDisabled={!canChangeSchedule} permission="appointment.write" size="sm" variant="secondary" className="h-7 gap-1 bg-teal-50 px-2.5 text-[11px] font-bold text-teal-800" onPress={() => openReschedule(null)}><CalendarClock size={13}/>{t('schedule.adReschedule')}</GuardedButton><GuardedButton disabled={!canChangeSchedule} permission={activeTicket ? 'ticket.write' : 'appointment.write'} size="sm" variant="secondary" className="h-7 gap-1 bg-violet-50 px-2.5 text-[11px] font-bold text-violet-800" onPress={() => { setServiceId(''); setAddStaffId(activeTicket ? activeTicketFallbackStaffId : appointment.items.find(item => item.status !== 'cancelled')?.staffId ?? ''); setAddAttemptKey(crypto.randomUUID()); setAddOpen(true); }}><Plus size={13}/>{t('schedule.adAddOn')}</GuardedButton></div></div>
           {!activeTicket && canChangeSchedule && <PendingBookingAssignments appointmentId={appointment.appointmentId} date={currentDate} items={appointment.items} staff={staff.filter(s=>s.membershipId!==UNASSIGNED_STAFF_ID)} onChanged={()=>{void appointmentQ.refetch();refetchSchedule();}} />}
-          <div className="divide-y divide-slate-100">{serviceItems.map((item) => <article key={item.itemId} className="space-y-2 py-3 first:pt-1 last:pb-1"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><h4 className="font-bold text-slate-900">{item.serviceName}</h4><Badge variant="secondary" className="px-1.5 py-0 font-mono text-[10px]">{item.durationMin}m</Badge></div><div className="flex items-center gap-2 shrink-0"><span className="font-mono font-black text-teal-700">${centsToDollars(item.priceCents)}</span>{!activeTicket && <GuardedButton isDisabled={!canChangeSchedule} permission="appointment.write" size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[11px] font-bold text-slate-500 hover:text-teal-700" onPress={() => openReschedule(appointment.items.find((entry) => entry.itemId === item.itemId) ?? null)}><Edit3 size={12}/>{t('schedule.adEditItem')}</GuardedButton>}</div></div><div className="grid grid-cols-2 gap-2 text-[11px] font-medium text-slate-600"><span className="flex items-center gap-1"><User size={13} className="text-slate-400"/>{item.staffName ?? t('schedule.adUnassignedStaff')}</span>{!voiceOnly && <span className="flex items-center gap-1"><BedDouble size={13} className="text-slate-400"/>{item.resourceName ?? t('schedule.adNoRoom')}</span>}<span className="col-span-2 flex items-center gap-1"><CalendarClock size={13} className="text-slate-400"/>{item.startsAt ? storeTime.dateTime(item.startsAt) : t('queue.quElapsedNotStarted')}</span></div></article>)}</div>
+          {appointment.deposit&&!activeTicket&&<GuardedButton permission="commerce.sell" variant="outline" size="sm" isDisabled={!canChangeSchedule} onPress={()=>setReplaceServiceOpen(true)}>{depositAdjustmentText(language,'replaceService')}</GuardedButton>}
+          <div className="divide-y divide-slate-100">{serviceItems.map((item) => <article key={item.itemId} className={cn('space-y-2 py-3 first:pt-1 last:pb-1','status' in item&&item.status==='cancelled'&&'opacity-60')}><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><h4 className={cn('font-bold text-slate-900','status' in item&&item.status==='cancelled'&&'line-through')}>{item.serviceName}</h4>{'status' in item&&item.status==='cancelled'&&<Badge variant="outline">{depositText(language,'guestCancelled')}</Badge>}<Badge variant="secondary" className="px-1.5 py-0 font-mono text-[10px]">{item.durationMin}m</Badge></div><div className="flex items-center gap-2 shrink-0"><span className="font-mono font-black text-teal-700">${centsToDollars(item.priceCents)}</span>{!activeTicket && <GuardedButton isDisabled={!canChangeSchedule||('status' in item&&item.status==='cancelled')} permission="appointment.write" size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[11px] font-bold text-slate-500 hover:text-teal-700" onPress={() => openReschedule(appointment.items.find((entry) => entry.itemId === item.itemId) ?? null)}><Edit3 size={12}/>{t('schedule.adEditItem')}</GuardedButton>}</div></div><div className="grid grid-cols-2 gap-2 text-[11px] font-medium text-slate-600"><span className="flex items-center gap-1"><User size={13} className="text-slate-400"/>{item.staffName ?? t('schedule.adUnassignedStaff')}</span>{!voiceOnly && <span className="flex items-center gap-1"><BedDouble size={13} className="text-slate-400"/>{item.resourceName ?? t('schedule.adNoRoom')}</span>}<span className="col-span-2 flex items-center gap-1"><CalendarClock size={13} className="text-slate-400"/>{item.startsAt ? storeTime.dateTime(item.startsAt) : t('queue.quElapsedNotStarted')}</span></div></article>)}</div>
           {!voiceOnly && !activeTicket && <p className="rounded-xl border border-teal-100 bg-teal-50/60 p-2.5 text-[11px] font-medium text-teal-800">{t('schedule.adAppointmentAddItemHint')}</p>}
         </section>
 
@@ -835,7 +844,9 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
 
     <Modal isOpen={cancelOpen} onOpenChange={setCancelOpen} title={t('schedule.adCancelConfirmTitle')} size="sm" footer={<Actions cancel={() => setCancelOpen(false)} submit={<GuardedButton isDisabled={!canChangeSchedule} permission="appointment.cancel" variant="danger" onPress={() => void runCancel()} isPending={cancelM.isPending}>{t('schedule.adConfirmCancelAppt')}</GuardedButton>} />}><div className="space-y-4"><select value={cancelReason} onChange={(event) => setCancelReason(event.target.value as CancelReason)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">{CANCEL_REASONS.map((reason) => <option key={reason} value={reason}>{t(`schedule.adCancel.${reason}`)}</option>)}</select><label className="flex gap-2 text-sm"><input type="checkbox" checked={keepStaffTurn} onChange={(event) => setKeepStaffTurn(event.target.checked)} />{t('schedule.adKeepStaffTurn')}</label></div></Modal>
     <Modal isOpen={rescheduleOpen && canChangeSchedule} onOpenChange={(open) => { setRescheduleOpen(open); if (!open) setRescheduleItemId(null); }} title={rescheduleItemId ? t('schedule.adEditOneItem', { p0: appointment?.items.find((it) => it.itemId === rescheduleItemId)?.serviceName ?? '' }) : t('schedule.adReschedule')} size="sm" footer={<Actions cancel={() => { setRescheduleOpen(false); setRescheduleItemId(null); }} submit={<GuardedButton isDisabled={!canChangeSchedule} permission="appointment.write" onPress={() => void runReschedule()} isPending={rescheduleM.isPending}>{t('schedule.adConfirmUpdate')}</GuardedButton>} />}><div className="space-y-3">{!rescheduleItemId && (appointment?.items.length ?? 0) > 1 && <p className="rounded-xl border border-teal-100 bg-teal-50/60 p-2.5 text-[11px] font-medium text-teal-800">{t('schedule.adRescheduleWholeHint')}</p>}<div className="grid gap-3 sm:grid-cols-2"><input aria-label={t('schedule.adDate')} type="date" value={date} onChange={(event) => setDate(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5" /><input aria-label={t('schedule.adTime')} type="time" value={time} onChange={(event) => setTime(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5" />{!appointment?.items.some(item => item.executionGroup) && <StaffSelect value={staffId} onChange={setStaffId} includeUnassigned />}{!voiceOnly && !appointment?.items.some(item => item.executionGroup) && <select aria-label={t('schedule.adRoomType')} value={roomId} onChange={(event) => setRoomId(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5"><option value="">{t('schedule.adNoRoom')}</option>{resources.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select>}</div></div></Modal>
-    <Modal isOpen={addOpen && canChangeSchedule} onOpenChange={setAddOpen} title={t('schedule.adAddOn')} size="sm" footer={<Actions cancel={() => setAddOpen(false)} submit={<GuardedButton disabled={!canChangeSchedule} permission={activeTicket ? 'ticket.write' : 'appointment.write'} onPress={() => void runAddItem()} isPending={addItemM.isPending || addAppointmentItemM.isPending} isDisabled={!serviceId || (Boolean(activeTicket) && !effectiveAddStaffId)}>{t('schedule.adAddOn')}</GuardedButton>} />}><div className="space-y-3"><select aria-label={t('schedule.adServiceItem')} value={serviceId} onChange={(event) => setServiceId(event.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5"><option value="">{t('schedule.adChooseService')}</option>{services.filter(service => !service.isAddon && service.staffCount === 1).map((service) => <option key={service.id} value={service.id}>{service.name} · ${(service.priceCents / 100).toFixed(2)}</option>)}</select><StaffSelect value={addStaffId} onChange={setAddStaffId} includeUnassigned={!activeTicket} />{activeTicket ? <p className="rounded-xl bg-violet-50 p-2.5 text-[11px] font-medium text-violet-900">{t('schedule.adAddOnTicketHint')}</p> : <p className="rounded-xl bg-teal-50 p-2.5 text-[11px] font-medium text-teal-900">{t('schedule.adAppointmentAddModalHint')}</p>}</div></Modal>
+    {appointment?.deposit&&<AppointmentDepositServiceDialog replace appointment={appointment} open={replaceServiceOpen} onClose={()=>setReplaceServiceOpen(false)} onSaved={refresh} editable={canChangeSchedule&&!activeTicket} services={services} staff={staff.filter(s=>s.membershipId!==UNASSIGNED_STAFF_ID)}/>}
+    {appointment?.deposit&&<AppointmentDepositServiceDialog appointment={appointment} open={addOpen&&!activeTicket} onClose={()=>setAddOpen(false)} onSaved={refresh} editable={canChangeSchedule&&!activeTicket} services={services} staff={staff.filter(s=>s.membershipId!==UNASSIGNED_STAFF_ID)}/>}
+    <Modal isOpen={addOpen && canChangeSchedule && (!appointment?.deposit || !!activeTicket)} onOpenChange={setAddOpen} title={t('schedule.adAddOn')} size="sm" footer={<Actions cancel={() => setAddOpen(false)} submit={<GuardedButton disabled={!canChangeSchedule} permission={activeTicket ? 'ticket.write' : 'appointment.write'} onPress={() => void runAddItem()} isPending={addItemM.isPending || addAppointmentItemM.isPending} isDisabled={!serviceId || (Boolean(activeTicket) && !effectiveAddStaffId)}>{t('schedule.adAddOn')}</GuardedButton>} />}><div className="space-y-3"><select aria-label={t('schedule.adServiceItem')} value={serviceId} onChange={(event) => setServiceId(event.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5"><option value="">{t('schedule.adChooseService')}</option>{services.filter(service => !service.isAddon && service.staffCount === 1).map((service) => <option key={service.id} value={service.id}>{service.name} · ${(service.priceCents / 100).toFixed(2)}</option>)}</select><StaffSelect value={addStaffId} onChange={setAddStaffId} includeUnassigned={!activeTicket} />{activeTicket ? <p className="rounded-xl bg-violet-50 p-2.5 text-[11px] font-medium text-violet-900">{t('schedule.adAddOnTicketHint')}</p> : <p className="rounded-xl bg-teal-50 p-2.5 text-[11px] font-medium text-teal-900">{t('schedule.adAppointmentAddModalHint')}</p>}</div></Modal>
   </>);
 
   function Metric({ label, value, compact = false, accent = false }: { label: string; value: string; compact?: boolean; accent?: boolean }) {

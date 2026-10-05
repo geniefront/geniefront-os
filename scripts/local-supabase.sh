@@ -36,6 +36,7 @@ case "$ACTION" in
 
     jwt_secret=$(openssl rand -hex 48)
     form_key=$(openssl rand -hex 32)
+    baseline_password=$(openssl rand -hex 24)
     stripe_value() {
       grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- || true
     }
@@ -65,6 +66,7 @@ case "$ACTION" in
         echo "${key}=$(stripe_value "$key")"
       done
       echo "FORM_ENCRYPTION_KEY=${form_key}"
+      echo "GF_BASELINE_PASSWORD=${baseline_password}"
       # 本机没有真实收件人：邮件与短信不出网，留在发件箱里，
       # 运营台「Test Inbox」那一页看（packages/db/sql/0082）
       echo 'COMMUNICATION_DELIVERY_MODE=capture'

@@ -15,6 +15,7 @@ export interface CallView {
   durationSeconds: number | null;
   aiDurationSeconds?: number | null;
   outcome: string | null;
+  unansweredGreeting?: boolean;
   toolsUsed: string[];
   booked: boolean;
   appointmentIds?: string[];

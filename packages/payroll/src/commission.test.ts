@@ -62,6 +62,14 @@ describe('提成引擎', () => {
     expect(net.byStaff[0]!.commissionCents).toBe(4000);   // (100-20) × 50%
     expect(gross.byStaff[0]!.commissionCents).toBe(5000);
   });
+  it('honors purchased membership basis even when staff use gross, net, or the membership basis is zero',()=>{
+    for(const base of ['gross','net'] as const){
+      const r=computeCommission({items:[item({itemDiscountCents:2000,commissionBaseOverrideCents:3333})],ticketDiscountCents:1000,plans:{a:plan({base,rateBp:5000})}});
+      expect(r.byStaff[0]!.baseCents).toBe(3333);expect(r.byStaff[0]!.commissionCents).toBe(1666);
+    }
+    const zero=computeCommission({items:[item({commissionBaseOverrideCents:0})],plans:{a:plan({base:'gross'})}});expect(zero.byStaff[0]!.baseCents).toBe(0);
+    expect(()=>computeCommission({items:[item({commissionBaseOverrideCents:-1})],plans:{}})).toThrow('Invalid prepaid commission basis');
+  });
 
   it('单据级折扣按各 item 原价摊回去', () => {
     const items = [

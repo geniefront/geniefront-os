@@ -1,3 +1,4 @@
+import {canonicalCustomer,canonicalCustomerMap,customerFamilies,customerAssetIds} from '../customerIdentity';
 import { summaryForSubmission } from '../forms/summary';
 /**
  * 工单、未记账断档与前台走单队列路由
@@ -17,6 +18,7 @@ import { loadQueue } from '../queries/queue';
 import { loadReceipt } from '../queries/receipt';
 import { z } from 'zod';
 import { loadServiceBrief } from '../queries/serviceBrief';
+import {loadMembershipDiscountOffers} from '../handlers/membershipDiscounts';
 import type { CtxFromHeaders } from './utils';
 
 export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
@@ -169,6 +171,10 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           businessDate: string; daysAgo: number;
           items: Array<Record<string, unknown>>;
           availablePackages: Array<Record<string, unknown>>;
+          availableStoreCreditCents?:number;
+          availableMemberships:Array<Record<string,unknown>>;
+          availableMembershipDiscounts?:Array<Record<string,unknown>>;
+          availableDeposit?:{holdId:string;availableCents:number;currency:string};
           bundles: Array<Record<string, unknown>>;
         }>();
 
@@ -197,6 +203,7 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
             daysAgo: daysAgoOf(r.business_date),
             items: [],
             availablePackages: [],
+            availableMemberships:[],
             bundles: [],
           };
           t.items.push({
@@ -212,22 +219,59 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           map.set(r.ticket_id, t);
         }
         const tickets = [...map.values()];
+        if(ctx.permissions.has('commerce.sell')&&tickets.length){
+          const holds=await tx<{id:string;appointment_id:string;available:number;currency:string}[]>`
+            select h.id,h.appointment_id,h.currency,coalesce((select sum(greatest(0,
+              (select coalesce(sum(amount_cents),0)::int from commerce_deposit_ledger dl where dl.hold_id=h.id and dl.payment_id=p.id)
+              -(select coalesce(sum(asset_quantity),0)::int from commerce_refunds f where f.payment_id=p.id and f.status in('pending','review'))))::int
+              from commerce_deposit_requests dr join commerce_payments p on p.order_id=dr.order_id where dr.hold_id=h.id and dr.state='paid' and p.status='paid'),0) as available
+            from commerce_appointment_holds h
+            where h.appointment_id=any(${tickets.map(t=>t.appointmentId).filter((id):id is string=>!!id)})
+              and h.status in('paid','refund_pending') and not h.commerce_frozen and h.waived_at is null
+              and h.currency=(select lower(currency) from locations where id=${ctx.locationId})`;
+          for(const ticket of tickets){const h=holds.find(h=>h.appointment_id===ticket.appointmentId);
+            if(h&&h.available>0)ticket.availableDeposit={holdId:h.id,availableCents:h.available,currency:h.currency.toUpperCase()};}
+        }
         const customerIds = [...new Set(tickets.map((ticket) => ticket.customerId).filter((id): id is string => Boolean(id)))];
         if (customerIds.length > 0) {
+          const roots=await canonicalCustomerMap(tx,customerIds),rootIds=[...new Set(roots.values())];
+          if(ctx.permissions.has('commerce.sell')){const balances=new Map<string,number>();for(const id of customerIds){
+            const root=await canonicalCustomer(tx,id);let amount=balances.get(root);
+            if(amount===undefined){const [balance]=await tx<{amount:number}[]>`select coalesce(sum(amount_cents),0)::int as amount from customer_credit_ledger where kind='store_credit' and customer_id in ${customerAssetIds(tx,root)}`;amount=balance!.amount;balances.set(root,amount);}
+            for(const ticket of tickets.filter(t=>t.customerId===id))ticket.availableStoreCreditCents=amount;
+          }}
+
+          if(ctx.permissions.has('commerce.read')){
+            const offers=await loadMembershipDiscountOffers(tx,ctx,tickets);
+            for(const ticket of tickets)ticket.availableMembershipDiscounts=offers.get(ticket.ticketId)??[];
+            const members=await tx<{id:string;customer_id:string;name:unknown;service_ids:string[];available:number;ends_at:string;timezone:string}[]>`
+              select c.id,f.root_id as customer_id,i.snapshot->'terms'->'name' as name,
+               array(select jsonb_array_elements_text(i.snapshot->'terms'->'serviceIds')) as service_ids,i.snapshot->>'timezone' as timezone,
+               (select coalesce(sum(upper(r)-lower(r)),0)::int from unnest(c.available_units)r) as available,c.ends_at::text
+              from customer_membership_cycles c join customer_paid_memberships m on m.id=c.membership_id join customer_membership_invoices i on i.id=c.invoice_id join ${customerFamilies(tx,rootIds)}f on f.id=m.customer_id
+              where f.root_id=any(${rootIds}::uuid[]) and m.location_id=${ctx.locationId} and not m.commerce_frozen
+               and m.terminated_at is null and c.status='issued' and c.starts_at<=now() and c.ends_at>now() and c.available_units<>'{}'::int4multirange
+              order by c.ends_at,c.id`;
+            for(const ticket of tickets)ticket.availableMemberships=members.filter(m=>m.customer_id===roots.get(ticket.customerId??'')).map(m=>({
+              cycleId:m.id,name:pickText(m.name,ctx.locale),serviceIds:m.service_ids,availableQuantity:m.available,expiresAt:m.ends_at,timezone:m.timezone}));
+          }
           const packageRows = await tx<{
             id: string; customer_id: string; name: unknown; service_ids: string[];
-            remaining_sessions: number; total_sessions: number; expires_at: string | null;
+            remaining_sessions: number; total_sessions: number; expires_at: string | null; coverage_mode: 'bundle'|'any_included'|null;
           }[]>`
-            select cp.id, cp.customer_id, pt.name, pt.service_ids::text[] as service_ids,
-                   cp.remaining_sessions, cp.total_sessions, cp.expires_at::text
-            from customer_packages cp join package_templates pt on pt.id = cp.template_id
-            where cp.location_id = ${ctx.locationId} and cp.customer_id = any(${customerIds})
+            select cp.id, f.root_id as customer_id, coalesce(cp.purchase_snapshot->'name',pt.name) as name,
+                   case when cp.purchase_snapshot is not null then array(select jsonb_array_elements_text(cp.purchase_snapshot->'serviceIds'))
+                        else coalesce(pt.service_ids,'{}')::text[] end as service_ids,
+                   cp.remaining_sessions, cp.total_sessions, cp.expires_at::text,cp.purchase_snapshot->>'coverageMode' as coverage_mode
+            from customer_packages cp join package_templates pt on pt.id = cp.template_id join ${customerFamilies(tx,rootIds)}f on f.id=cp.customer_id
+            where cp.location_id = ${ctx.locationId} and f.root_id = any(${rootIds}::uuid[])
               and cp.status = 'active' and (cp.total_sessions = 0 or cp.remaining_sessions > 0)
+              and not cp.refund_frozen and not cp.commerce_frozen
               and (cp.expires_at is null or cp.expires_at >= now())
             order by cp.expires_at nulls last, cp.created_at`;
           for (const ticket of tickets) {
             ticket.availablePackages = packageRows
-              .filter((pkg) => pkg.customer_id === ticket.customerId)
+              .filter((pkg) => pkg.customer_id === roots.get(ticket.customerId??''))
               .map((pkg) => ({
                 customerPackageId: pkg.id,
                 name: pickText(pkg.name, ctx.locale, '套餐'),
@@ -235,6 +279,7 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
                 remainingSessions: pkg.remaining_sessions,
                 totalSessions: pkg.total_sessions,
                 expiresAt: pkg.expires_at,
+                coverageMode: pkg.coverage_mode??checkoutSettings.packageCoverageMode,
               }));
           }
         }

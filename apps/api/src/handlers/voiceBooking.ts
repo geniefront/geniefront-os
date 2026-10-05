@@ -8,8 +8,8 @@ import {
   SubmitVoiceBooking,
 } from "@gf/contracts";
 import { registerHandler } from "../bus";
+import {createVoiceAppointmentInTransaction} from './voiceDepositBooking';
 import {
-  executeSingleAppointmentInTx,
   lockBookingCapacity,
 } from "./appointment";
 import { loadVoiceContext } from "../voice/context";
@@ -17,7 +17,8 @@ import {
   generateManageToken,
 } from "../public/bookingToken";
 
-registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
+registerHandler(SubmitVoiceBooking, async (args) => {
+  const {input,tx,ctx,audit}=args;
   await lockBookingCapacity(tx, ctx.locationId);
   if (input.items) {
     const catalog = await voiceCatalog(tx, ctx.locationId);
@@ -84,7 +85,7 @@ registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
         },
       },
     });
-    const out = await executeSingleAppointmentInTx(tx, ctx, payload);
+    const out = await createVoiceAppointmentInTransaction(args,payload,total);
     audit({
       entityType: "appointment",
       entityId: out.appointmentId,
@@ -95,10 +96,7 @@ registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
         startsAt: input.startsAt,
       },
     });
-    return {
-      appointmentId: out.appointmentId,
-      businessDate: out.businessDate,
-    };
+    return out;
   }
   const context = await loadVoiceContext(tx, ctx.locationId, {
     date: input.date,
@@ -139,7 +137,8 @@ registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
       },
     },
   });
-  const out = await executeSingleAppointmentInTx(tx, ctx, payload);
+  const service=context.services.find(s=>s.serviceId===input.serviceId)!;
+  const out = await createVoiceAppointmentInTransaction(args,payload,service.priceCents*input.partySize);
   audit({
     entityType: "appointment",
     entityId: out.appointmentId,
@@ -150,8 +149,5 @@ registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
       startsAt: input.startsAt,
     },
   });
-  return {
-    appointmentId: out.appointmentId,
-    businessDate: out.businessDate,
-  };
+  return out;
 });

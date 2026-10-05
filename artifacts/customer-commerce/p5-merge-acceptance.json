@@ -1,0 +1,47 @@
+{
+  "at": "2026-10-02T16:08:29.588039+00:00",
+  "scope": "P5 explicit customer identity aliases and immutable original asset/contract ownership",
+  "migration": 181,
+  "checks": {
+    "api": {
+      "files": 7,
+      "tests": 130,
+      "path": "p5-merge-check-api.txt"
+    },
+    "web": {
+      "files": 3,
+      "tests": 12,
+      "path": "p5-merge-check-web.txt"
+    },
+    "typecheckPackages": 16,
+    "finalWebTypecheck": true,
+    "guards": true,
+    "webBuild": true,
+    "diffCheck": true,
+    "migrationEmptyAndUpgradeAndReplay": true
+  },
+  "native": {
+    "originalMembership": "0ef40a69-adf7-4425-a928-72ae89bc470e",
+    "serviceTicket": "a8bb08c2-8980-4fc4-acf1-8ef414866c2e",
+    "mergeSuccessResponseLostThenReloadRetry": true,
+    "replayHttpStatus": 200,
+    "originalFinancialRowsUnchangedByMerge": true,
+    "coveredServiceCents": 10000,
+    "newMoneyCents": 0,
+    "restoredOriginalUnits": 1,
+    "paidInvoices": 3,
+    "plannedFutureCycles": 2,
+    "originalProtectedMemberLinkWorks": true,
+    "browserErrors": 0
+  },
+  "limits": [
+    "The six-source combined merge/refund case is isolated real DB with simulated membership provider, not an additional live Stripe purchase.",
+    "The native case uses the original paid monthly membership; unrelated gift/package buyers were not merged.",
+    "Shared-phone/shared-email separation, explicit alias chains, tenant RLS and reader/exclusive-lock exclusion are covered; the full same-organization cross-store and mutation-concurrency matrix remains open.",
+    "The final UI-only adjustment preserves server alias candidates during fuzzy ranking and corrects the target label; no further merge was submitted.",
+    "Historical checkpoints remain chronological evidence; current service redemption/return ledgers include this new test."
+  ],
+  "allAcceptancePassed": false,
+  "goalComplete": false,
+  "productionPublished": false
+}

@@ -1,0 +1,94 @@
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/booking
+
+ ✓ src/pages/BookPage.test.tsx (14 tests) 23314ms
+   ✓ BookPage > adds add-on duration and reloads availability with addon ids 1661ms
+   ✓ BookPage > sends any-specialist as null and a named specialist as that id 1584ms
+   ✓ BookPage > searches past 14 days when maxDaysAhead is greater 741ms
+   ✓ BookPage > searches today+maxDaysAhead inclusive 426ms
+   ✓ BookPage > shows slot times in the shop timezone 573ms
+   ✓ BookPage > returns to time selection and reloads slots after a 409 1896ms
+   ✓ BookPage > double-click submit sends one request with one idempotency key 1168ms
+   ✓ BookPage > resets Turnstile after a failed submission 1325ms
+   ✓ BookPage > resets Turnstile after a 429 1494ms
+   ✓ BookPage > stores only minimum same-session data on success 4183ms
+   ✓ BookPage > omits the call prompt on success when the shop has no phone 2723ms
+   ✓ BookPage > books a bundle: skips specialist, queries availability by bundleId, submits bundleSelections 2607ms
+   ✓ #25 keeps the latest date when the stale request ends in success 2060ms
+   ✓ #25 keeps the latest date when the stale request ends in failure 868ms
+stderr | src/pages/ManageBookingPage.test.tsx > ManageBookingPage > shows locked and mismatch last-four errors from the mutation
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/ManageBookingPage.test.tsx > ManageBookingPage > becomes read-only and offers rebook after cancellation
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+ ✓ src/pages/ManageBookingPage.test.tsx (9 tests) 2280ms
+   ✓ ManageBookingPage > asks for last four before mutations and does not persist it 395ms
+   ✓ ManageBookingPage > shows locked and mismatch last-four errors from the mutation 319ms
+   ✓ ManageBookingPage > pages the manage calendar past 14 days when maxDaysAhead is greater 422ms
+   ✓ ManageBookingPage > updates the displayed time after a successful reschedule 534ms
+stderr | src/pages/BookingExperiencePage.test.tsx > retains a storefront selection, assigns each guest, reviews before atomic submission
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > retains a storefront selection, assigns each guest, reviews before atomic submission
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > retains a storefront selection, assigns each guest, reviews before atomic submission
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > explains unavailable times and offers another date
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > explains unavailable times and offers another date
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > books Couples Massage once for two guests instead of requiring a second paid selection
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > books Couples Massage once for two guests instead of requiring a second paid selection
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+ ✓ src/pages/BookingExperiencePage.test.tsx (4 tests) 7267ms
+   ✓ retains a storefront selection, assigns each guest, reviews before atomic submission 4090ms
+   ✓ explains unavailable times and offers another date 721ms
+   ✓ removes the chosen middle guest and preserves the remaining names and services 2043ms
+   ✓ books Couples Massage once for two guests instead of requiring a second paid selection 411ms
+ ✓ src/pages/CommercePage.test.tsx (6 tests) 773ms
+   ✓ keeps one purchase key through a failed POST and displays pending after a retry, without claiming completion 439ms
+ ✓ src/components/AppointmentDeposit.test.tsx (3 tests) 628ms
+   ✓ offers payment while clearly showing the required deposit and the remaining service amount 475ms
+ ✓ src/lib/experience.test.ts (4 tests) 71ms
+ ✓ src/lib/format.test.ts (3 tests) 36ms
+stderr | src/components/ServiceCustomizer.test.tsx > edits the actual variant and add-ons together, without saving on dismiss
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+ ✓ src/components/ServiceCustomizer.test.tsx (1 test) 1473ms
+   ✓ edits the actual variant and add-ons together, without saving on dismiss 1469ms
+ ✓ src/lib/session.test.ts (2 tests) 6ms
+ ✓ src/lib/partyGuests.test.ts (2 tests) 7ms
+ ✓ src/lib/serviceGroups.test.ts (2 tests) 8ms
+ ✓ src/lib/manageToken.test.ts (2 tests) 7ms
+ ✓ src/lib/apiScope.test.ts (1 test) 6ms
+ ✓ src/lib/embed.test.ts (1 test) 5ms
+
+ Test Files  14 passed (14)
+      Tests  54 passed (54)
+   Start at  23:08:33
+   Duration  95.66s (transform 2.27s, setup 6.16s, collect 23.18s, tests 35.88s, environment 22.03s, prepare 2.20s)
+

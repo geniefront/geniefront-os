@@ -1,0 +1,2 @@
+/tmp/commerce-item-sources-guards-final.txt
+[32m✓ 全部通过[0m

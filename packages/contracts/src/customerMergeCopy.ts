@@ -1,0 +1,9 @@
+const en={description:'Combine confirmed duplicate profiles for the same person. Keep original purchase, appointment and subscription history.',pending:'The merge result is unknown. Retry the saved selection before merging another profile.',retry:'Retry saved profile merge',done:'Profiles combined',aliases:'Linked original profiles',open:'Open merged profile'};
+type Copy=typeof en;
+const zh:Copy={description:'只合并已确认属于同一人的重复档案，并保留原购买、预约和订阅历史。',pending:'合并结果尚不确定，请先重试已保存的选择，再合并其他档案。',retry:'重试已保存的档案合并',done:'档案已合并',aliases:'关联的原始档案',open:'打开合并后的档案'};
+const hant:Copy={description:'只合併已確認屬於同一人的重複檔案，並保留原購買、預約和訂閱歷史。',pending:'合併結果尚不確定，請先重試已儲存的選擇，再合併其他檔案。',retry:'重試已儲存的檔案合併',done:'檔案已合併',aliases:'關聯的原始檔案',open:'開啟合併後的檔案'};
+const es:Copy={description:'Combina perfiles duplicados confirmados de la misma persona y conserva sus compras, citas y suscripciones originales.',pending:'El resultado es incierto. Reintenta la selección guardada antes de combinar otros perfiles.',retry:'Reintentar combinación guardada',done:'Perfiles combinados',aliases:'Perfiles originales vinculados',open:'Abrir perfil combinado'};
+const ko:Copy={description:'동일 인물로 확인된 중복 프로필만 합칩니다. 원래 구매, 예약 및 구독 기록은 보존됩니다.',pending:'병합 결과를 확인할 수 없습니다. 다른 프로필을 병합하기 전에 저장된 선택을 재시도하세요.',retry:'저장된 프로필 병합 재시도',done:'프로필이 합쳐졌습니다',aliases:'연결된 원래 프로필',open:'병합된 프로필 열기'};
+const vi:Copy={description:'Chỉ gộp hồ sơ trùng đã xác nhận là cùng một người. Giữ lịch sử mua, lịch hẹn và đăng ký gốc.',pending:'Chưa rõ kết quả gộp. Thử lại lựa chọn đã lưu trước khi gộp hồ sơ khác.',retry:'Thử lại gộp hồ sơ đã lưu',done:'Đã gộp hồ sơ',aliases:'Hồ sơ gốc được liên kết',open:'Mở hồ sơ đã gộp'};
+const copies:Record<string,Copy>={en,'zh-Hans':zh,'zh-Hant':hant,es,ko,vi};
+export function customerMergeText(locale:string,key:keyof Copy){return(copies[locale]??en)[key];}

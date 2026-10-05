@@ -1,0 +1,6 @@
+failed|{"code": "VALIDATION_FAILED", "details": {"reason": "addon_requires_primary_service"}, "message": "VALIDATION_FAILED"}
+failed|{"code": "VALIDATION_FAILED", "details": {"reason": "addon_requires_primary_service"}, "message": "VALIDATION_FAILED"}
+failed|{"code": "VALIDATION_FAILED", "details": {"reason": "addon_requires_primary_service"}, "message": "VALIDATION_FAILED"}
+failed|{"code": "VALIDATION_FAILED", "details": {"reason": "addon_requires_primary_service"}, "message": "VALIDATION_FAILED"}
+failed|{"code": "VALIDATION_FAILED", "details": {"reason": "addon_requires_primary_service"}, "message": "VALIDATION_FAILED"}
+failed|{"code": "VALIDATION_FAILED", "details": {"reason": "addon_requires_primary_service"}, "message": "VALIDATION_FAILED"}

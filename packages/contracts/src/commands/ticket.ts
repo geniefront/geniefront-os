@@ -30,12 +30,14 @@ export const voidReason = z.enum([
 
 /** 金额字段一律不进审计（宪法第 17 条） */
 const MONEY_PATHS = [
+  'membershipDiscount.items.*.expectedTotalCents', 'membershipDiscount.items.*.expectedDiscountCents',
   'subtotalCents', 'discountCents', 'taxCents', 'tipCents',
   'serviceChargeCents', 'totalCents', 'unitPriceCents', 'amountCents',
   'refundAmountCents', 'refundTipCents',
   'items.*.unitPriceCents', 'items.*.totalCents',
   'payments.*.amountCents', 'payments.*.tipCents',
   'payments.*.tenderedCents', 'payments.*.changeCents',
+  'depositApplication.amountCents',
   'allocations.*.amountCents',
   'tickets.*.totalCents', 'tickets.*.tipCents',
 ] as const;
@@ -165,7 +167,7 @@ export const paymentLine = z.object({
   changeCents: cents.nonnegative().default(0),
   /** 「不用找了」—— 找零转小费。为 true 时 changeCents 必须是 0 */
   keepChange: z.boolean().default(false),
-}).refine((p) => !p.keepChange || p.changeCents === 0, {
+}).refine(p=>p.tipCents<=p.amountCents,{message:'Tip cannot exceed the charged amount'}).refine((p) => !p.keepChange || p.changeCents === 0, {
   message: '「不用找了」时不该同时有找零',
 }).refine(
   (p) => p.method !== 'gift_card' || Boolean(p.giftCardId ?? p.giftCardCode),
@@ -202,6 +204,14 @@ const DISCOUNT_FIELD_PERMISSION = [{
   need: 'ticket.discount',
   used: (input: { discountCents?: number }) => (input.discountCents ?? 0) > 0,
 }] as const;
+export const membershipDiscountSelection=z.object({membershipId:uuid,cycleId:uuid,planVersionId:uuid,
+  items:z.array(z.object({ticketItemId:uuid,expectedTotalCents:cents.nonnegative(),expectedDiscountCents:cents.positive()})).min(1).max(100)});
+export type MembershipDiscountSelection=z.infer<typeof membershipDiscountSelection>;
+const PREPAID_FIELD_PERMISSION=[{
+  field:'payments',need:'commerce.sell',
+  used:(input:{payments?:Array<{method:string}>;storedValuePayments?:Array<{method:string}>;packageRedemptions?:unknown[];membershipRedemptions?:unknown[];membershipDiscount?:unknown;depositApplication?:unknown})=>
+    !!input.payments?.some(p=>['gift_card','customer_credit'].includes(p.method))||!!input.storedValuePayments?.some(p=>['gift_card','customer_credit'].includes(p.method))||!!input.packageRedemptions?.length||!!input.membershipRedemptions?.length||!!input.membershipDiscount||!!input.depositApplication,
+}] as const;
 
 export const TicketClose = defineCommand({
   name: 'ticket.close',
@@ -226,12 +236,16 @@ export const TicketClose = defineCommand({
       customerPackageId: uuid,
       units: z.number().int().min(1).default(1),
     })).max(10).optional(),
+    membershipRedemptions:z.array(z.object({cycleId:uuid,ticketItemIds:z.array(uuid).min(1).max(100)})).max(12).optional(),
+    membershipDiscount:membershipDiscountSelection.optional(),
+    depositApplication:z.object({holdId:uuid,amountCents:cents.positive()}).optional(),
     itemCommissionSplits: z.array(z.object({
       ticketItemId: uuid,
       staffMembershipId: uuid,
       commissionCents: cents,
     })).optional(),
     notes: z.string().max(2000).optional(),
+    expectedQuoteHash:z.string().regex(/^[a-f0-9]{64}$/).optional(),
     /** Legacy close is intentionally the after-service combined entry point. */
     paymentStage: z.literal('combined').default('combined'),
   }),
@@ -250,7 +264,7 @@ export const TicketClose = defineCommand({
     })),
   }),
   permission: 'ticket.write',
-  fieldPermissions: DISCOUNT_FIELD_PERMISSION,
+  fieldPermissions: [...DISCOUNT_FIELD_PERMISSION,...PREPAID_FIELD_PERMISSION],
   ai: {
     description: '结账。现金还是刷卡要到这一刻才知道，所以不能提前假设。',
     confirm: 'always',
@@ -268,7 +282,7 @@ export const TicketPay = defineCommand({
   }),
   output: TicketClose.output,
   permission: 'ticket.write',
-  fieldPermissions: DISCOUNT_FIELD_PERMISSION,
+  fieldPermissions: [...DISCOUNT_FIELD_PERMISSION,...PREPAID_FIELD_PERMISSION],
   ai: {
     description: '结账收银与多技师小费分账。',
     confirm: 'always',
@@ -276,6 +290,18 @@ export const TicketPay = defineCommand({
   reversible: true,
   idempotency: 'required',
   auditRedact: MONEY_PATHS,
+});
+
+export const storedValuePayment=paymentLine.refine(p=>['gift_card','customer_credit'].includes(p.method)&&p.amountCents>0,{message:'Select a positive gift-card or customer-credit amount'});
+export const TicketQuoteCheckout=defineCommand({
+ name:'ticket.quoteCheckout',
+ input:TicketPay.input.pick({ticketId:true,paymentStage:true,discountCents:true,surchargeCents:true,packageRedemptions:true,membershipRedemptions:true,membershipDiscount:true,depositApplication:true,tipSplits:true}).extend({tipCents:cents.nonnegative().default(0),storedValuePayments:z.array(storedValuePayment).max(5).default([])}),
+ output:z.object({version:z.literal(2),quoteHash:z.string(),ticketId:uuid,paymentStage,subtotalCents:cents,discountCents:cents,
+  packageCoveredCents:cents,membershipCoveredCents:cents,taxCents:cents,taxCalculationMode:z.enum(['inclusive','exclusive']),taxRatePercent:z.number(),
+  surchargeCents:cents,tipCents:cents,depositCents:cents,amountDueCents:cents,totalCents:cents,storedValueCents:cents,newMoneyDueCents:cents,
+  items:z.array(z.object({ticketItemId:uuid,totalCents:cents,discountCents:cents,coverage:z.enum(['membership','package','money'])}))}),
+ permission:'ticket.write',fieldPermissions:[...DISCOUNT_FIELD_PERMISSION,...PREPAID_FIELD_PERMISSION],
+ ai:{description:'按当前原项目和购买规则预览结账金额，不核销权益或记收款。',confirm:'never',exposed:false},reversible:false,idempotency:'optional',auditRedact:MONEY_PATHS,
 });
 
 export const TicketVoid = defineCommand({
@@ -310,7 +336,7 @@ export const TicketVoid = defineCommand({
 export const TicketGroup = defineCommand({
   name: 'ticket.group',
   input: z.object({
-    ticketIds: z.array(uuid).min(1).max(20),
+    ticketIds: z.array(uuid).min(1).max(20).refine(ids=>new Set(ids).size===ids.length,'Duplicate group ticket'),
     /** 前台看得懂的名字：「Lisa 一行 4 位」 */
     label: z.string().max(80).optional(),
     /** 传了就并进已有的组；不传就新建一个 */
@@ -345,13 +371,23 @@ export const TicketUngroup = defineCommand({
  * 想各付各的就不用这个命令，照常一张张 ticket.close。
  * 这两种在真店里天天切换，所以两条路都必须一样顺。
  */
+export const groupTicketSelection=TicketQuoteCheckout.input.omit({surchargeCents:true,tipCents:true}).extend({
+ surchargeCents:cents.nonnegative().default(0),tipCents:cents.nonnegative().optional(),
+});
+const GROUP_FIELD_PERMISSIONS=[
+ ...DISCOUNT_FIELD_PERMISSION,...PREPAID_FIELD_PERMISSION,
+ {field:'ticketSelections',need:'ticket.discount',used:(input:{ticketSelections?:Array<{discountCents?:number}>})=>!!input.ticketSelections?.some(s=>(s.discountCents??0)>0)},
+ {field:'ticketSelections',need:'commerce.sell',used:(input:{ticketSelections?:Array<{packageRedemptions?:unknown[];membershipRedemptions?:unknown[];membershipDiscount?:unknown;depositApplication?:unknown;storedValuePayments?:Array<{method:string}>}>})=>!!input.ticketSelections?.some(s=>!!s.packageRedemptions?.length||!!s.membershipRedemptions?.length||!!s.membershipDiscount||!!s.depositApplication||s.storedValuePayments?.some(p=>['gift_card','customer_credit'].includes(p.method)))},
+] as const;
 export const TicketCloseGroup = defineCommand({
   name: 'ticket.closeGroup',
   input: z.object({
     groupId: uuid,
     /** 明确要一起结的单 —— 组里可能有人先走了、有人要自己付 */
-    ticketIds: z.array(uuid).min(1).max(20),
-    payments: z.array(paymentLine).min(1).max(5),
+    ticketIds: z.array(uuid).min(1).max(20).refine(ids=>new Set(ids).size===ids.length,'Duplicate group ticket'),
+    ticketSelections:z.array(groupTicketSelection).max(20).default([]),
+    expectedQuoteHash:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    payments: z.array(paymentLine).max(5).default([]),
     /** 整组的折扣，按各单金额摊 */
     discountCents: cents.nonnegative().default(0),
     taxCents: cents.nonnegative().default(0),
@@ -375,7 +411,7 @@ export const TicketCloseGroup = defineCommand({
     })),
   }),
   permission: 'ticket.write',
-  fieldPermissions: DISCOUNT_FIELD_PERMISSION,
+  fieldPermissions: GROUP_FIELD_PERMISSIONS,
   ai: {
     description: '一个人付掉一组单。钱按各单金额摊回去，提成和小费照常各算各的。',
     confirm: 'always',
@@ -385,16 +421,45 @@ export const TicketCloseGroup = defineCommand({
   auditRedact: MONEY_PATHS,
 });
 
+export const TicketQuoteGroup=defineCommand({
+ name:'ticket.quoteGroup',
+ input:TicketCloseGroup.input.omit({expectedQuoteHash:true}).extend({tipCents:cents.nonnegative().optional()}),
+ output:z.object({version:z.literal(1),groupId:uuid,quoteHash:z.string(),readyToPay:z.boolean(),amountDueCents:cents,newMoneyDueCents:cents,
+  tipCents:cents,taxCents:cents,discountCents:cents,surchargeCents:cents,storedValueCents:cents,depositCents:cents,
+  tickets:z.array(TicketQuoteCheckout.output),tenders:z.array(z.object({ticketId:uuid,method:z.string(),amountCents:cents,tipCents:cents}))}),
+ permission:'ticket.write',fieldPermissions:GROUP_FIELD_PERMISSIONS,
+ ai:{description:'预览整组逐客权益及支付分配，不扣减资产或记账。',confirm:'never',exposed:false},
+ reversible:false,idempotency:'optional',auditRedact:MONEY_PATHS,
+});
 
+
+const ticketRefundInput = z.object({
+  ticketId: uuid,
+  refundAmountCents: cents.positive(),
+  refundTipCents: cents.nonnegative().default(0),
+  refundMethod: z.enum(['original_payment', 'cash', 'store_credit']).default('original_payment'),
+  refundItems: z.array(z.object({ticketItemId:uuid,amountCents:cents.positive()})).min(1).max(100)
+    .refine(items=>new Set(items.map(i=>i.ticketItemId)).size===items.length,'Duplicate refund item')
+    .transform(items=>items.sort((a,b)=>a.ticketItemId.localeCompare(b.ticketItemId))).optional(),
+});
+export const TicketReviewRefund = defineCommand({
+  name: 'ticket.reviewRefund',
+  input: ticketRefundInput,
+  output: z.object({
+    reviewHash: z.string(), amountCents: cents, tipCents: cents, taxCents: cents, feeCents: cents,
+    destinations: z.array(z.object({ kind: z.enum(['cash','card','gift_card','store_credit','deposit','membership','package']), amountCents: cents })),
+    itemGraphAvailable:z.boolean(),items:z.array(z.object({ticketItemId:uuid,name:z.string(),remainingCents:cents})),
+  }),
+  permission: 'ticket.refund', ai: { description: '预览服务退款的原来源和返还金额。', confirm: 'never', exposed: false },
+  reversible: false, idempotency: 'optional', auditRedact: MONEY_PATHS,
+});
 export const TicketRefund = defineCommand({
   name: 'ticket.refund',
   input: z.object({
-    ticketId: uuid,
-    refundAmountCents: cents.positive(),
-    /** 默认只退消费本身；退小费必须明确给出金额。 */
-    refundTipCents: cents.nonnegative().default(0),
+    ...ticketRefundInput.shape,
     reason: z.enum(['customer_dissatisfied', 'wrong_charge', 'accidental_duplicate', 'other']),
-    refundMethod: z.enum(['original_payment', 'cash', 'store_credit']).default('original_payment'),
+    /** Native clients submit the preview; older integrations still receive the same server allocation. */
+    reviewHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     notes: z.string().max(1000).optional(),
   }),
   output: z.object({
@@ -409,11 +474,11 @@ export const TicketRefund = defineCommand({
     confirm: 'always',
   },
   reversible: false,
-  idempotency: 'optional',
+  idempotency: 'required',
   auditRedact: MONEY_PATHS,
 });
 
 export const TICKET_COMMANDS = [
-  TicketOpen, TicketAddItem, TicketClose, TicketPay, TicketVoid,
-  TicketGroup, TicketUngroup, TicketCloseGroup, TicketRefund,
+  TicketOpen, TicketAddItem, TicketClose, TicketPay, TicketQuoteCheckout, TicketVoid,
+  TicketGroup, TicketUngroup, TicketCloseGroup, TicketQuoteGroup, TicketReviewRefund, TicketRefund,
 ] as const;

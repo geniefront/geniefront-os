@@ -1,0 +1,24 @@
+/tmp/commerce-item-sources-api-final.txt
+ ✓ src/commerce.test.ts (46 tests) 17379ms
+ ✓ src/customerMemberships.test.ts (36 tests) 9910ms
+ ✓ src/appointmentDeposits.test.ts (29 tests) 4149ms
+ ✓ src/bundle.test.ts (34 tests) 1065ms
+ ✓ src/money.test.ts (16 tests) 950ms
+ ✓ src/giftcard.test.ts (22 tests) 629ms
+ Test Files  6 passed (6)
+      Tests  183 passed (183)
+   Duration  52.90s (transform 2.31s, setup 15.13s, collect 3.45s, tests 34.08s, environment 0ms, prepare 54ms)
+/tmp/commerce-item-sources-api-entrypoints.txt
+ ✓ src/public.test.ts (98 tests) 9890ms
+ ✓ src/voice.test.ts (18 tests) 1453ms
+ ✓ src/appointmentGuestCancellation.test.ts (10 tests) 1405ms
+ ✓ src/voiceV2.test.ts (18 tests) 3283ms
+ ✓ src/voiceDeposits.test.ts (8 tests) 1211ms
+ ✓ src/workstations_backend.test.ts (15 tests) 234ms
+ ✓ src/appointmentDepositRetention.test.ts (10 tests) 1258ms
+ ✓ src/commercePayouts.test.ts (11 tests) 410ms
+ ✓ src/publicDeposits.test.ts (4 tests) 683ms
+ ✓ src/ticketLifecycle.test.ts (2 tests) 0ms
+ Test Files  10 passed (10)
+      Tests  194 passed (194)
+   Duration  40.12s (transform 3.05s, setup 14.24s, collect 5.88s, tests 19.83s, environment 0ms, prepare 38ms)

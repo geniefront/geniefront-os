@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-02T11:03:05.751Z",
+  "preservedPaymentFingerprint": "14:0e6bc4cceb3a1ab766cc1486efff59e4",
+  "unchangedSinceBeforeMigration": true,
+  "payments": 14,
+  "migrations": 178,
+  "original_sources": 2,
+  "original_receipts": 2,
+  "return_slices": 3,
+  "reset": false,
+  "productionChanged": false
+}

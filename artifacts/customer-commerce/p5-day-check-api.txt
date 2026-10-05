@@ -1,0 +1,56 @@
+$ vitest run src/commerce.test.ts src/money.test.ts src/customerMemberships.test.ts src/appointmentDeposits.test.ts src/core_loop.test.ts src/v1Issues.test.ts src/appointmentGuestCancellation.test.ts src/appointmentDepositRetention.test.ts src/workstations_backend.test.ts src/giftcard.test.ts src/commercePayouts.test.ts src/bundle.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+{"level":30,"time":1790954763815,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","req":{"id":"req-1","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","stripe-signature":"t=1790954763,v1=31119455ea7889cb123fd20fe2ffcb366a627d96d32411ac7f027fdd6632f26d","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790954763817,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","res":{"statusCode":200},"responseTime":0.7418330000000424,"msg":"request completed"}
+{"level":30,"time":1790954763817,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","req":{"id":"req-2","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790954763817,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790954763817,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","res":{"statusCode":401},"responseTime":0.43125000000009095,"msg":"request completed"}
+{"level":30,"time":1790954763817,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","req":{"id":"req-3","method":"POST","url":"/v1/commerce/accounts/refresh","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"57"}},"msg":"incoming request"}
+{"level":30,"time":1790954763818,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790954763818,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","res":{"statusCode":401},"responseTime":0.1622920000004342,"msg":"request completed"}
+ ✓ src/commerce.test.ts (53 tests) 4714ms
+   ✓ accepts signed thin events through the complete server auth stack and keeps account administration protected 477ms
+   ✓ reconciles prepaid cash sales and original purchase refunds without counting service use as new cash 351ms
+ ✓ src/customerMemberships.test.ts (37 tests) 7052ms
+   ✓ keeps the original expiry when a fully returned service restores a membership unit after its period has ended 2345ms
+   ✓ conserves membership, package, discount, deposit, gift, credit, cash, tax, fee and tips through three original-source returns 453ms
+   ✓ conserves all six payment sources across a quoted three-ticket group and each original service return 630ms
+ ✓ src/core_loop.test.ts (22 tests) 1956ms
+ ✓ src/appointmentDeposits.test.ts (29 tests) 1786ms
+ ✓ src/bundle.test.ts (34 tests) 1194ms
+ ✓ src/money.test.ts (22 tests) 1990ms
+{"level":30,"time":1790954790970,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","req":{"id":"req-1","method":"POST","url":"/public/v1/bookings/9864f139-df83-41f5-b685-af1a2afb7fa2/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790954790982,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","code":"NOT_FOUND","details":{"entity":"booking"},"msg":"business error"}
+{"level":30,"time":1790954790982,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","res":{"statusCode":404},"responseTime":11.809625000001688,"msg":"request completed"}
+{"level":30,"time":1790954790982,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","req":{"id":"req-2","method":"POST","url":"/public/v1/bookings/9864f139-df83-41f5-b685-af1a2afb7fa2/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790954790994,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","code":"PERMISSION_DENIED","details":{"reason":"last4_mismatch","attemptsLeft":2,"shopPhone":null},"msg":"business error"}
+{"level":30,"time":1790954790995,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","res":{"statusCode":403},"responseTime":12.328583000002254,"msg":"request completed"}
+{"level":30,"time":1790954790995,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","req":{"id":"req-3","method":"POST","url":"/public/v1/bookings/9864f139-df83-41f5-b685-af1a2afb7fa2/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790954791014,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","code":"VALIDATION_FAILED","details":{"reason":"deposit_guest_refund_quote_changed","amountCents":1176},"msg":"business error"}
+{"level":30,"time":1790954791014,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","res":{"statusCode":400},"responseTime":19.477209000000585,"msg":"request completed"}
+{"level":30,"time":1790954791016,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-4","req":{"id":"req-4","method":"POST","url":"/public/v1/bookings/9864f139-df83-41f5-b685-af1a2afb7fa2/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790954791072,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-4","res":{"statusCode":200},"responseTime":55.90783400000146,"msg":"request completed"}
+{"level":30,"time":1790954791072,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-5","req":{"id":"req-5","method":"POST","url":"/public/v1/bookings/9864f139-df83-41f5-b685-af1a2afb7fa2/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790954791094,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-5","res":{"statusCode":200},"responseTime":21.629375000000437,"msg":"request completed"}
+{"level":30,"time":1790954791094,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-6","req":{"id":"req-6","method":"POST","url":"/public/v1/bookings/9864f139-df83-41f5-b685-af1a2afb7fa2/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"205"}},"msg":"incoming request"}
+{"level":30,"time":1790954791107,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-6","code":"IDEMPOTENCY_KEY_REUSED","details":{"reason":"different_request"},"msg":"business error"}
+{"level":30,"time":1790954791107,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-6","res":{"statusCode":409},"responseTime":13.06408300000112,"msg":"request completed"}
+{"level":30,"time":1790954791123,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-7","req":{"id":"req-7","method":"POST","url":"/public/v1/bookings/9864f139-df83-41f5-b685-af1a2afb7fa2/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"206"}},"msg":"incoming request"}
+{"level":30,"time":1790954791191,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-7","res":{"statusCode":200},"responseTime":68.10358300000007,"msg":"request completed"}
+{"level":30,"time":1790954791191,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-8","req":{"id":"req-8","method":"POST","url":"/public/v1/bookings/9864f139-df83-41f5-b685-af1a2afb7fa2/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"206"}},"msg":"incoming request"}
+{"level":30,"time":1790954791205,"pid":93393,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-8","res":{"statusCode":200},"responseTime":13.164582999997947,"msg":"request completed"}
+ ✓ src/appointmentGuestCancellation.test.ts (10 tests) 1425ms
+   ✓ authenticates customer partial cancellation by token and last4 and keeps customer provenance without a staff actor 307ms
+ ✓ src/workstations_backend.test.ts (15 tests) 209ms
+ ✓ src/appointmentDepositRetention.test.ts (10 tests) 1296ms
+ ✓ src/giftcard.test.ts (22 tests) 727ms
+ ✓ src/v1Issues.test.ts (13 tests) 424ms
+ ✓ src/commercePayouts.test.ts (11 tests) 386ms
+
+ Test Files  12 passed (12)
+      Tests  278 passed (278)
+   Start at  11:26:00
+   Duration  41.04s (transform 1.06s, setup 15.67s, collect 2.08s, tests 23.16s, environment 0ms, prepare 26ms)
+

@@ -1,0 +1,10 @@
+{
+  "at": "2026-10-02T16:28:35.045Z",
+  "paymentCount": 14,
+  "onlyExpectedOriginalPaymentChange": "Original retained deposit payment status paid -> refunded after cumulative 2000-cent refund",
+  "originalPaymentFactsOtherwiseUnchanged": true,
+  "count": 14,
+  "original_facts_hash": "0e6bc4cceb3a1ab766cc1486efff59e4",
+  "current_hash": "99c54d5375794365efd655bf0a22cfda",
+  "newPaymentCreated": false
+}

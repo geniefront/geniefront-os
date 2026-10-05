@@ -1,0 +1,10 @@
+{
+  "at": "2026-10-03T02:27:26.952Z",
+  "originalFullyReturned": true,
+  "supplementStillAvailable": {
+    "status": "review",
+    "appointment_status": "cancelled",
+    "deposit_status": "review",
+    "available": 1800
+  }
+}

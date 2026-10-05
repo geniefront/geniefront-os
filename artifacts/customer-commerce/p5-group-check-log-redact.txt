@@ -1,0 +1,11 @@
+$ vitest run src/logRedact.unit.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ✓ src/logRedact.unit.test.ts (2 tests) 61ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  10:47:28
+   Duration  2.15s (transform 23ms, setup 1.89s, collect 63ms, tests 61ms, environment 0ms, prepare 36ms)
+

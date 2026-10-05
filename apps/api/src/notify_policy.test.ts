@@ -45,6 +45,7 @@ const VARS = {
 };
 
 let customerId = '';
+const notificationAppointmentIds:string[]=[];
 
 async function setTenDlc(tx: Tx, status: string): Promise<void> {
   await tx`
@@ -86,7 +87,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await withTenant(tenant, (tx) => tx`delete from customers where id = ${customerId}`);
+  await withTenant(tenant, async tx => {
+    for(const id of notificationAppointmentIds)await tx`delete from appointments where id=${id}`;
+    await tx`delete from customers where id=${customerId}`;
+  });
   await closeDb();
 });
 
@@ -261,9 +265,14 @@ describe('营销邮件的发件域名闸门', () => {
 });
 
 describe('预约邮件抄送门店', () => {
-  it('默认抄送一份，正文与顾客那封逐字相同，标题带 Copy 前缀', async () => {
+  it('旧抄送开关发独立门店收据，不复制顾客私有管理链接', async () => {
     const entityId = freshEntity();
+    notificationAppointmentIds.push(entityId);
     await withTenant(tenant, async (tx) => {
+      await tx`insert into appointments(id,org_id,location_id,customer_id,business_date,starts_at,ends_at,source)
+        values(${entityId},${NAIL_ORG},${NAIL_LOC},${customerId},(now()+interval '2 days')::date,now()+interval '2 days',now()+interval '2 days 30 minutes','web')`;
+      await tx`update locations set settings=jsonb_set(settings,'{public_booking_profile}',
+        coalesce(settings->'public_booking_profile','{}'::jsonb)||'{"shopNotifications":{"email":false,"sms":false}}'::jsonb) where id=${NAIL_LOC}`;
       await tx`update locations set appointment_email_copy_to_shop = true,
                                     email = 'shop@maildrop.cc'
                where id = ${NAIL_LOC}`;
@@ -271,7 +280,7 @@ describe('预约邮件抄送门店', () => {
       await notifyEvent(tx, ctx, {
         event: 'appointment_changed',
         entityType: 'customer', entityId,
-        vars: VARS, toEmail: 'policy-test@maildrop.cc', toPhone: null,
+        vars: {...VARS,manage_url:'https://book.example.test/booking#mt_customer_private_test'}, toEmail: 'policy-test@maildrop.cc', toPhone: null,
         locale: 'en',
       });
     });
@@ -287,9 +296,11 @@ describe('预约邮件抄送门店', () => {
     const shop = rows.find((r) => r.entity_type === 'customer_shop')!;
 
     expect(shop.to_email).toBe('shop@maildrop.cc');
-    // 正文逐字相同 —— 顾客打电话来问「你们信上写的几点」时要对得上
-    expect(shop.body_text).toBe(cust.body_text);
-    expect(shop.subject).toBe(`Copy: ${cust.subject}`);
+    expect(cust.body_text).toContain('mt_customer_private_test');
+    expect(shop.body_text).not.toContain('mt_customer_private_test');
+    expect(shop.body_text).toContain('Policy Test');
+    expect(shop.body_text).not.toBe(cust.body_text);
+    expect(shop.subject).not.toMatch(/^Copy:/);
   });
 
   it('关掉之后不再抄送', async () => {

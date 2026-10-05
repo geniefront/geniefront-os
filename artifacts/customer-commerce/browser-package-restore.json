@@ -1,0 +1,12 @@
+{
+  "at": "2026-09-30T23:13:50.989Z",
+  "fixtureOnly": true,
+  "stripePaymentVerified": false,
+  "amount_cents": 68000,
+  "total_sessions": 10,
+  "remaining_sessions": 10,
+  "available_units": "{[0,10)}",
+  "net_quantity": 10,
+  "net_value": 68000,
+  "restorations": 1
+}

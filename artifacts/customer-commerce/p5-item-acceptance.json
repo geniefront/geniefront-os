@@ -1,0 +1,102 @@
+{
+  "at": "2026-10-02T12:49:29.111872+00:00",
+  "scope": "P5 per-execution original-source refunds and funded commission returns; full P0–P6/A01–A22 goal remains active",
+  "phaseComplete": false,
+  "goalComplete": false,
+  "productionPublished": false,
+  "runtimePreservedDatabaseMigration": 179,
+  "stageMigration": 179,
+  "migrationPromoted": true,
+  "checks": {
+    "apiFiles": 16,
+    "apiTests": 378,
+    "apiBatches": [
+      183,
+      194
+    ],
+    "webFiles": 13,
+    "webTests": 68,
+    "payrollFiles": 10,
+    "payrollTests": 159,
+    "typecheckPackages": 16,
+    "guards": true,
+    "diffCheck": true,
+    "buildWeb": true,
+    "migrationEmptyUpgradeReplay": true,
+    "itemRlsAppendOnlyAndCompleteCommissionGuard": true,
+    "bundledUnitPartialReturnDoesNotRestoreEarly": true,
+    "originalPaymentCount": 14,
+    "originalPaymentFingerprintPreserved": true,
+    "advisorErrors": 0,
+    "advisorExistingWarnings": 33,
+    "advisorNewItemGraphFindings": 0,
+    "subsequentMoneyQueryRegressionTests": 17,
+    "apiLatestFileCountsSupersedeEarlierCounts": true,
+    "finalApiAndWebTypecheck": true
+  },
+  "native": {
+    "ticketId": "62e6aa53-3068-45d5-9cfa-cd00d3dd2b90",
+    "checkoutAndThreeRefundsThroughExistingFrontend": true,
+    "originalStripePurchaseReused": true,
+    "originalPurchaseCents": 50000,
+    "originalPurchaseRefundCents": 45000,
+    "offlineQaCashReceiptCents": 21000,
+    "newStripePaymentCreated": false,
+    "selectedRefundsCents": [
+      10000,
+      8000,
+      13000
+    ],
+    "commissionBasesAfterEachCents": [
+      20000,
+      12000,
+      0
+    ],
+    "tipBalancesAfterEachCents": [
+      1000,
+      1000,
+      0
+    ],
+    "cashRefundsTotalCents": 21000,
+    "unitRestores": 1,
+    "remainingUnitRange": "[0,1)",
+    "buyerExistingReceiptLinkReused": true,
+    "newBuyerAccessTokenIssued": false,
+    "buyerCurrentRemainingUnits": 1,
+    "viewport": [
+      390,
+      844
+    ],
+    "horizontalOverflow": false,
+    "footerButtonsInsideDialog": true,
+    "browserErrors": 0,
+    "tipReturnRequiresExplicitSelection": true,
+    "displayedReceiptNumberSearchVerified": true
+  },
+  "history": {
+    "priorCheckpointsPreserved": true,
+    "originalPackageRestoredUnitReused": true,
+    "legacyUnknownItemFactsRequireReview": true,
+    "legacyAmountOnlyRefundStillAvailableWhenOriginalSourcesAreKnown": true
+  },
+  "externalBlockers": [
+    {
+      "scope": "successful sandbox payout and actual automatic batch",
+      "condition": "Merchant has not selected the official successful test bank",
+      "readOnlyDiscoveryRechecked": true
+    }
+  ],
+  "observedFollowups": [],
+  "nextRequired": [
+    "Single server checkout quote/reconfirmation across independent checkout, inline queue and grouped/appointment entries",
+    "Full cross-store/currency, customer merge, unlimited, notifications and four-module day-close matrices",
+    "P1 successful payout/automatic batch after test bank correction",
+    "P3 pending changes/reschedule supplements/retention reversal/physical voice acceptance",
+    "P4 next-period plan changes/complete calendar and termination/external-refund lifecycle matrices",
+    "P6 all A01–A22 gates and full language/role/offline matrices"
+  ],
+  "correctedDuringAcceptance": [
+    "Refund tips defaulted to checked despite explicit-choice copy; now defaults to unchecked on open/full selection, native verified.",
+    "Displayed ORD receipt search did not match the server UUID-only filter; both row/count filters now match displayed numbers; isolated API regression and original native ticket search verified."
+  ]
+}

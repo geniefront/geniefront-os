@@ -7,14 +7,15 @@
  */
 
 import type postgres from 'postgres';
-import { pickText, type CommandContext } from '@gf/contracts';
+import { pickText, type CommandContext,type CommerceDaySummary,commerceDayExportRows } from '@gf/contracts';
 import {
   settleDayPay, planTipPayouts, reconcileCash, VARIANCE_REASON_THRESHOLD_CENTS,
-  type CashCount,
+  type CashCount,commerceFingerprint,
 } from '@gf/payroll';
 import { shiftRealMinutes } from '@gf/scheduling';
 import { loadPlans } from '../money';
-import { loadDayMoney, loadCashTipOwed } from '../handlers/dayclose';
+import {loadCommerceDay} from './commerceDay';
+import { loadDayMoney, loadCashTipOwed,type DayMoney } from '../handlers/dayclose';
 
 // ─────────────────────────────────────────────────────── 技师当日收入看板
 
@@ -173,12 +174,10 @@ export interface DayCloseSnapshot {
   cardTerminalCents: number | null;
   cardVarianceCents: number | null;
   cardVarianceReason: string | null;
-  money: {
-    grossCents: number; discountCents: number; netCents: number; taxCents: number;
-    cashTakeCents: number; cardTakeCents: number;
-    tipCashCents: number; tipCardCents: number;
-    movementsCents: number; tipPaidOutCents: number;
-  };
+  money:DayMoney;
+  latestMoney:DayMoney;
+  closedSnapshotAvailable:boolean;
+  hasPostCloseChanges:boolean;
   openTicketCount: number;
   movements: Array<{
     id: string; kind: string; amountCents: number; note: string | null; at: string;
@@ -209,7 +208,11 @@ export async function loadDayClose(
            card_variance_cents as card_variance, card_variance_reason as card_reason
     from day_closes where location_id = ${ctx.locationId} and business_date = ${businessDate}`;
 
-  const money = await loadDayMoney(tx, ctx.locationId, businessDate);
+  const latestMoney = await loadDayMoney(tx, ctx.locationId, businessDate);
+  const [sealed]=dc?.status==='closed'?await tx<{snapshot:{money?:DayMoney}}[]>`select snapshot from day_close_events where location_id=${ctx.locationId} and business_date=${businessDate} and event_type='closed' order by generation desc limit 1`:[];
+  const frozenMoney=sealed?.snapshot.money?.commerce?.version===1?sealed.snapshot.money:undefined;
+  const money=frozenMoney??latestMoney;
+  const hasPostCloseChanges=!!frozenMoney&&commerceFingerprint(frozenMoney)!==commerceFingerprint(latestMoney);
   const opening = dc?.opening ?? 0;
   const closing = dc?.closing ?? 20000;
   const counted = dc?.counted ?? null;
@@ -274,13 +277,7 @@ export async function loadDayClose(
     cardTerminalCents: dc?.card_terminal ?? null,
     cardVarianceCents: dc?.card_variance ?? null,
     cardVarianceReason: dc?.card_reason ?? null,
-    money: {
-      grossCents: money.grossCents, discountCents: money.discountCents,
-      netCents: money.netCents, taxCents: money.taxCents,
-      cashTakeCents: money.cashTakeCents, cardTakeCents: money.cardTakeCents,
-      tipCashCents: money.tipCashCents, tipCardCents: money.tipCardCents,
-      movementsCents: money.movementsCents, tipPaidOutCents: money.tipPaidOutCents,
-    },
+    money,latestMoney,closedSnapshotAvailable:!!frozenMoney,hasPostCloseChanges,
     openTicketCount: money.openTicketCount,
     movements: movements.map((m) => ({
       id: m.id, kind: m.kind, amountCents: m.amount_cents, note: m.note, at: m.at,
@@ -369,6 +366,7 @@ export interface ReportCoverage {
 }
 
 export interface Report {
+  commerce?:CommerceDaySummary;
   fromDate: string;
   toDate: string;
   summary: ReportRow;
@@ -606,6 +604,7 @@ export async function loadReport(
 
   return {
     fromDate, toDate, summary, coverage, byDay,
+    commerce:await loadCommerceDay(tx,ctx.locationId,fromDate,toDate),
     byStaff: [...staffMap.values()].sort((a, b) => b.serviceRevenueCents - a.serviceRevenueCents),
     byService: services.map((s) => ({
       key: s.name, label: s.name, count: s.n, grossCents: s.gross,
@@ -697,6 +696,8 @@ export function reportToCsv(r: Report): string {
   row('按项目');
   row('项目', '次数', '营业额');
   for (const s of r.byService) row(s.label, s.count, money(s.grossCents));
+
+  if(r.commerce)for(const values of commerceDayExportRows(r.commerce))row(...values);
 
   // ﻿：不带 BOM 的话 Excel 打开中文列名是乱码，
   // 而门店的第一反应会是「这系统导出的东西有问题」

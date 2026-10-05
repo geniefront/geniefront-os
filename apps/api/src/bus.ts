@@ -15,6 +15,8 @@ import { planAllowsCommand } from '@gf/contracts';
  */
 
 import type { ZodTypeAny, z } from 'zod';
+import { createHash } from 'node:crypto';
+import { commerceFingerprint } from '@gf/payroll';
 import type postgres from 'postgres';
 import { withTenant, jsonb } from '@gf/db';
 import {
@@ -47,6 +49,23 @@ interface Registered {
 }
 
 const handlers = new Map<string, Registered>();
+const financialCommands=new Set(['customer.merge','giftcard.issue','giftcard.redeem','giftcard.refund','giftcard.adjust','giftcard.disable','giftcard.reissue',
+  'package.issue','package.redeem','package.restore','marketing.issuePackage','marketing.redeemPackage','ticket.pay','ticket.close','ticket.closeGroup','ticket.group','ticket.ungroup','ticket.refund','appointment.cancelGuests','appointment.addItem','appointment.replaceItem']);
+function financialCommandFingerprint(command:string,input:unknown):string|null{
+  const voiceDeposit=command==='voice.submitBooking'&&!!input&&typeof input==='object'&&'depositConsent' in input;
+  if(!command.startsWith('commerce.')&&!financialCommands.has(command)&&!voiceDeposit)return null;
+  // Event provenance was added after refund receipts existed. It does not change the refund's financial intent.
+  if(command==='commerce.completeRefund'&&input&&typeof input==='object'){
+    const {event:_,...financial}=input as Record<string,unknown>;input=financial;
+  }
+  if(command==='commerce.recordPayout'&&input&&typeof input==='object'){
+    const {observedAt:_,event:__,...financial}=input as Record<string,unknown>;input=financial;
+  }
+  if(command==='commerce.completeMembershipTermination'&&input&&typeof input==='object'){
+    const {observedAt:_,eventId:__,eventType:___,...financial}=input as Record<string,unknown>;input=financial;
+  }
+  return createHash('sha256').update(commerceFingerprint(input)).digest('hex');
+}
 
 export function registerHandler<TIn extends ZodTypeAny, TOut extends ZodTypeAny>(
   def: CommandDef<TIn, TOut>,
@@ -160,7 +179,10 @@ export async function dispatch<T = unknown>(
       // ── 3.5 订阅闸门 ────────────────────────────────────────────────────
       await assertSubscriptionAllowsWrite(tx, ctx, commandName);
       const [planAccount] = await tx<{ plan: string }[]>`select plan from billing_accounts where location_id=${ctx.locationId}`;
-      if (!planAllowsCommand(planAccount?.plan, commandName)) {
+      const commerceFact=def.system===true && ['commerce.withdrawMembershipChange','commerce.completeMembershipChangeWithdrawal','commerce.bindMembershipChange','commerce.completeMembershipTermination','commerce.authorizeMembershipPortal','commerce.recordMembershipState','commerce.recordMembershipInvoice','commerce.bindMembershipCustomer','commerce.grantMembershipCycles','commerce.recordPayment','commerce.completeRefund','commerce.claimTask',
+        'commerce.finishTask','commerce.issueAccess','commerce.saveAccount','commerce.disconnectAccount','commerce.recordRisk','commerce.recordPayout','commerce.recordPayoutTransaction','commerce.savePayoutScan','commerce.renewTaskLease','commerce.recordSettlement','commerce.expireOrder','commerce.expireAppointmentHold','commerce.expireDepositRequest'].includes(commandName);
+      const commerceRecovery=['commerce.manageMembershipAccess','giftcard.disable','giftcard.reissue','commerce.resendNotice','package.restore','commerce.terminateMembership','commerce.refundMembership','commerce.requestRefund','commerce.refundExcessDeposit','commerce.applyExternalRefund','commerce.confirmOfflineRefund','commerce.retainAppointmentDeposit','commerce.releaseDepositRetention','commerce.retryTask','commerce.refreshPayouts'].includes(commandName);
+      if (!planAllowsCommand(planAccount?.plan, commandName) && !commerceFact && !commerceRecovery) {
         throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { reason: 'plan_feature_unavailable', commandName } });
       }
       if (planAccount?.plan === 'voice_booking' && commandName === 'settings.saveSetupFeatures'
@@ -178,8 +200,9 @@ export async function dispatch<T = unknown>(
         // 然后各自写业务数据，最后才在幂等表唯一键处撞车。
         await tx`select pg_advisory_xact_lock(
           hashtext(${ctx.locationId}), hashtext(${key}))`;
-        const hit = await tx<{ result_json: unknown; command: string }[]>`
-          select result_json, command from command_idempotency
+        const fingerprint = financialCommandFingerprint(commandName,parsed.data);
+        const hit = await tx<{ result_json: unknown; command: string; input_fingerprint:string|null }[]>`
+          select result_json, command, input_fingerprint from command_idempotency
           where location_id = ${ctx.locationId} and key = ${key}`;
         if (hit.length > 0) {
           // 同一个幂等键用在不同命令上，多半是客户端 bug，不能静默返回上一个结果
@@ -187,6 +210,9 @@ export async function dispatch<T = unknown>(
             throw new AppError(ERROR_CODES.IDEMPOTENCY_KEY_REUSED, {
               details: { key, usedBy: hit[0]!.command, attempted: commandName },
             });
+          }
+          if (fingerprint && hit[0]!.input_fingerprint && fingerprint !== hit[0]!.input_fingerprint) {
+            throw new AppError(ERROR_CODES.IDEMPOTENCY_KEY_REUSED, { details: { reason:'different_request' } });
           }
           return { result: hit[0]!.result_json as T, replayed: true };
         }
@@ -222,8 +248,9 @@ export async function dispatch<T = unknown>(
       // ── 6. 记幂等 ──────────────────────────────────────────────────────────
       if (key) {
         await tx`
-          insert into command_idempotency (location_id, key, command, result_json)
-          values (${ctx.locationId}, ${key}, ${commandName}, ${jsonb(result)}::jsonb)`;
+          insert into command_idempotency (location_id, key, command, result_json, input_fingerprint)
+          values (${ctx.locationId}, ${key}, ${commandName}, ${jsonb(result)}::jsonb,
+            ${financialCommandFingerprint(commandName,parsed.data)})`;
       }
 
       return {
@@ -247,7 +274,9 @@ export const registeredCommands = (): AnyCommandDef[] => [...handlers.values()].
  * 那是个把自己锁在门外的死结。`setup.` 同理：认领门店这一步
  * 发生在订阅刚建出来、webhook 还没回来的那几秒。
  */
-const WRITE_ALLOWED_WHILE_PAST_DUE = ['billing.', 'setup.', 'support.', 'call.record', 'call.attachTranscript', 'call.queueRecording', 'call.claimRecording', 'call.completeRecording', 'call.failRecording'] as const;
+const WRITE_ALLOWED_WHILE_PAST_DUE = ['billing.', 'setup.', 'support.', 'call.record', 'call.attachTranscript', 'call.queueRecording', 'call.claimRecording', 'call.completeRecording', 'call.failRecording',
+  'commerce.withdrawMembershipChange','commerce.completeMembershipChangeWithdrawal','commerce.bindMembershipChange','commerce.completeMembershipTermination','commerce.authorizeMembershipPortal','commerce.recordMembershipState', 'commerce.recordMembershipInvoice', 'commerce.bindMembershipCustomer', 'commerce.grantMembershipCycles', 'commerce.recordPayment', 'commerce.completeRefund', 'commerce.claimTask', 'commerce.finishTask',
+  'commerce.manageMembershipAccess','giftcard.disable','giftcard.reissue','commerce.resendNotice','package.restore','commerce.issueAccess', 'commerce.terminateMembership','commerce.refundMembership','commerce.requestRefund','commerce.refundExcessDeposit', 'commerce.applyExternalRefund','commerce.confirmOfflineRefund','commerce.retainAppointmentDeposit','commerce.releaseDepositRetention','commerce.retryTask','commerce.refreshPayouts', 'commerce.saveAccount', 'commerce.saveSettings','commerce.disconnectAccount','commerce.recordRisk','commerce.recordPayout','commerce.recordPayoutTransaction','commerce.savePayoutScan','commerce.renewTaskLease','commerce.recordSettlement','commerce.expireOrder','commerce.expireAppointmentHold','commerce.expireDepositRequest'] as const;
 
 /**
  * 订阅欠费 → **冻结写入，读操作照常**（批 1，docs/03 Phase 2.9）。

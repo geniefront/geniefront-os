@@ -13,25 +13,29 @@ import '../handlers/voiceProcessing';
 
 /** Recover late/missed provider callbacks. The recording ID remains in Telnyx storage. */
 export async function reconcileVoiceRecordings() {
+  const failed: string[] = [];
   for (const r of await recentRecordings()) {
-    const at = new Date(r.recording_started_at);
-    const ended = Date.parse(r.recording_ended_at ?? r.created_at);
-    if (!Number.isFinite(at.getTime()) || !Number.isFinite(ended) || ended < Date.now() - 24 * 3600_000
-      || !r.call_session_id || !/^\+[1-9]\d{7,14}$/.test(r.to ?? '')) continue;
-    const t = await tenantForPhoneNumber(r.to);
-    if (!t?.assistantId?.startsWith('agent_')) continue;
-    const ctx: CommandContext = { ...t, membershipId: null, userId: '00000000-0000-4000-8000-000000000000',
-      actorKind: 'api', locale: 'en', permissions: new Set(['call.draft']) };
-    const known = await withTenant(ctx, tx => tx`select id from voice_processing_jobs where location_id=${t.locationId} and provider_call_id=${r.call_session_id}`);
-    if (known.length) continue;
-    const boundary = await recordingBoundary(r as import('./directSip').RecordingIdentity);
-    if (boundary === null) continue;
-    await dispatch('call.queueRecording', { providerCallId: r.call_session_id, recordingId: r.id, to: r.to,
-      ...(typeof r.from === 'string' && /^\+[1-9]\d{7,14}$/.test(r.from) ? { from: r.from } : {}),
-      startedAt: at.toISOString(), durationSeconds: Math.ceil(Number(r.duration_millis) / 1000),
-      suppressNotification: Date.now() - ended > 15 * 60_000, ...boundary }, ctx,
-    { systemOrigin: 'voice_recording_reconcile' });
+    try {
+      const at = new Date(r.recording_started_at);
+      const ended = Date.parse(r.recording_ended_at ?? r.created_at);
+      if (!Number.isFinite(at.getTime()) || !Number.isFinite(ended) || ended < Date.now() - 24 * 3600_000
+        || !r.call_session_id || !/^\+[1-9]\d{7,14}$/.test(r.to ?? '')) continue;
+      const t = await tenantForPhoneNumber(r.to);
+      if (!t?.assistantId?.startsWith('agent_')) continue;
+      const ctx: CommandContext = { ...t, membershipId: null, userId: '00000000-0000-4000-8000-000000000000',
+        actorKind: 'api', locale: 'en', permissions: new Set(['call.draft']) };
+      const known = await withTenant(ctx, tx => tx`select id from voice_processing_jobs where location_id=${t.locationId} and provider_call_id=${r.call_session_id}`);
+      if (known.length) continue;
+      const boundary = await recordingBoundary(r as import('./directSip').RecordingIdentity);
+      if (boundary === null) continue;
+      await dispatch('call.queueRecording', { providerCallId: r.call_session_id, recordingId: r.id, to: r.to,
+        ...(typeof r.from === 'string' && /^\+[1-9]\d{7,14}$/.test(r.from) ? { from: r.from } : {}),
+        startedAt: at.toISOString(), durationSeconds: Math.ceil(Number(r.duration_millis) / 1000),
+        suppressNotification: Date.now() - ended > 15 * 60_000, ...boundary }, ctx,
+      { systemOrigin: 'voice_recording_reconcile' });
+    } catch { failed.push(String(r.id)); }
   }
+  if (failed.length) throw new Error(`Recording reconciliation failed for ${failed.length} recording(s): ${failed.join(', ')}`);
 }
 
 export async function processVoiceRecordings(app: Pick<FastifyInstance, 'log'>) {
@@ -63,6 +67,13 @@ export async function processVoiceRecordings(app: Pick<FastifyInstance, 'log'>) 
     }
   }
 }
+export async function reconcileVoiceSources(app: Pick<FastifyInstance, 'log'>) {
+  // Independent stages: a CDR failure must not stop available audio importing.
+  for (const reconcile of [reconcileDirectSipCalls, reconcileVoiceRecordings]) {
+    try { await reconcile(); }
+    catch (error) { app.log.warn({ stage: reconcile.name, reason: error instanceof Error ? error.message : 'unknown' }, 'Voice recording reconciliation will retry'); }
+  }
+}
 export function startVoiceProcessing(app: FastifyInstance) {
   if (!process.env.XAI_API_KEY) return;
   let busy = false;
@@ -70,8 +81,8 @@ export function startVoiceProcessing(app: FastifyInstance) {
   const run = async () => { if (busy) return; busy = true;
     try {
       if (Date.now() - reconciledAt > 30_000) {
-        try { await reconcileDirectSipCalls(); await reconcileVoiceRecordings(); reconciledAt = Date.now(); }
-        catch { app.log.warn('Voice recording reconciliation will retry'); }
+        await reconcileVoiceSources(app);
+        reconciledAt = Date.now();
       }
       await processVoiceRecordings(app);
     } catch { app.log.error('Voice recording worker failed'); }

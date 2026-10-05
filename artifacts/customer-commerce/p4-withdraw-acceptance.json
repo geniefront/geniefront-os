@@ -1,0 +1,64 @@
+{
+  "at": "2026-10-02T22:01:05.303154+00:00",
+  "scope": "P4 pending plan withdrawal with original-subscription Stripe schedule release and native response-loss recovery",
+  "migration": 185,
+  "checks": {
+    "apiFiles": 4,
+    "apiTests": 137,
+    "finalMembershipTests": 54,
+    "otherApiTestsCarriedFromSameBatch": 83,
+    "bookingFiles": 3,
+    "bookingTests": 17,
+    "webFiles": 1,
+    "webTests": 3,
+    "contractFiles": 19,
+    "contractTests": 97,
+    "typecheckPackages": 16,
+    "guards": true,
+    "diff": true,
+    "bookingBuild": true,
+    "webBuild": true,
+    "migrationEmptyUpgradeReplay": true,
+    "advisorsWarnings": 165,
+    "newObjectFindings": 0
+  },
+  "actualSandbox": {
+    "withdrawnAmount": 14900,
+    "withdrawnCadence": "month",
+    "currentAmountPreserved": 99900,
+    "currentCadencePreserved": "year",
+    "originalSubscriptionReused": true,
+    "originalScheduleReleased": true,
+    "newPaymentOrRefund": false,
+    "originalPaymentsCount": 16,
+    "originalRowJsonHash": "007752639c9178921089555f1122decf",
+    "requestCount": 1,
+    "completionCount": 1,
+    "responseLostAfterActualHttp200": true,
+    "sameKeyReplayHttp200": true,
+    "salesSettingsRestored": true
+  },
+  "isolatedFailureCases": [
+    "withdraw before provider schedule",
+    "provider release response loss",
+    "unknown external ownership rejected",
+    "provider boundary wins and change remains applied without unpaid benefit grant",
+    "actual overlapping local schedule and withdrawal workers",
+    "withdrawal allowed after new sales and platform billing disabled",
+    "verified subscription termination cancels unapplied requests",
+    "resource token and changed-idempotency-target rejection"
+  ],
+  "remaining": [
+    "real provider cancellation/resume and period-end termination after plan changes",
+    "termination/dispute/full provider concurrency matrix",
+    "long-term token access and full calendar matrix",
+    "complete roles/currencies/stores/languages and notifications",
+    "all remaining P0\u2013P6/A01\u2013A22 acceptance"
+  ],
+  "goalComplete": false,
+  "allAcceptancePassed": false,
+  "productionPublished": false,
+  "references": [
+    "https://docs.stripe.com/api/subscription_schedules/release"
+  ]
+}

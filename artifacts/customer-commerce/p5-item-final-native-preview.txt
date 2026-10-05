@@ -1,0 +1,81 @@
+- generic
+  - generic
+    - log
+    - log
+  - generic [ref=e827] clickable [onclick]
+    - button "Dismiss" [ref=e828]
+    - dialog "Order refund and post-service reversal · ORD-62E6A"
+      - button "Close" [ref=e829]
+      - heading "Order refund and post-service reversal · ORD-62E6A" [level=2, ref=e830]
+        - StaticText "Order refund and post-service reversal ·"
+        - StaticText "ORD-62E6A"
+      - StaticText "Package Payout Browser QA"
+      - StaticText "ORD-62E6A"
+      - StaticText "Order settlement total"
+      - StaticText ": "
+      - strong
+        - StaticText "$310.00"
+      - StaticText "· payment method:"
+      - StaticText "Original package + Cash payment"
+      - StaticText "Refundable up to $"
+      - StaticText "130.00"
+      - paragraph
+        - StaticText "New payments received: $210.00"
+      - region "Refund destinations" [ref=e833]
+        - heading "Refund destinations" [level=3, ref=e841]
+        - DescriptionList
+          - term "Cash"
+          - definition
+            - StaticText "$130.00"
+        - paragraph
+          - StaticText "Tip return: $10.00 · Tax return: $0.00 · Fee return: $0.00"
+      - LabelText
+        - StaticText "Refund type and approved amount *"
+      - button "Full refund $130.00" [ref=e834]
+        - StaticText "Full refund"
+        - StaticText "$"
+        - StaticText "130.00"
+      - button "Partial refund Custom refund amount" [ref=e835]
+        - StaticText "Partial refund"
+        - StaticText "Custom refund amount"
+      - button "Selected services" [ref=e836]
+      - group "Select original execution items and the amount to return for each. Tips are a separate choice."
+        - Legend
+          - StaticText "Select original execution items and the amount to return for each. Tips are a separate choice."
+        - checkbox "Foot Reflexology 60min · Remaining refundable: $0.00" [checked=false, disabled, ref=e850]
+        - checkbox "Foot Reflexology 60min · Remaining refundable: $120.00" [checked=true, ref=e851]
+        - LabelText
+          - StaticText "Amount to return 2"
+          - spinbutton "Amount to return 2" [ref=e852]: 120
+            - StaticText "120.00"
+      - LabelText [ref=e837] clickable [cursor:pointer]
+        - checkbox "Also refund the remaining $10.00 tip Tips are not refunded by default; select this explicitly." [checked=true, ref=e842]
+        - strong
+          - StaticText "Also refund the remaining $10.00 tip"
+        - StaticText "Tips are not refunded by default; select this explicitly."
+      - LabelText
+        - StaticText "Refund destination *"
+      - combobox [expanded=false, ref=e838]: Restore original benefits and payment sources
+        - MenuListPopup
+          - option "Restore original benefits and payment sources" [selected, ref=e843]
+          - option "Cash refund (returned on the spot)" [disabled, ref=e844]
+          - option "Convert to store credit or a package balance" [disabled, ref=e845]
+      - LabelText
+        - StaticText "Refund reason *"
+      - combobox [expanded=false, ref=e839]: Customer dissatisfaction / negotiated service refund
+        - MenuListPopup
+          - option "Customer dissatisfaction / negotiated service refund" [selected, ref=e846]
+          - option "Till entry error / overcharge reversal" [ref=e847]
+          - option "Duplicate charge / double posting by the payment channel" [ref=e848]
+          - option "Other post-service refund" [ref=e849]
+      - LabelText
+        - StaticText "Internal finance audit note (optional)"
+      - textbox "e.g. goodwill refund for a nail that came off, approved by the manager…" [ref=e840]
+      - StaticText "Daily close and commission reversal:"
+      - paragraph
+        - StaticText "• Once confirmed, the system posts a matching negative entry in the daily close statement."
+      - paragraph
+        - StaticText "• The lead therapist's shift performance and tip allocation are reduced proportionally, preventing over-paid commission."
+      - button "Cancel" [ref=e831]
+      - button "Confirm the refund and reverse the invoice" [ref=e832]
+        - StaticText "Confirm the refund and reverse the invoice"

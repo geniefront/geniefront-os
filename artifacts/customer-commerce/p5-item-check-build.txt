@@ -1,0 +1,3 @@
+/tmp/commerce-item-sources-build-final.txt
+(!) Some chunks are larger than 700 kB after minification. Consider:
+✓ built in 8.71s

@@ -28,6 +28,8 @@ export interface OrderPaymentDto {
 }
 
 export interface OrderRowDto {
+  membershipCoveredCents?:number;
+  packageCoveredCents?:number;
   ticketId: string;
   businessDate: string;
   status: string;
@@ -131,6 +133,7 @@ export async function loadOrders(
         lower(coalesce(c.display_name, t.walk_in_name, '')) like ${q}
         or coalesce(c.phone_e164, '') like ${q}
         or t.id::text like ${q}
+        or ('ord-' || left(t.id::text, 5)) like ${q}
       ))
     order by t.opened_at desc
     limit ${limit} offset ${offset}`;
@@ -166,6 +169,7 @@ export async function loadOrders(
         lower(coalesce(c.display_name, t.walk_in_name, '')) like ${q}
         or coalesce(c.phone_e164, '') like ${q}
         or t.id::text like ${q}
+        or ('ord-' || left(t.id::text, 5)) like ${q}
       ))`;
 
   const ticketIds = tickets.map((t) => t.id);
@@ -250,7 +254,13 @@ export async function loadOrders(
     tipsMap.set(t.ticket_id, list);
   }
 
+  const packageCoverage=await tx<{ticket_id:string;amount:number}[]>`select ticket_id,sum((meta->>'coveredCents')::int)::int as amount from customer_credit_ledger
+    where ticket_id=any(${ticketIds}::uuid[]) and kind='package' and entry='redeem' and meta ? 'coveredCents' group by ticket_id`;
+  const membershipCoverage=await tx<{ticket_id:string;amount:number}[]>`select ticket_id,sum(covered_cents)::int as amount from customer_membership_ledger
+    where ticket_id=any(${ticketIds}::uuid[]) and entry='redeem' group by ticket_id`;
   const rows: OrderRowDto[] = tickets.map((t) => ({
+    membershipCoveredCents:membershipCoverage.find(m=>m.ticket_id===t.id)?.amount??0,
+    packageCoveredCents:packageCoverage.find(m=>m.ticket_id===t.id)?.amount??0,
     ticketId: t.id,
     businessDate: t.business_date,
     status: t.status,

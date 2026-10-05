@@ -1,3 +1,5 @@
+import {commerceDayText,commerceDayExportRows} from '@gf/contracts';
+import {CommerceDayPanel} from '@/features/dayclose/CommerceDayPanel';
 import { openPrintPreview } from '@/features/printing/preview';
 import { pickText } from '@gf/contracts';
 import { useState, useEffect, useMemo } from 'react';
@@ -90,7 +92,7 @@ const COIN_DENOMINATIONS = [
 export function DayClose() {
   const storeTime = useStoreTime();
   const errorMessage = useErrorMessage();
-  const { t } = useLanguage();
+  const { t,language } = useLanguage();
   const { membershipId, membership } = useSession();
   /**
    * ⭐ 日结是**唯一一个**「今天」错了就直接影响钱的页面（AUD-13）。
@@ -464,6 +466,7 @@ export function DayClose() {
                     [t('checkout.dcExportCashVariance'), centsToDollars(cashVarianceCents), isBalanced ? t('checkout.dcExportBalanced') : isOver ? t('checkout.dcExportOver') : t('checkout.dcExportShort')],
                     [t('checkout.dcExportVarianceReason'), varianceReason || t('checkout.dcExportNone'), ''],
                   ];
+                  if(dayClose.money.commerce)rows.push(...commerceDayExportRows(dayClose.money.commerce));
                   exportToCSV(`Z-Report-${dayClose.businessDate}`, headers, rows);
                   toast.success(t('checkout.dcCsvExported'));
                 }}
@@ -611,6 +614,8 @@ export function DayClose() {
           </div>
         </div>
 
+        {dayClose.hasPostCloseChanges&&<div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">{commerceDayText(language,'late')}</div>}
+        {dayClose.status==='closed'&&!dayClose.closedSnapshotAvailable&&<p className="text-sm text-amber-800">{commerceDayText(language,'unavailable')}</p>}
         {/* 4 Core Summary Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="p-4 border-slate-200/90 shadow-2xs bg-gradient-to-br from-white to-teal-50/20">
@@ -749,6 +754,8 @@ export function DayClose() {
         </div>
 
         {/* TAB 1: Z-Report 全貌 */}
+        {activeTab==='overview'&&dayClose.money.commerce&&<CommerceDayPanel summary={dayClose.money.commerce}/>}
+        {activeTab==='overview'&&dayClose.hasPostCloseChanges&&dayClose.latestMoney?.commerce&&<details className="rounded-xl border p-4"><summary>{commerceDayText(language,'current')}</summary><CommerceDayPanel summary={dayClose.latestMoney.commerce}/></details>}
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* 左侧 2 列：销售与通道详细核算 */}

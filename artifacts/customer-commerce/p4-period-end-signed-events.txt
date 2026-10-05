@@ -1,0 +1,7 @@
+{"ready":true,"kind":"payments","endpoint":"http://127.0.0.1:3087/v1/stripe/commerce-webhook","secretStored":true}
+2026-10-02 18:11:02   --> connect customer.subscription.updated [evt_1UMEfSJDnwwxW56m3tZlhdCD]
+2026-10-02 18:11:03  <--  [200] POST http://127.0.0.1:3087/v1/stripe/commerce-webhook [evt_1UMEfSJDnwwxW56m3tZlhdCD]
+2026-10-02 18:13:05   --> connect customer.subscription.updated [evt_1UMEhRJDnwwxW56mcpUBy9Su]
+2026-10-02 18:13:05  <--  [200] POST http://127.0.0.1:3087/v1/stripe/commerce-webhook [evt_1UMEhRJDnwwxW56mcpUBy9Su]
+2026-10-02 18:13:58   --> connect customer.subscription.deleted [evt_1UMEiHJDnwwxW56mvkCKZK1r]
+2026-10-02 18:13:58  <--  [200] POST http://127.0.0.1:3087/v1/stripe/commerce-webhook [evt_1UMEiHJDnwwxW56mvkCKZK1r]

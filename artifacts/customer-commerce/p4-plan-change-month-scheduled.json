@@ -1,0 +1,25 @@
+{
+  "at": "2026-10-02T17:29:31.194Z",
+  "membershipId": "0ef40a69-adf7-4425-a928-72ae89bc470e",
+  "changeId": "70ee36bf-9fcc-4613-b7d1-8d1846d3d441",
+  "status": "scheduled",
+  "cadence": "month",
+  "nextAmountCents": 14900,
+  "effectiveAt": "2027-01-01 14:19:58+00",
+  "originalSubscriptionReused": true,
+  "oldInvoiceAndPaymentRowsUnchanged": true,
+  "facts": {
+    "invoices": 3,
+    "payments": 14,
+    "changes": 1,
+    "requests": 1,
+    "currently_available": 1
+  },
+  "renewal": null,
+  "replay": {
+    "replayed": true,
+    "sameKey": true,
+    "status": 200
+  },
+  "productionPublished": false
+}

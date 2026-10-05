@@ -1,0 +1,41 @@
+{
+  "at": "2026-10-01T14:43:27.516228+00:00",
+  "scope": "P4 first paid monthly and annual enrollment; full lifecycle remains incomplete",
+  "goalComplete": false,
+  "stageComplete": false,
+  "productionPublished": false,
+  "migrationCount": 172,
+  "checks": {
+    "apiFiles": 10,
+    "apiTests": 241,
+    "newMembershipApiTests": 9,
+    "bookingFiles": 15,
+    "bookingTests": 69,
+    "bookingSerial": true,
+    "webFiles": 8,
+    "webTests": 33,
+    "calendarTests": 4,
+    "typecheckPackages": 16,
+    "guards": true,
+    "bookingBuild": true,
+    "webBuild": true,
+    "emptyAndUpgradeMigration": true
+  },
+  "browserEvidence": [
+    "browser-membership-monthly.json",
+    "browser-membership-annual.json",
+    "p4-database-security.json"
+  ],
+  "unverified": [
+    "real recurring renewal and failed-payment recovery",
+    "test-clock future benefit grants and missed-run recovery",
+    "customer portal, cancellation, resumption and next-period plan change",
+    "redemption, restoration, termination and original refunds",
+    "risk freeze, invoice mismatch review and old account disconnect lifecycle",
+    "P1/P2/P3 remaining cases, unified checkout/reporting, A01-A22 completion"
+  ],
+  "testLimitations": [
+    "Parallel full booking run timed out on an existing BookingExperience test; unchanged tests passed with fileParallelism=false.",
+    "Build retains existing chunk-size warnings."
+  ]
+}

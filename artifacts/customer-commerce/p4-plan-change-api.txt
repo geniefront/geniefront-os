@@ -1,0 +1,19 @@
+$ vitest run src/customerMemberships.test.ts src/money.test.ts src/workstations_backend.test.ts src/billing.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ✓ src/customerMemberships.test.ts (43 tests) 10377ms
+   ✓ rejects stale or fabricated member prices, double coverage and an unauthorized benefit without leaving price facts or consuming rights 343ms
+   ✓ keeps the original expiry when a fully returned service restores a membership unit after its period has ended 2593ms
+   ✓ conserves membership, package, discount, deposit, gift, credit, cash, tax, fee and tips through three original-source returns 582ms
+   ✓ conserves all six payment sources across a quoted three-ticket group and each original service return 693ms
+   ✓ merges an explicitly selected identity without rewriting paid records, duplicating subscriptions or granting a shared-phone stranger its assets 1001ms
+ ✓ src/billing.test.ts (46 tests) 781ms
+ ✓ src/money.test.ts (22 tests) 1839ms
+ ✓ src/workstations_backend.test.ts (15 tests) 212ms
+
+ Test Files  4 passed (4)
+      Tests  126 passed (126)
+   Start at  17:25:12
+   Duration  20.94s (transform 808ms, setup 5.90s, collect 1.66s, tests 13.21s, environment 0ms, prepare 35ms)
+

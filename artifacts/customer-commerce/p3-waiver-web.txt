@@ -1,0 +1,16 @@
+$ vitest run --passWithNoTests src/features/commerce/AppointmentDepositPanel.test.tsx src/components/AppointmentDrawer.test.tsx src/pages/Checkout.tips.test.tsx src/features/printing/ReceiptDocument.test.tsx --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/pages/Checkout.tips.test.tsx (4 tests) 606ms
+   ✓ #23 submits matching channel tips, total and staff splits 316ms
+ ✓ src/components/AppointmentDrawer.test.tsx (6 tests) 470ms
+ ✓ src/features/commerce/AppointmentDepositPanel.test.tsx (2 tests) 465ms
+   ✓ requires a reason and reuses the same command key after an interrupted approval 328ms
+ ✓ src/features/printing/ReceiptDocument.test.tsx (3 tests) 68ms
+
+ Test Files  4 passed (4)
+      Tests  15 passed (15)
+   Start at  01:33:35
+   Duration  9.53s (transform 973ms, setup 1.35s, collect 3.89s, tests 1.61s, environment 1.92s, prepare 179ms)
+

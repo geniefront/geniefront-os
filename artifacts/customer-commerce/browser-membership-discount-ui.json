@@ -1,0 +1,129 @@
+{
+  "at": "2026-10-02T01:53:03.715Z",
+  "scope": "P4 actual paid membership line prices, original-unit restoration and source-specific receipt",
+  "productionPublished": false,
+  "stageComplete": false,
+  "goalComplete": false,
+  "realEmailSent": false,
+  "scenarios": {
+    "realStripePurchase49": true,
+    "paidUnitPlusDifferentLineDiscount": true,
+    "authorizedManualDiscountOnOtherLine": true,
+    "newCashRecordedCents": 8500,
+    "tipRecordedCents": 1000,
+    "membershipCoverageCents": 10000,
+    "memberPriceDiscountCents": 500,
+    "manualDiscountCents": 1000,
+    "originalCommissionBaseCents": 12400,
+    "actualNativeServiceRefund": true,
+    "originalUnitRestoredOnce": true,
+    "subscriptionPurchaseRefunded": false
+  },
+  "locales": [
+    {
+      "locale": "en",
+      "width": 390,
+      "height": 844,
+      "horizontalOverflow": false,
+      "discountTenPercent": true,
+      "missingText": false,
+      "alerts": 0,
+      "providerIdsVisible": false
+    },
+    {
+      "locale": "zh-Hans",
+      "width": 390,
+      "height": 844,
+      "horizontalOverflow": false,
+      "discountTenPercent": true,
+      "missingText": false,
+      "alerts": 0,
+      "providerIdsVisible": false
+    },
+    {
+      "locale": "zh-Hant",
+      "width": 390,
+      "height": 844,
+      "horizontalOverflow": false,
+      "discountTenPercent": true,
+      "missingText": false,
+      "alerts": 0,
+      "providerIdsVisible": false
+    },
+    {
+      "locale": "es",
+      "width": 390,
+      "height": 844,
+      "horizontalOverflow": false,
+      "discountTenPercent": true,
+      "missingText": false,
+      "alerts": 0,
+      "providerIdsVisible": false
+    },
+    {
+      "locale": "ko",
+      "width": 390,
+      "height": 844,
+      "horizontalOverflow": false,
+      "discountTenPercent": true,
+      "missingText": false,
+      "alerts": 0,
+      "providerIdsVisible": false
+    },
+    {
+      "locale": "vi",
+      "width": 390,
+      "height": 844,
+      "horizontalOverflow": false,
+      "discountTenPercent": true,
+      "missingText": false,
+      "alerts": 0,
+      "providerIdsVisible": false
+    }
+  ],
+  "sessions": {
+    "commerce-member-discount-customer": {
+      "viewport": [
+        390,
+        844
+      ],
+      "browserErrors": 0,
+      "freshAfterHmr": true,
+      "horizontalOverflow": false
+    },
+    "commerce-member-discount-receipt-final": {
+      "viewport": [
+        390,
+        844
+      ],
+      "browserErrors": 0,
+      "horizontalOverflow": false
+    },
+    "historicalDesk": {
+      "blankBrowserErrors": 1
+    }
+  },
+  "screenshots": [
+    "membership-discount-purchase-review-en.png",
+    "membership-discount-purchased-en.png",
+    "membership-discount-service-review-zh.png",
+    "membership-discount-consumed-mobile-zh.png",
+    "membership-discount-service-refund-review-zh.png",
+    "membership-discount-refunded-receipt-en.png",
+    "membership-discount-refunded-receipt-mobile-en.png",
+    "membership-discount-restored-desktop-en.png",
+    "membership-discount-restored-mobile-zh.png",
+    "membership-discount-restored-mobile-zh-Hant.png",
+    "membership-discount-restored-mobile-es.png",
+    "membership-discount-restored-mobile-ko.png",
+    "membership-discount-restored-mobile-vi.png"
+  ],
+  "limitations": [
+    "Only the original membership purchase is a real Stripe test charge. $85 service cash receipt/refund is local QA bookkeeping, not a physical cash transfer or Stripe refund.",
+    "Native service refund restores rights while leaving the membership purchase and automatic renewal intact.",
+    "Other cashier flows, the full seven-source allocation and all-module reports remain unverified.",
+    "Zero browser errors applies to fresh final profiles only. Historical desk has one blank error; a pre-submit dialog closed under developer HMR and was reopened before the single actual refund.",
+    "Six-language sampling covers this protected membership status only. Business names use the configured translation fallback.",
+    "Before-status-extension purchase screenshot is a historical paid snapshot; final restored screenshots include purchased discount terms."
+  ]
+}

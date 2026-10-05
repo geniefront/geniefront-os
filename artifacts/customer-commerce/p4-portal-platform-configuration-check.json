@@ -1,0 +1,12 @@
+{
+  "scope": "Earlier unused sandbox configuration; existing/default SaaS configurations were not updated",
+  "found": [
+    {
+      "id": "bpc_1ULlg9JDnwqCtyJGdEk154if",
+      "livemode": false,
+      "isDefault": false,
+      "active": true,
+      "referencedByCurrentCode": false
+    }
+  ]
+}

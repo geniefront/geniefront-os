@@ -1,0 +1,87 @@
+{
+  "at": "2026-10-02T13:29:02.084873+00:00",
+  "scope": "P5 shared server checkout planner, standalone native confirmation and durable original payment replay; full goal remains active",
+  "phaseComplete": false,
+  "goalComplete": false,
+  "productionPublished": false,
+  "migration": 179,
+  "newMigrationRequired": false,
+  "checks": {
+    "apiFiles": 16,
+    "apiTests": 380,
+    "webFiles": 15,
+    "webTests": 77,
+    "contractFiles": 19,
+    "contractTests": 97,
+    "typecheckPackages": 16,
+    "guards": true,
+    "webBuild": true,
+    "diffCheck": true,
+    "priorPayrollFiles": 10,
+    "priorPayrollTests": 159,
+    "payrollUnchangedDuringQuoteBatch": true
+  },
+  "implemented": {
+    "sharedPlannerBetweenQuoteAndSettlement": true,
+    "quoteFinancialFactsReadOnly": true,
+    "staleQuoteAtomicRollback": true,
+    "independentCheckoutUsesServerConfirmedAmountAndHash": true,
+    "unknownPaymentSavedBeforeRequest": true,
+    "originalPaymentRetryWithoutFreshQuote": true,
+    "membershipScopedRecovery": true,
+    "queueSavedPaymentRecoveryNotice": true,
+    "inclusiveGroupTaxSplitFixed": true,
+    "quoteFingerprintAndVersionInSuccessfulAudit": true,
+    "nativeRefundsRestoredOriginalUnitAfterBothQuoteExamples": true
+  },
+  "actual": {
+    "originalStripePurchaseReused": true,
+    "originalPurchaseCents": 50000,
+    "originalPurchaseRefundCents": 45000,
+    "newStripePaymentCreated": false,
+    "qaCashPerServiceCents": 21000,
+    "normalQuoteAndCommandHashMatch": true,
+    "committedResponseLossHttp": 201,
+    "refreshedSavedPaymentHttp": 200,
+    "serverReplayed": true,
+    "canonicalInputAndQuoteMatch": true,
+    "replayedPaymentRows": 1,
+    "replayedPackageRedemptions": 1,
+    "replayedItemGraphReceipts": 1,
+    "replayedPaymentAuditRows": 1,
+    "finalAvailableOriginalUnits": 1,
+    "finalAvailableUnitRange": "[0,1)",
+    "originalStripePayments": 14,
+    "originalPaymentFingerprintUnchanged": true
+  },
+  "browser": {
+    "longLivedDevelopmentSessionErrorsRetained": 3,
+    "freshFinalAuthenticatedReceiptErrors": 0,
+    "nativeIndependentCheckout": true,
+    "nativeUnknownResultReloadAndRetry": true
+  },
+  "historicalVerificationCorrections": [
+    "Quote definition was missing from TICKET_COMMANDS; registry export added without weakening the permission guard.",
+    "Quote/refund preview metadata conflicted with the existing exposed AI command confirmation policy; native helpers now use ai.exposed=false.",
+    "Initial inclusive-group test cash/card amounts exceeded the smallest seeded service total; fixture now splits its actual subtotal.",
+    "Strict optional property and quote literal output types corrected before final typecheck."
+  ],
+  "remaining": [
+    "Queue and group quote confirmation UI and complete asset selection across all cashiers",
+    "Remove remaining local candidate pricing, surcharge/deposit choice calculations; include all gift/store-credit tender sources in the server quote",
+    "Full currency and quote/rule snapshot matrix",
+    "P1 successful bank payout/actual automatic batch after successful test-bank setup",
+    "P2/P3/P4 remaining lifecycle, notification, rescheduling, voice and day-close cases",
+    "P5 customer merge, full four-module day-close and P6 all A01–A22 gates"
+  ],
+  "legacyCompatibility": {
+    "serverExpectedQuoteHashOptionalForOlderClients": true,
+    "allCashiersUseCompleteServerQuote": false
+  },
+  "externalBlockers": [
+    {
+      "scope": "successful sandbox payout/automatic batch",
+      "condition": "Successful test bank not yet selected; read-only discovery still blocked"
+    }
+  ]
+}

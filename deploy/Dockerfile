@@ -46,7 +46,11 @@ RUN node_modules/.bin/esbuild apps/api/src/main.ts \
       --sourcemap=external \
       --legal-comments=none \
       --banner:js="import{createRequire}from'module';const require=createRequire(import.meta.url);" \
- && ls -lh /out/server.mjs
+ && node_modules/.bin/esbuild apps/api/src/voice/snapshotMain.ts \
+      --bundle --platform=node --target=node22 --format=esm \
+      --outfile=/out/voice-snapshots.mjs --minify --sourcemap=external --legal-comments=none \
+      --banner:js="import{createRequire}from'module';const require=createRequire(import.meta.url);" \
+ && ls -lh /out/server.mjs /out/voice-snapshots.mjs
 
 
 FROM node:22-alpine AS runtime
@@ -59,6 +63,7 @@ ENV NODE_ENV=production
 RUN apk add --no-cache tini
 
 COPY --from=build /out/server.mjs /out/server.mjs.map ./
+COPY --from=build /out/voice-snapshots.mjs /out/voice-snapshots.mjs.map ./
 
 USER node
 EXPOSE 3000

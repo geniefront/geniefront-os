@@ -1,0 +1,2 @@
+/tmp/commerce-queue-workbench-guards.txt
+[32m✓ 全部通过[0m

@@ -96,6 +96,7 @@ export interface TicketRevenueRow {
   category_id: string | null;
   total_cents: number;
   item_discount_cents: number;
+  commission_base_cents?:number;
   membership_id: string;
   role: string;
   minutes: number;
@@ -120,6 +121,7 @@ export function toRevenueItems(rows: readonly TicketRevenueRow[]): RevenueItem[]
         categoryId: r.category_id,
         grossCents: r.total_cents,
         itemDiscountCents: r.item_discount_cents,
+        ...(r.commission_base_cents!==undefined?{commissionBaseOverrideCents:r.commission_base_cents}:{}),
         staff: [{
           membershipId: r.membership_id,
           role: r.role === 'assistant' ? 'assistant' : 'primary',
@@ -167,7 +169,7 @@ export async function writeCommissionEarnings(args: {
          amount_cents, base_cents, ticket_id, basis, plan_version)
       values (${ctx.orgId}, ${ctx.locationId}, ${e.membershipId}, ${businessDate}, 'commission',
               ${e.commissionCents}, ${e.baseCents}, ${ticketId},
-              ${jsonb(e.basis)}::jsonb, ${version})`;
+              ${jsonb({...e.basis,itemLines:result.lines.filter(line=>line.membershipId===e.membershipId).map(line=>({ticketItemId:line.ticketItemId,baseCents:line.baseCents,amountCents:line.amountCents,rateBp:line.rateBp}))})}::jsonb, ${version})`;
     out.push({
       membershipId: e.membershipId,
       commissionCents: e.commissionCents,

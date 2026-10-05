@@ -1,0 +1,11 @@
+/tmp/commerce-queue-workbench-web-final.txt
+ ✓ src/features/checkout/types.test.ts (3 tests) 3ms
+ ✓ src/features/checkout/paymentDraft.test.ts (4 tests) 5ms
+ ✓ src/features/queue/inlinePayment.test.ts (4 tests) 6ms
+ ✓ src/features/queue/checkoutMath.test.ts (27 tests) 12ms
+ ✓ src/features/checkout/paymentRetry.test.tsx (4 tests) 34ms
+ ✓ src/features/tickets/refund.test.tsx (5 tests) 93ms
+ ✓ src/pages/Checkout.tips.test.tsx (14 tests) 699ms
+ Test Files  7 passed (7)
+      Tests  61 passed (61)
+   Duration  4.30s (transform 1.22s, setup 5.91s, collect 3.02s, tests 851ms, environment 6.40s, prepare 721ms)

@@ -1,0 +1,130 @@
+{
+  "open": {
+    "status": 201,
+    "result": {
+      "ticketId": "cba35b08-c5a2-463c-9db6-9aac931f9ed4",
+      "ticketItemIds": [
+        "ee69925b-c2fe-4492-9d21-b68f93284274"
+      ],
+      "bundleInstanceIds": [],
+      "subtotalCents": 4500
+    },
+    "replayed": false,
+    "undoToken": "eecc8519-aed8-4a15-8f88-101467ea1f88"
+  },
+  "finish": {
+    "status": 201,
+    "result": {
+      "ticketItemId": "ee69925b-c2fe-4492-9d21-b68f93284274",
+      "finishedAt": "2026-09-28T05:47:16.482Z",
+      "actualMinutes": 60,
+      "ticketDone": true
+    },
+    "replayed": false,
+    "undoToken": "83d9103e-f8d4-4078-83c3-01bb32b3c545"
+  },
+  "mismatch": {
+    "status": 400,
+    "code": "PAYMENT_MISMATCH",
+    "paymentRows": 0
+  },
+  "close": {
+    "status": 201,
+    "result": {
+      "ticketId": "cba35b08-c5a2-463c-9db6-9aac931f9ed4",
+      "totalCents": 4600,
+      "tipCents": 100,
+      "allocations": [
+        {
+          "membershipId": "8e827997-58c1-4cdd-a53f-9b8258d8037e",
+          "name": "燕姐",
+          "amountCents": 100,
+          "source": "card",
+          "explain": "做了 60 分钟 · 占 100.0%"
+        }
+      ],
+      "taxCents": 0,
+      "subtotalCents": 4500
+    },
+    "replayed": false,
+    "undoToken": "ee8e7c26-8330-4b29-b580-263ff715f4d8"
+  },
+  "repeat": {
+    "status": 200,
+    "result": {
+      "taxCents": 0,
+      "ticketId": "cba35b08-c5a2-463c-9db6-9aac931f9ed4",
+      "tipCents": 100,
+      "totalCents": 4600,
+      "allocations": [
+        {
+          "name": "燕姐",
+          "source": "card",
+          "explain": "做了 60 分钟 · 占 100.0%",
+          "amountCents": 100,
+          "membershipId": "8e827997-58c1-4cdd-a53f-9b8258d8037e"
+        }
+      ],
+      "subtotalCents": 4500
+    },
+    "replayed": true
+  },
+  "secondKey": {
+    "status": 409,
+    "code": "TICKET_ALREADY_CLOSED",
+    "messageKey": "error.TICKET_ALREADY_CLOSED",
+    "details": {
+      "ticketId": "cba35b08-c5a2-463c-9db6-9aac931f9ed4",
+      "status": "closed"
+    },
+    "overridable": false
+  },
+  "partialRefund": {
+    "status": 201,
+    "result": {
+      "ticketId": "cba35b08-c5a2-463c-9db6-9aac931f9ed4",
+      "status": "closed",
+      "refundedCents": 1500,
+      "refundMethod": "original_payment"
+    },
+    "replayed": false
+  },
+  "refundReplay": {
+    "status": 200,
+    "result": {
+      "status": "closed",
+      "ticketId": "cba35b08-c5a2-463c-9db6-9aac931f9ed4",
+      "refundMethod": "original_payment",
+      "refundedCents": 1500
+    },
+    "replayed": true
+  },
+  "overRefund": {
+    "status": 400,
+    "code": "VALIDATION_FAILED",
+    "messageKey": "error.VALIDATION_FAILED",
+    "details": {
+      "reason": "refund_exceeds_total"
+    },
+    "overridable": false
+  },
+  "finalRefund": {
+    "status": 201,
+    "result": {
+      "ticketId": "cba35b08-c5a2-463c-9db6-9aac931f9ed4",
+      "status": "refunded",
+      "refundedCents": 3100,
+      "refundMethod": "original_payment"
+    },
+    "replayed": false
+  },
+  "totals": {
+    "status": "refunded",
+    "total_cents": 4600,
+    "refund_cents": 4600,
+    "payments": 4600,
+    "tips": 100,
+    "refunds": 4600,
+    "refund_rows": 2
+  }
+}

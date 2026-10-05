@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import {
-  API_URL, MARKETING_URL, PLATFORM_URL, WEB_URL, qaEnvironment, rootDir,
+  API_URL, BOOKING_URL, MARKETING_URL, PLATFORM_URL, WEB_URL, qaEnvironment, rootDir,
 } from './e2e/env';
 
 export default defineConfig({
@@ -48,6 +48,16 @@ export default defineConfig({
       cwd: rootDir,
       env: qaEnvironment,
       url: WEB_URL,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      command: 'pnpm --filter @gf/booking exec vite --host 127.0.0.1 --mode qa',
+      cwd: rootDir,
+      env: qaEnvironment,
+      url: BOOKING_URL,
       reuseExistingServer: false,
       timeout: 120_000,
       stdout: 'pipe',

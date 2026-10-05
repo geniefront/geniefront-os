@@ -1,0 +1,8 @@
+Browser tab: 1, Title: "GenieFront", URL: "http://127.0.0.1:57209/forms/intake?t=fs_audit_invalid".
+1 AXWebArea GenieFront, URL: 127.0.0.1:57209/forms/intake?t=fs_audit_invalid
+	2 container root
+		3 heading This form link is no longer available, Value: 1
+			4 text This form link is no longer available
+		5 text It may have expired or already been completed. Please contact the shop for a new link.
+
+The focused UI element is 1 AXWebArea GenieFront, URL: 127.0.0.1:57209/forms/intake?t=fs_audit_invalid

@@ -1,0 +1,120 @@
+{
+  "at": "2026-10-02T01:04:10.525221+00:00",
+  "scope": "P4 membership original-unit redemption, service allocation return/restoration, actual expiry and missed-run ledger; full goal still active",
+  "stageComplete": false,
+  "goalComplete": false,
+  "productionPublished": false,
+  "checks": {
+    "migrationCount": 174,
+    "emptyUpgradeReplayPassed": true,
+    "preservedDatabaseIncrementalMigrationPassed": true,
+    "api": {
+      "files": 13,
+      "tests": 324,
+      "membershipTests": 21,
+      "log": "p4-units-api.txt"
+    },
+    "web": {
+      "files": 8,
+      "tests": 36,
+      "log": "p4-units-web.txt"
+    },
+    "booking": {
+      "files": 15,
+      "tests": 72,
+      "serial": true,
+      "log": "p4-units-booking.txt"
+    },
+    "payroll": {
+      "files": 7,
+      "tests": 146,
+      "log": "p4-units-payroll.txt"
+    },
+    "receiptAfterSpacingChange": {
+      "files": 1,
+      "tests": 4,
+      "log": "p4-units-receipt-spacing.txt"
+    },
+    "typecheckPackages": 16,
+    "guards": true,
+    "webBuild": true,
+    "bookingBuild": true,
+    "diffCheck": true,
+    "readOnlySecurityCheck": true
+  },
+  "actualBrowser": {
+    "originalMonthlyMembershipReused": true,
+    "originalPurchaseAndRenewalsRealStripeSandbox": true,
+    "ticketId": "f501ac11-39bf-4c2c-9e31-b401c290bba5",
+    "serviceCoveredCents": 10000,
+    "newPaymentCents": 0,
+    "fundedUnitValueCents": 9900,
+    "commissionBaseCents": 9900,
+    "membershipReturnCents": 10000,
+    "moneyReturnCents": 0,
+    "redemptions": 1,
+    "restorations": 1,
+    "currentAvailableQuantity": 1,
+    "originalExpiryPreserved": true,
+    "originalPaidInvoices": 3,
+    "originalCashCents": 29700,
+    "newStripeChargeOrRefund": false,
+    "newSubscription": false,
+    "realEmailSent": false,
+    "bankPayoutVerified": false
+  },
+  "isolatedDb": {
+    "lastUnitTwoCashiersOneSucceeds": true,
+    "partialReturnsAccumulateUntilWholeUnit": true,
+    "restoreExactOriginalRanges": true,
+    "immutablePurchasedCommissionBasis": true,
+    "explicitZeroAndFundedAboveCatalogCommission": true,
+    "invalidAmountsItemsCustomersRolesRollback": true,
+    "expiredRestoreDoesNotExtendValidity": true,
+    "annualMissedPeriodsExpireWithoutLateGrants": true,
+    "twoGrantWorkersNoDuplicate": true,
+    "nextExpiryTaskScheduled": true,
+    "expiryNoticesCaptured": true,
+    "actualDbClockBoundaryWait": true
+  },
+  "acceptanceStatus": {
+    "A05": "partial new membership concurrency evidence; full package matrix remains",
+    "A10": "partial actual current-period service use/restore added; complete monthly lifecycle remains",
+    "A11": "partial isolated missed-run and dual-worker evidence; actual future/restart matrix remains",
+    "A12": "prior real failure/recovery and portal facts preserved; terminal-period matrix remains",
+    "A14": "partial single membership coverage/tip/commission; all-source allocation remains",
+    "A15": "partial membership return provenance; full mixed partial-refund/void matrix remains",
+    "A13": "not passed"
+  },
+  "evidence": [
+    "p4-units-migration-upgrade.json",
+    "p4-units-security.json",
+    "browser-membership-units-consumed.json",
+    "browser-membership-units-restored.json",
+    "browser-membership-units-ui.json",
+    "stripe-connect-ui-reconfirmed.json",
+    "p4-units-api.txt",
+    "p4-units-web.txt",
+    "p4-units-booking.txt",
+    "p4-units-payroll.txt",
+    "p4-units-types.txt",
+    "p4-units-build-web.txt",
+    "p4-units-build-booking.txt",
+    "p4-units-guards.txt",
+    "p4-units-historical-failures.txt"
+  ],
+  "unverified": [
+    "membership discount at checkout, other cashier and group flows",
+    "complete future grant/restart/failed-event/timezone matrices",
+    "next-period plan change and terminal subscription fulfillment",
+    "immediate termination, future-rights stop and original purchase refund",
+    "customer action-required recovery, disputes and long-term resource access",
+    "full P1/P2/P3/P5/P6 and A01-A22"
+  ],
+  "limitations": [
+    "Service allocation restoration is not membership purchase refund.",
+    "Expiry and missed-run are verified with real isolated DB time and existing test adapter payments; actual original paid future cycles remain planned.",
+    "Historical failure logs remain separate; final serial checks passed without raising timeouts or weakening product checks.",
+    "No preserved payment database reset, manual provider event injection, production publication or real messages."
+  ]
+}

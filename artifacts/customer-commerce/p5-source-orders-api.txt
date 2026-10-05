@@ -1,0 +1,21 @@
+$ vitest run src/commerce.test.ts src/money.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+{"level":30,"time":1790936531310,"pid":23433,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","req":{"id":"req-1","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","stripe-signature":"t=1790936531,v1=c4bbf34f5e8c8c178e1106642ca4defad259cdaf58d9a2f57795db073b8cd47b","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790936531311,"pid":23433,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","res":{"statusCode":200},"responseTime":1.2845420000003287,"msg":"request completed"}
+{"level":30,"time":1790936531312,"pid":23433,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","req":{"id":"req-2","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790936531316,"pid":23433,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790936531316,"pid":23433,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","res":{"statusCode":401},"responseTime":4.536624999999731,"msg":"request completed"}
+{"level":30,"time":1790936531316,"pid":23433,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","req":{"id":"req-3","method":"POST","url":"/v1/commerce/accounts/refresh","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"57"}},"msg":"incoming request"}
+{"level":30,"time":1790936531317,"pid":23433,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790936531317,"pid":23433,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","res":{"statusCode":401},"responseTime":0.1709580000006099,"msg":"request completed"}
+ ✓ src/commerce.test.ts (42 tests) 4354ms
+   ✓ accepts signed thin events through the complete server auth stack and keeps account administration protected 631ms
+ ✓ src/money.test.ts (16 tests) 896ms
+
+ Test Files  2 passed (2)
+      Tests  58 passed (58)
+   Start at  06:22:05
+   Duration  10.93s (transform 1.26s, setup 3.79s, collect 1.75s, tests 5.25s, environment 0ms, prepare 39ms)
+

@@ -1,0 +1,48 @@
+{
+  "at": "2026-10-03T02:13:58.257Z",
+  "appointmentId": "177b39b4-aff4-46e8-ad60-7509a3664cc7",
+  "holdId": "063a5920-a28c-4344-84e3-dd2f83ffdf77",
+  "originalContractUnchanged": true,
+  "originalPayments": {
+    "count": 18,
+    "hash": "32be213097fb73caafc211c2024b69b5"
+  },
+  "currentPayments": {
+    "count": 19,
+    "hash": "2b4d9b1e08b4742231e1e24fe5afabc9"
+  },
+  "facts": {
+    "status": "booked",
+    "deposit_status": "paid",
+    "available": 2000,
+    "collections": 2,
+    "requotes": 2,
+    "active_items": 1,
+    "booking_confirmations": 1,
+    "additional_receipts": 1
+  },
+  "nativeLostResponse": {
+    "committedStatus": 201,
+    "replayStatusObserved": 200,
+    "reloadedSameBrowserContext": true,
+    "oneCommandReceipt": true,
+    "oneActiveReplacement": true
+  },
+  "originalRefund": {
+    "status": "succeeded",
+    "amountCents": 1800,
+    "verifiedOriginalPaymentIntent": true
+  },
+  "supplement": {
+    "orderId": "23ba1903-dccc-47be-8e6e-60b23e915627",
+    "amountCents": 1800,
+    "feeCents": 82,
+    "netCents": 1718,
+    "signedEvents": 1,
+    "stripeVerified": true
+  },
+  "migration": 187,
+  "notificationDelivery": "capture",
+  "productionPublished": false,
+  "goalComplete": false
+}

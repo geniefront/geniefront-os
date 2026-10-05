@@ -42,9 +42,13 @@ export interface CheckoutPackage {
   remainingSessions: number;
   totalSessions: number;
   expiresAt: string | null;
+  coverageMode?: 'bundle'|'any_included';
 }
 
 export interface OpenTicket {
+  availableMembershipDiscounts?:Array<{membershipId:string;cycleId:string;planVersionId:string;name:string;discountBps:number;expiresAt:string;timezone:string;
+    items:Array<{ticketItemId:string;expectedTotalCents:number;expectedDiscountCents:number}>}>;
+  availableMemberships?:Array<{cycleId:string;name:string;serviceIds:string[];availableQuantity:number;expiresAt:string;timezone:string}>;
   ticketId: string;
   customerName: string;
   customerId: string | null;
@@ -65,6 +69,8 @@ export interface OpenTicket {
   daysAgo: number;
   items: TicketItem[];
   availablePackages: CheckoutPackage[];
+  availableStoreCreditCents?:number;
+  availableDeposit?:{holdId:string;availableCents:number;currency:string};
   /** 这张工单上的组合套餐（U10）。无套餐时为空数组。 */
   bundles?: CheckoutBundle[];
 }
@@ -87,7 +93,7 @@ export interface OpenTicketsView {
 }
 
 /** 支付方式。取值与服务端 `paymentMethod` 枚举一致。 */
-export const PAYMENT_METHODS = ['cash', 'card', 'gift_card', 'external'] as const;
+export const PAYMENT_METHODS = ['cash', 'card', 'gift_card', 'customer_credit', 'external'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 /**

@@ -1,0 +1,78 @@
+{
+  "at": "2026-10-02T06:43:47.131Z",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "checks": [
+    {
+      "locale": "en",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "providerIdVisible": false,
+      "privateTokenInUrl": false,
+      "refundVisible": true,
+      "title": "Partially refunded",
+      "storeNameMatchedCurrentLocale": true
+    },
+    {
+      "locale": "zh-Hans",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "providerIdVisible": false,
+      "privateTokenInUrl": false,
+      "refundVisible": true,
+      "title": "已部分退款",
+      "storeNameMatchedCurrentLocale": true
+    },
+    {
+      "locale": "zh-Hant",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "providerIdVisible": false,
+      "privateTokenInUrl": false,
+      "refundVisible": true,
+      "title": "已部分退款",
+      "storeNameMatchedCurrentLocale": true
+    },
+    {
+      "locale": "es",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "providerIdVisible": false,
+      "privateTokenInUrl": false,
+      "refundVisible": true,
+      "title": "Reembolso parcial",
+      "storeNameMatchedCurrentLocale": true
+    },
+    {
+      "locale": "ko",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "providerIdVisible": false,
+      "privateTokenInUrl": false,
+      "refundVisible": true,
+      "title": "부분 환불됨",
+      "storeNameMatchedCurrentLocale": true
+    },
+    {
+      "locale": "vi",
+      "horizontalOverflow": false,
+      "hasAlert": false,
+      "hasUndefined": false,
+      "providerIdVisible": false,
+      "privateTokenInUrl": false,
+      "refundVisible": true,
+      "title": "Đã hoàn tiền một phần",
+      "storeNameMatchedCurrentLocale": true
+    }
+  ],
+  "browserErrors": 0,
+  "actualPurchaseReused": true,
+  "productionChanged": false
+}

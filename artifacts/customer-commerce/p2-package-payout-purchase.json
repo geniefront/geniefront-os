@@ -1,0 +1,39 @@
+{
+  "at": "2026-10-02T06:03:00.612Z",
+  "scope": "Initial actual $500/10 online package purchase and payout funding",
+  "actualStripeSandbox": true,
+  "orderId": "d3823deb-12f8-456a-bcae-0c90a0b0c6c8",
+  "packageId": "f33d0d45-311a-44f5-b637-0948308106d2",
+  "grossCents": 50000,
+  "feeCents": 1480,
+  "netCents": 48520,
+  "providerBalanceStatus": "available",
+  "quantity": 10,
+  "issueRows": 1,
+  "signedCheckoutEvents": 1,
+  "purchaseSnapshot": {
+    "kind": "package",
+    "name": "QA 10 service package",
+    "scope": "location",
+    "reason": null,
+    "version": 1,
+    "currency": "usd",
+    "sessions": 10,
+    "consentAt": "2026-10-02T06:00:45.248Z",
+    "validDays": 365,
+    "serviceIds": [
+      "a23e999b-79c5-4fe7-807e-46e085f469a5"
+    ],
+    "templateId": "c7d1eca6-a1c8-4926-bedf-6f080913950d",
+    "amountCents": 50000,
+    "coverageMode": "any_included",
+    "recipientName": "",
+    "recipientNote": "",
+    "consentVersion": "commerce-v1",
+    "faceValueCents": 0,
+    "recipientEmail": null,
+    "commissionBasis": "sale_price",
+    "unitAllocationVersion": 2
+  },
+  "productionChanged": false
+}

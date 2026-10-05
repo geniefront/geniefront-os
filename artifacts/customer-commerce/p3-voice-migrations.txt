@@ -1,0 +1,52 @@
+{
+  "date": "2026-10-01T09:56:56.692Z",
+  "previousMigrations": 151,
+  "migrations": [
+    "20260930154700_customer_commerce.sql",
+    "20260930195316_customer_commerce_review.sql",
+    "20260930201833_customer_commerce_settlement.sql",
+    "20260930211958_package_unit_ranges.sql",
+    "20260930215757_commerce_accounts_v2.sql",
+    "20260930221431_gift_card_credentials.sql",
+    "20261001003907_appointment_deposit_holds.sql",
+    "20261001005843_appointment_deposit_payments.sql",
+    "20261001020427_deposit_service_application.sql",
+    "20261001021437_deposit_service_refunds.sql",
+    "20261001032126_appointment_deposit_policy.sql",
+    "20261001034523_appointment_deposit_policy_guard.sql",
+    "20261001052326_appointment_deposit_waivers.sql",
+    "20261001060915_appointment_guest_cancellations.sql",
+    "20261001063316_guest_cancellation_append_only.sql",
+    "20261001065657_deposit_guest_application_sources.sql",
+    "20261001072134_guest_refund_context_guard.sql",
+    "20261001075842_guest_cancellation_customer_actor.sql",
+    "20261001083849_appointment_deposit_pending_notices.sql"
+  ],
+  "legacyLedgerUnchanged": true,
+  "legacyRemaining": 9,
+  "units": [
+    "cents",
+    "sessions"
+  ],
+  "legacySource": "legacy_migration",
+  "originalPurchaseRulesClaimed": false,
+  "fakePaymentsCreated": 0,
+  "quantityOpeningRows": 1,
+  "security": {
+    "discovery_private": true,
+    "protected_tables": 10,
+    "guest_cancellations_rls": true,
+    "guest_history_append_only": true,
+    "fabricated_guest_cancellations": 0
+  },
+  "actualExecutorReplayPassed": true,
+  "emptyDatabase": {
+    "actualExecutorPassed": true,
+    "replayPassed": true,
+    "migrations": 170,
+    "payments": 0,
+    "protected_tables": 10,
+    "guest_cancellations_rls": true,
+    "guest_history_append_only": true
+  }
+}

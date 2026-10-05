@@ -33,7 +33,7 @@ Monorepo 仓库结构：`apps/`（多端应用）与 `packages/`（共享业务�
 |---|---|---|
 | **16** | **[`16-FRONTEND-GUIDE.md`](16-FRONTEND-GUIDE.md)** | 前端开发规范与契约。现行端点地图见 `CURRENT-ARCHITECTURE.md`。Kiosk 是 `apps/ipad`（已可跑），`apps/ios` 仍是空壳。营销站 `apps/marketing`，预约页 `apps/booking` |
 | **22** | [`22-SETUP-WORKSPACE-HANDOFF.md`](22-SETUP-WORKSPACE-HANDOFF.md) | 首次开店独立页面、服务端状态门禁、四步营业最小流程与验证记录 |
-| **23** | [`23-PURCHASE-TO-OPEN-CHECKLIST.md`](23-PURCHASE-TO-OPEN-CHECKLIST.md) | 购买、订阅、激活、开店及两个长期测试账号的逐项验收与上线清单 |
+| **23** | [`23-PURCHASE-TO-OPEN-CHECKLIST.md`](23-PURCHASE-TO-OPEN-CHECKLIST.md) | 购买、订阅、激活、开店的验收历史；当前账号见 TEST_ACCOUNTS |
 
 ### 3. 🤖 AI、语音与电话集成
 | 编号 | 文档 | 核心内容 |
@@ -63,6 +63,7 @@ Monorepo 仓库结构：`apps/`（多端应用）与 `packages/`（共享业务�
 |---|---|
 | [`CURRENT-ARCHITECTURE.md`](CURRENT-ARCHITECTURE.md) | 现行应用/包/路由/认证/多语言地图 |
 | [`qa/TEST-PLAYBOOK.md`](qa/TEST-PLAYBOOK.md) | 分批测试：自动门 + 10 批手测 |
+| [`qa/TEST_ACCOUNTS.md`](qa/TEST_ACCOUNTS.md) | 当前 local/staging/prod 账号、最小 seed 与真实业务保护 |
 | [`qa/SEED_SCENARIOS.md`](qa/SEED_SCENARIOS.md) | QA seed 场景与账号 |
 | [`qa/QA_COVERAGE.md`](qa/QA_COVERAGE.md) | Playwright 已覆盖矩阵（英文 Chromium） |
 | [`archive/`](archive/README.md) | 已过时的审计单与交接，仅供溯源 |

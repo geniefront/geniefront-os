@@ -1,0 +1,5 @@
+/tmp/commerce-group-idempotency-first.txt
+ ✓ src/money.test.ts (19 tests) 1281ms
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+   Duration  3.59s (transform 485ms, setup 1.31s, collect 888ms, tests 1.28s, environment 0ms, prepare 28ms)

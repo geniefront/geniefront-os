@@ -1,7 +1,7 @@
 import { PUBLIC_COPY } from './publicCopy';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
-export type Locale = 'en' | 'zh-Hans' | 'es' | 'vi' | 'ko';
+export type Locale = 'en' | 'zh-Hans' | 'zh-Hant' | 'es' | 'vi' | 'ko';
 
 const DICTIONARIES: Record<string, Record<string, string>> = {
   en: {
@@ -75,6 +75,41 @@ const DICTIONARIES: Record<string, Record<string, string>> = {
     'bundle.youSave': '立省',
     'bundle.choose': '选这个套餐',
     'bundle.selected': '套餐',
+  }, 'zh-Hant': {
+    'nav.onlineBooking': "在線預約",
+    'nav.services': "選擇服務",
+    'nav.specialist': "選擇技師",
+    'nav.time': "預約時間",
+    'nav.details': "顧客信息",
+    'nav.confirm': "確認預約",
+    'step.selectService': "選擇服務項目",
+    'step.selectSpecialist': "選擇技師",
+    'step.anySpecialist': "任意可約技師",
+    'step.selectTime': "選擇預約時間",
+    'step.earlier': "更早",
+    'step.later': "更晚",
+    'step.confirmDetails': "確認您的預約信息",
+    'step.yourInfo': "請填寫您的聯繫方式",
+    'step.addons': "附加項目",
+    'step.total': "合計",
+    'step.booked': "預約成功",
+    'btn.next': "下一步",
+    'btn.back': "返回",
+    'btn.book': "確認預約",
+    'btn.change': "修改",
+    'btn.cancel': "取消",
+    'btn.reschedule': "改約時間",
+    'btn.bookAgain': "再次預約",
+    'status.confirmed': "預約已成功確認",
+    'status.notFound': "未找到門店",
+    'shop.notFoundDesc': "請通過門店提供的在線預約鏈接訪問。",
+    'bundle.sectionTitle': "套餐",
+    'bundle.orService': "或在下方選擇單項服務",
+    'bundle.includes': "包含",
+    'bundle.listPrice': "原價",
+    'bundle.youSave': "立省",
+    'bundle.choose': "選這個套餐",
+    'bundle.selected': "套餐",
   },
   es: {
     'nav.onlineBooking': 'Reserva online',
@@ -208,6 +243,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         const stored = localStorage.getItem('booking_locale');
         if (stored && stored in DICTIONARIES) return stored as Locale;
       } catch { /* Storage may be blocked in an embedded/private browser. */ }
+      if (/^zh-(?:TW|HK|Hant)(?:-|$)/i.test(navigator.language)) return 'zh-Hant';
       if (navigator.language.startsWith('zh')) return 'zh-Hans';
       if (navigator.language.startsWith('es')) return 'es';
       if (navigator.language.startsWith('vi')) return 'vi';

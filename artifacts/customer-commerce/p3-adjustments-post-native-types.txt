@@ -1,0 +1,5 @@
+Scope: 2 of 18 workspace projects
+apps/web typecheck$ tsc --noEmit
+apps/api typecheck$ tsc --noEmit
+apps/api typecheck: Done
+apps/web typecheck: Done

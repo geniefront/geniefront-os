@@ -1,5 +1,8 @@
 # Seed V2 Browser QA Findings
 
+> **2026-09-27 账号清理更新：** 当前环境账号和 seed 命令以[环境账号清单](TEST_ACCOUNTS.md)为准。下文旧账号、演示店及旧密码仅适用于历史记录或隔离测试 fixture，不能作为现行 local/staging/prod 登录配置；原 `ops` 管理员保留。
+
+
 Date: 2026-08-30  
 Pass type: remaining exploratory browser QA after QA-001…QA-006 repair, then final fix pass for QA-007 and QA-008  
 Status: QA-001…QA-008 FIXED / VERIFIED. Open counted findings: none.

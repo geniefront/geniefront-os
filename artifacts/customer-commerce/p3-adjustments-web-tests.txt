@@ -1,0 +1,17 @@
+$ vitest run --passWithNoTests src/features/commerce/AppointmentDepositServiceDialog.test.tsx src/features/commerce/DepositPaymentActions.test.tsx src/features/commerce/AppointmentDepositPanel.test.tsx src/features/commerce/GuestCancellationPanel.test.tsx
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/features/commerce/GuestCancellationPanel.test.tsx (2 tests) 497ms
+   ✓ confirms only selected guests and their exact refund quote, reusing the command key after an interruption 438ms
+ ✓ src/features/commerce/AppointmentDepositServiceDialog.test.tsx (3 tests) 580ms
+ ✓ src/features/commerce/AppointmentDepositPanel.test.tsx (3 tests) 512ms
+   ✓ requires a reason and reuses the same command key after an interrupted approval 406ms
+ ✓ src/features/commerce/DepositPaymentActions.test.tsx (3 tests) 693ms
+   ✓ records the exact held deposit only after receiving a reference and preserves its idempotency key after an interrupted response 411ms
+
+ Test Files  4 passed (4)
+      Tests  11 passed (11)
+   Start at  22:03:15
+   Duration  3.81s (transform 1.13s, setup 2.76s, collect 5.76s, tests 2.28s, environment 2.22s, prepare 403ms)
+

@@ -1,0 +1,72 @@
+{
+  "at": "2026-10-02T23:57:51.604374+00:00",
+  "scope": "P3 unpaid time-only reschedule, pending notices and original actual Stripe Checkout payment",
+  "completeGoal": false,
+  "migrationCount": 186,
+  "checks": {
+    "depositPublicVoiceApi": {
+      "files": 3,
+      "tests": 44
+    },
+    "bookingPermissionCancellationRegression": {
+      "files": 5,
+      "tests": 123
+    },
+    "contracts": {
+      "files": 19,
+      "tests": 97
+    },
+    "typecheckPackages": 16,
+    "guards": true,
+    "diffCheck": true
+  },
+  "native": {
+    "appointmentId": "177b39b4-aff4-46e8-ad60-7509a3664cc7",
+    "orderId": "62408e51-e363-48c8-bd78-e990232d8b23",
+    "oldTime": "2026-10-07T17:00:00.000Z",
+    "newTime": "2026-10-07T18:00:00.000Z",
+    "timezone": "America/Los_Angeles",
+    "deadline": "2026-10-03T00:06:37.254Z",
+    "quotePolicyOrderDeadlineUnchanged": true,
+    "paymentCents": 2000,
+    "feeCents": 88,
+    "netCents": 1912,
+    "payments": 1,
+    "collections": 1,
+    "capturedPendingNotices": 2,
+    "capturedConfirmationNotices": 1,
+    "signedCheckoutEvents": 1,
+    "actualStripeCheckoutVerified": true,
+    "previousPayments": {
+      "count": 17,
+      "hash": "95cc7592a6001bccb099e12c8117ab2a"
+    },
+    "currentPayments": {
+      "count": 18,
+      "hash": "32be213097fb73caafc211c2024b69b5"
+    }
+  },
+  "ui": {
+    "browser": "agent-browser native Chromium",
+    "mobileWidth": 390,
+    "scrollWidth": 390,
+    "languages": [
+      "en",
+      "zh-Hans"
+    ],
+    "consoleErrors": 0,
+    "screenshotsReviewed": [
+      "p3-pending-reschedule-mobile-en.png",
+      "p3-pending-reschedule-paid-mobile-en.png",
+      "p3-pending-reschedule-paid-mobile-zh.png"
+    ]
+  },
+  "remaining": [
+    "Pending changes to service selection/guest count with price and deposit reconfirmation",
+    "Independent supplemental deposit purchase and original-source refund of excess",
+    "Full concurrency, roles, currencies, stores, languages and actual telephone matrix",
+    "All other P0-P6 and A01-A22 incomplete requirements"
+  ],
+  "notificationDelivery": "capture",
+  "productionPublished": false
+}

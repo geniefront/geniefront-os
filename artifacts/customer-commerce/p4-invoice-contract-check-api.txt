@@ -1,0 +1,22 @@
+$ vitest run src/customerMemberships.test.ts src/money.test.ts src/workstations_backend.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ✓ src/customerMemberships.test.ts (39 tests) 11856ms
+   ✓ freezes an annual membership, verifies immediate cancellation, stops eleven future grants and refunds the selected original invoice once 598ms
+   ✓ preserves only the reviewed current paid period and protects its value from purchase refunds 523ms
+   ✓ keeps cancellation and stopped benefits after a provider refund failure, reserving a fresh original-invoice attempt within its cap 468ms
+   ✓ does not reactivate a stopped membership when an originally covered service is returned after termination 379ms
+   ✓ keeps protected invoice access after termination and recovers a missed refund webhook through SDK reconciliation 319ms
+   ✓ keeps the original expiry when a fully returned service restores a membership unit after its period has ended 2402ms
+   ✓ conserves membership, package, discount, deposit, gift, credit, cash, tax, fee and tips through three original-source returns 496ms
+   ✓ conserves all six payment sources across a quoted three-ticket group and each original service return 857ms
+   ✓ merges an explicitly selected identity without rewriting paid records, duplicating subscriptions or granting a shared-phone stranger its assets 1777ms
+ ✓ src/money.test.ts (22 tests) 2138ms
+ ✓ src/workstations_backend.test.ts (15 tests) 262ms
+
+ Test Files  3 passed (3)
+      Tests  76 passed (76)
+   Start at  12:41:11
+   Duration  21.95s (transform 1.12s, setup 5.33s, collect 2.23s, tests 14.26s, environment 0ms, prepare 31ms)
+

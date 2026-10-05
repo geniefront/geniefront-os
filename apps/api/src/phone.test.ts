@@ -812,8 +812,9 @@ describe('tool：真建预约', () => {
     expect(body.ok).toBe(true);
 
     const items = await withTenant(tenant, (tx) => tx<{ membership_id: string | null }[]>`
-      select membership_id from appointment_items
+      select coalesce(membership_id,reserved_membership_id) as membership_id from appointment_items
       where appointment_id = ${body.appointmentId}`);
+    // 手动分配模式保留实际技师预留；两条 item 必须占两位不同技师。
     // 只记 party_size: 2 而底下一条 item 的话，日程表上只占掉一个人 ——
     // 到店来了两位，第二位没有技师
     expect(items).toHaveLength(2);

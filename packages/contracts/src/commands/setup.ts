@@ -431,7 +431,10 @@ export const SaveOnlineBooking = defineCommand({
     /** 是否强制收取预约定金 */
     depositRequired: z.boolean().default(false),
     /** 预约定金金额 (分) */
-    depositAmountCents: z.number().int().nonnegative().default(2000),
+    depositAmountCents: z.number().int().nonnegative().optional(),
+    depositMethod:z.enum(['fixed','percentage']).optional(),
+    depositPercentBps:z.number().int().min(1).max(10000).optional(),
+    retainDepositAfterCutoff:z.boolean().optional(),
     /** 是否允许客户选技师 */
     allowClientPickStaff: z.boolean().default(true),
     requireCardOnFile: z.boolean().default(false),

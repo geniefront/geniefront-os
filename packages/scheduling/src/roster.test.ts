@@ -2,13 +2,33 @@ import { describe, it, expect } from 'vitest';
 import {
   expandTemplate, shiftNominalMinutes, shiftRealMinutes, totalMinutesByStaff,
   addDays, weekdayOf, minutesToHHMM, hhmmToMinutes, assertShiftBounds,
-  wallMinuteToInstant, type ShiftTemplateEntry,
+  wallMinuteToInstant, createWallMinuteResolver, type ShiftTemplateEntry,
 } from './roster';
 
 const NY = 'America/New_York';
 
 const tpl = (over: Partial<ShiftTemplateEntry> = {}): ShiftTemplateEntry => ({
   membershipId: 'a', weekday: 1, startMin: 600, endMin: 1140, breakMin: 30, ...over,
+});
+
+describe('request-scoped wall time reuse', () => {
+  it('keeps DST, overnight and timezone conversions identical to the uncached algorithm', () => {
+    const resolve = createWallMinuteResolver();
+    for (const zone of [NY, 'America/Los_Angeles', 'Asia/Shanghai']) {
+      for (const date of ['2026-03-07', '2026-03-08', '2026-11-01', '2026-11-02']) {
+        for (const minute of [0, 90, 150, 600, 1440, 1590, 2880]) {
+          expect(resolve(date, zone, minute)).toEqual(wallMinuteToInstant(date, zone, minute));
+          expect(resolve(date, zone, minute)).toEqual(wallMinuteToInstant(date, zone, minute));
+        }
+      }
+    }
+  });
+
+  it('does not share mutable Date instances between callers', () => {
+    const resolve = createWallMinuteResolver();
+    resolve('2026-10-05', NY, 600).setTime(0);
+    expect(resolve('2026-10-05', NY, 600).toISOString()).toBe('2026-10-05T14:00:00.000Z');
+  });
 });
 
 describe('日期算术', () => {

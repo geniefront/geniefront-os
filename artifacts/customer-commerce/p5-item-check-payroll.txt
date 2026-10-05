@@ -1,0 +1,14 @@
+/tmp/commerce-item-sources-payroll-full.txt
+ ✓ src/credits.test.ts (38 tests) 4ms
+ ✓ src/tip.test.ts (19 tests) 4ms
+ ✓ src/bundle.test.ts (21 tests) 6ms
+ ✓ src/giftcard.test.ts (14 tests) 2ms
+ ✓ src/commerce.test.ts (15 tests) 7ms
+ ✓ src/commission.test.ts (23 tests) 4ms
+ ✓ src/settle.test.ts (16 tests) 3ms
+ ✓ src/serviceSources.test.ts (5 tests) 9ms
+ ✓ src/itemSources.test.ts (5 tests) 16ms
+ ✓ src/pricing.test.ts (3 tests) 2ms
+ Test Files  10 passed (10)
+      Tests  159 passed (159)
+   Duration  413ms (transform 318ms, setup 0ms, collect 481ms, tests 58ms, environment 1ms, prepare 473ms)

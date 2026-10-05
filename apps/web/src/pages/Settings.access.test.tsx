@@ -13,6 +13,7 @@ vi.mock('@/lib/permissions', () => ({
     permission === 'settings.manage' || permission === 'staff.manage' || permission === 'billing.manage'
   ),
   useCanAny: () => canState.allowed,
+  useCanWrite: () => canState.allowed,
 }));
 
 const settingsQuery = vi.hoisted(() => vi.fn());

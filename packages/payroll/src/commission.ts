@@ -93,6 +93,8 @@ export interface RevenueItem {
   grossCents: number;
   /** item 自身的折扣 */
   itemDiscountCents: number;
+  /** Verified prepaid benefits can set their purchased commission basis independently of staff gross/net policy. */
+  commissionBaseOverrideCents?:number;
   /** 这个 item 由谁做。接力/双技师会有多条 */
   staff: ReadonlyArray<{
     membershipId: string;
@@ -149,6 +151,7 @@ export function computeCommission(args: {
   const ticketDiscount = args.ticketDiscountCents ?? 0;
 
   for (const p of [...Object.values(plans), fallback]) assertValidPlan(p);
+  for(const item of items)if(item.commissionBaseOverrideCents!==undefined&&(!Number.isSafeInteger(item.commissionBaseOverrideCents)||item.commissionBaseOverrideCents<0))throw new Error('Invalid prepaid commission basis');
 
   // ── 1. 单据级折扣摊到 item ────────────────────────────────────────────────
   const spread = ticketDiscount > 0
@@ -180,9 +183,9 @@ export function computeCommission(args: {
 
       // 基数口径由**这个人的**方案决定：同一单里两个人可以一个吃折扣一个不吃，
       // 听起来奇怪，但「老板自己下场做的那一单不吃折扣」在真店里就是这样
-      const itemBaseTotal = plan.base === 'gross'
+      const itemBaseTotal = item.commissionBaseOverrideCents??(plan.base === 'gross'
         ? item.grossCents
-        : Math.max(0, item.grossCents - discount);
+        : Math.max(0, item.grossCents - discount));
 
       const share = largestRemainderSplit(itemBaseTotal, useWeights)[si] ?? 0;
 

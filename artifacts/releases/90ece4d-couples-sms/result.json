@@ -1,0 +1,14 @@
+{
+  "commit": "90ece4dede865af29c2573b08fd910303d481c31",
+  "image": "geniefront/api:90ece4d-couples-sms",
+  "imageId": "sha256:8d65096e03c393ed9b5c84cab40fb9fdcc37760def5da3d8aaa0cb902b4824e5",
+  "backfilledServices": 12,
+  "previewUnits": 52,
+  "previewSegments": 1,
+  "resent": false,
+  "healthyHosts": [
+    "gf-staging",
+    "gf-a",
+    "gf-b"
+  ]
+}

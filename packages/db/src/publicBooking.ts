@@ -39,6 +39,9 @@ export interface OnlineBookingConfig {
   slotIntervalMinutes?: number;
   depositRequired?: boolean;
   depositAmountCents?: number;
+  depositMethod?:'fixed'|'percentage';
+  depositPercentBps?:number;
+  retainDepositAfterCutoff?:boolean;
   allowClientPickStaff?: boolean;
   requireCardOnFile?: boolean;
   cancellationPolicyNotice?: string;
@@ -90,6 +93,9 @@ export function readOnlineBooking(settings: Record<string, unknown>): OnlineBook
     slotIntervalMinutes: num(raw['slot_interval_minutes'] ?? raw['slotIntervalMinutes'], 30),
     depositRequired: raw['deposit_required'] === true || raw['depositRequired'] === true,
     depositAmountCents: num(raw['deposit_amount_cents'] ?? raw['depositAmountCents'], 2000),
+    depositMethod:raw['deposit_method']==='percentage'||raw['depositMethod']==='percentage'?'percentage':'fixed',
+    ...(typeof (raw['deposit_percent_bps']??raw['depositPercentBps'])==='number'?{depositPercentBps:num(raw['deposit_percent_bps']??raw['depositPercentBps'],0)}:{}),
+    retainDepositAfterCutoff:raw['retain_deposit_after_cutoff']===true||raw['retainDepositAfterCutoff']===true,
     allowClientPickStaff: raw['allow_client_pick_staff'] !== false && raw['allowClientPickStaff'] !== false,
     requireCardOnFile: raw['require_card_on_file'] === true || raw['requireCardOnFile'] === true,
     cancellationPolicyNotice: ((raw['cancellation_policy_notice'] ?? raw['cancellationPolicyNotice'] ?? '') as string),

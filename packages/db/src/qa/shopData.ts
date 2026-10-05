@@ -2,7 +2,6 @@ import type postgres from 'postgres';
 import { businessDateOf, iso, type QaClock } from './clock';
 import { qaUuid } from './ids';
 import type { SeededLocation } from './bootstrap';
-import type { QaScenarioId } from './types';
 
 export type ShopCatalog = {
   serviceIds: Record<string, string>;
@@ -20,7 +19,7 @@ const SERVICES = [
 export async function seedCatalog(
   tx: postgres.TransactionSql,
   loc: SeededLocation,
-  scenario: QaScenarioId,
+  scenario: string,
   customers: Array<{ key: string; name: string; phone: string }>,
 ): Promise<ShopCatalog> {
   const J = (v: unknown) => tx.json(v as never);

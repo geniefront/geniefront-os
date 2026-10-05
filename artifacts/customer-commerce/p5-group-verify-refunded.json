@@ -1,0 +1,41 @@
+{
+  "at": "2026-10-02T14:38:17.322Z",
+  "groupId": "d5cfaebc-a71e-4894-98de-826f184c4107",
+  "ticketIds": [
+    "d70c3af9-0c9b-4332-9498-dfc6aa0e3674",
+    "3b615791-fafe-40d9-b410-cea2edf34a87"
+  ],
+  "originalStripePurchasesReused": true,
+  "originalPackagePurchaseCents": 50000,
+  "originalPackagePurchaseRefundCents": 45000,
+  "originalGiftPurchaseCents": 8000,
+  "originalGiftPurchaseRefundCents": 5600,
+  "availableOriginalPackageUnits": 1,
+  "availableOriginalGiftFaceCents": 3000,
+  "newOfflineQaCashCents": 18000,
+  "newStripePayment": false,
+  "facts": {
+    "total": 31000,
+    "returned": 31000,
+    "commission": 0,
+    "tips": 0,
+    "cash_return": 18000,
+    "payments": 2,
+    "payment_groups": 1
+  },
+  "sources": [
+    {
+      "kind": "cash",
+      "amount_cents": 18000
+    },
+    {
+      "kind": "gift_card",
+      "amount_cents": 3000
+    },
+    {
+      "kind": "package",
+      "amount_cents": 10000
+    }
+  ],
+  "productionChanged": false
+}

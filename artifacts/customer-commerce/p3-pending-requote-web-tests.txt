@@ -1,0 +1,11 @@
+$ vitest run --passWithNoTests src/features/commerce/GuestCancellationPanel.test.tsx
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/features/commerce/GuestCancellationPanel.test.tsx (2 tests) 265ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  23:06:43
+   Duration  3.46s (transform 751ms, setup 658ms, collect 1.72s, tests 265ms, environment 439ms, prepare 65ms)
+

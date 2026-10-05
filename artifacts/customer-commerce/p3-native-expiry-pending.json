@@ -1,0 +1,44 @@
+{
+  "at": "2026-10-03T03:33:19.258Z",
+  "mode": "verify-pending",
+  "race": [
+    {
+      "status": 201,
+      "code": null,
+      "reason": null
+    },
+    {
+      "status": 409,
+      "code": "RESOURCE_CONFLICT",
+      "reason": "party_slot_taken"
+    }
+  ],
+  "appointmentId": "1cdb0098-4e69-4a33-9c6c-019c74e79705",
+  "holdId": "92d9e105-944e-490e-b660-f30144ce0bf5",
+  "facts": {
+    "status": "booked",
+    "deposit_status": "pending",
+    "hold_status": "pending",
+    "expires_at": "2026-10-03 03:48:06.393305+00",
+    "payment_status": "pending",
+    "money_rows": 0,
+    "confirmations": 0,
+    "winning_holds": 1
+  },
+  "originalSlotAvailable": false,
+  "stripeSessionStatus": "open",
+  "stripePaymentStatus": "unpaid",
+  "actualWallClockDeadline": true,
+  "clockOrMoneyFabricated": false,
+  "priorPayments": {
+    "count": 22,
+    "hash": "d62cf8fe4e061202502780125522595c"
+  },
+  "currentPayments": {
+    "count": 23,
+    "hash": "28e6a2130b0e8daae8753dbb350355e7"
+  },
+  "notificationDelivery": "capture",
+  "productionPublished": false,
+  "goalComplete": false
+}

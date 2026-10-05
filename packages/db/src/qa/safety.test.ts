@@ -24,6 +24,11 @@ describe('QA production safety', () => {
     }
   });
 
+  it('refuses the persistent manual-QA local database', () => {
+    const r = assertQaDatabaseSafe({ ...allowed, databaseUrl: localApp.replace('54322', '55322'), migrationDatabaseUrl: localMig.replace('54322', '55322') });
+    expect(r.ok).toBe(false);
+  });
+
   it('refuses NODE_ENV=production', () => {
     const r = assertQaDatabaseSafe({ ...allowed, nodeEnv: 'production' });
     expect(r).toEqual({ ok: false, reason: 'NODE_ENV=production is refused' });

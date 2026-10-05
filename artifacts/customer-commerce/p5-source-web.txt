@@ -1,0 +1,23 @@
+$ vitest run --passWithNoTests src/pages/Checkout.tips.test.tsx src/features/commerce/DepositRetentionActions.test.tsx src/components/AppointmentDrawer.test.tsx src/features/commerce/MembershipTermination.test.tsx src/features/commerce/DepositPaymentActions.test.tsx src/features/printing/ReceiptDocument.test.tsx src/features/commerce/CommercePayouts.test.tsx src/features/commerce/GuestCancellationPanel.test.tsx src/features/commerce/AppointmentDepositPanel.test.tsx src/features/commerce/CustomerMembershipPlans.test.tsx src/features/tickets/refund.test.tsx src/lib/moneyMutationRetry.test.tsx src/features/tickets/orderDisplay.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/pages/Checkout.tips.test.tsx (10 tests) 624ms
+ ✓ src/features/commerce/DepositRetentionActions.test.tsx (5 tests) 825ms
+ ✓ src/components/AppointmentDrawer.test.tsx (10 tests) 354ms
+ ✓ src/features/commerce/MembershipTermination.test.tsx (5 tests) 750ms
+ ✓ src/features/tickets/refund.test.tsx (4 tests) 69ms
+ ✓ src/features/commerce/DepositPaymentActions.test.tsx (3 tests) 351ms
+ ✓ src/features/printing/ReceiptDocument.test.tsx (5 tests) 42ms
+ ✓ src/features/commerce/CommercePayouts.test.tsx (4 tests) 110ms
+ ✓ src/lib/moneyMutationRetry.test.tsx (7 tests) 16ms
+ ✓ src/features/commerce/GuestCancellationPanel.test.tsx (2 tests) 234ms
+ ✓ src/features/commerce/AppointmentDepositPanel.test.tsx (3 tests) 221ms
+ ✓ src/features/commerce/CustomerMembershipPlans.test.tsx (3 tests) 150ms
+ ✓ src/features/tickets/orderDisplay.test.ts (6 tests) 1ms
+
+ Test Files  13 passed (13)
+      Tests  67 passed (67)
+   Start at  06:49:31
+   Duration  15.84s (transform 962ms, setup 1.86s, collect 5.17s, tests 3.75s, environment 3.62s, prepare 325ms)
+

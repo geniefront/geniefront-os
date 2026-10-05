@@ -6,7 +6,7 @@ import { AppError, ERROR_CODES, readPublicBookingProfile, serviceGuestCount, sel
 import {
   businessDateOf,
   isBookableDate,
-  wallMinuteToInstant,
+  createWallMinuteResolver,
   planPartyAt,
   readBookingPolicy,
   bookingLimits,
@@ -41,6 +41,7 @@ export async function loadPartyAvailability(
   },
   preloaded?: PartyAvailabilityData,
 ) {
+  const wallMinuteToInstant = preloaded?.resolveMinute ?? createWallMinuteResolver();
   if(preloaded && (preloaded.locationId!==shop.locationId || !preloaded.staffByDate[args.date] || args.excludeAppointmentId || args.trustedUnits)) throw new Error('Invalid availability snapshot scope');
   const bad = (reason: string): never => {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason } });
@@ -214,23 +215,33 @@ export async function loadPartyAvailability(
       and ai.starts_at<${wallMinuteToInstant(args.date, shop.timezone, 2880).toISOString()}::timestamptz
       and ai.ends_at>${wallMinuteToInstant(args.date, shop.timezone, 0).toISOString()}::timestamptz`
     : [];
-  const day = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][
-    new Date(`${args.date}T12:00:00Z`).getUTCDay()
-  ]!;
-  const hours = shop.businessHours[day];
-  const minutes = (v: string) => {
-    const [h, m] = v.split(":").map(Number);
-    return h! * 60 + m!;
-  };
   const plans: Array<{
     startsAt: string;
     items: NonNullable<ReturnType<typeof planPartyAt>>;
   }> = [];
+  const earliest = Date.now() + shop.onlineBooking.minMinutesAhead * 60000;
+  const policy = readBookingPolicy(shop.settings);
+  const availableStaff = staff;
+  const maxDuration = Math.max(...items.map(i => i.durationMin));
+  const plannedStaff = availableStaff.map(s => ({
+    id: s.id,
+    startsAt: wallMinuteToInstant(args.date, shop.timezone, s.startMin),
+    endsAt: wallMinuteToInstant(args.date, shop.timezone, s.endMin),
+  }));
+  const plannedExisting = existing.map(e => ({
+    startsAt: new Date(e.starts_at), endsAt: new Date(e.ends_at),
+    membershipId: e.membership_id, groupKey: e.group_key,
+  }));
+  const plannedResources = resources.map(r => ({
+    id: r.id, typeId: r.resource_type_id, capacity: r.capacity, maxStaff: r.max_staff,
+    busy: resourceBusy.filter(b => b.resource_id === r.id).map(b => ({
+      startsAt: new Date(b.starts_at), endsAt: new Date(b.ends_at),
+      membershipId: b.membership_id, groupKey: b.group_key,
+    })),
+  }));
   for (const {openMin:open,closeMin:close} of dayWindows(args.date,shop.businessHours)) {
     const step = Math.max(1, shop.onlineBooking.slotIntervalMinutes ?? 15);
-    const earliest = Date.now() + shop.onlineBooking.minMinutesAhead * 60000;
-    const policy = readBookingPolicy(shop.settings);
-    const availableStaff = staff;
+    const closesAt = wallMinuteToInstant(args.date, shop.timezone, close);
     for (let m = Math.ceil(open / step) * step; m < close; m += step) {
       const startsAt = wallMinuteToInstant(args.date, shop.timezone, m);
       if (
@@ -238,41 +249,19 @@ export async function loadPartyAvailability(
         (args.startsAt && Date.parse(args.startsAt) !== startsAt.getTime())
       )
         continue;
-      if (!availableStaff.some(s=>s.startMin<=m && s.endMin>=m+Math.max(...items.map(i=>i.durationMin)))) continue;
+      if (!availableStaff.some(s=>s.startMin<=m && s.endMin>=m+maxDuration)) continue;
       const plan = planPartyAt({
-        resources: resources.map((r) => ({
-          id: r.id,
-          typeId: r.resource_type_id,
-          capacity: r.capacity,
-          maxStaff: r.max_staff,
-          busy: resourceBusy
-            .filter((b) => b.resource_id === r.id)
-            .map((b) => ({
-              startsAt: new Date(b.starts_at),
-              endsAt: new Date(b.ends_at),
-              membershipId: b.membership_id,
-              groupKey: b.group_key,
-            })),
-        })),
+        resources: plannedResources,
         startsAt,
-        closesAt: wallMinuteToInstant(args.date, shop.timezone, close),
+        closesAt,
         items,
-        staff: availableStaff.map((s) => ({
-          id: s.id,
-          startsAt: wallMinuteToInstant(args.date, shop.timezone, s.startMin),
-          endsAt: wallMinuteToInstant(args.date, shop.timezone, s.endMin),
-        })),
-        existing: existing.map((e) => ({
-          startsAt: new Date(e.starts_at),
-          endsAt: new Date(e.ends_at),
-          membershipId: e.membership_id,
-          groupKey: e.group_key,
-        })),
+        staff: plannedStaff,
+        existing: plannedExisting,
         unassignedLimit:policy.bufferEnabled?policy.bufferExtra:0,
         allowUnassigned: (shop.settings as any).capacity?.use_recurring_staff === true && policy.bufferEnabled,
         locationLimit: bookingLimits(
           policy,
-          new Set(availableStaff.filter(s=>s.startMin<=m && s.endMin>=m+Math.max(...items.map(i=>i.durationMin))).map((s) => s.id)).size,
+          new Set(availableStaff.filter(s=>s.startMin<=m && s.endMin>=m+maxDuration).map((s) => s.id)).size,
           false,
         ).locationLimit,
       });

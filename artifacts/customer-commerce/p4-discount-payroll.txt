@@ -1,0 +1,17 @@
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/payroll
+
+ ✓ src/giftcard.test.ts (14 tests) 6ms
+ ✓ src/settle.test.ts (16 tests) 3ms
+ ✓ src/pricing.test.ts (3 tests) 2ms
+ ✓ src/bundle.test.ts (21 tests) 7ms
+ ✓ src/credits.test.ts (38 tests) 4ms
+ ✓ src/tip.test.ts (19 tests) 20ms
+ ✓ src/commerce.test.ts (15 tests) 5ms
+ ✓ src/commission.test.ts (23 tests) 27ms
+
+ Test Files  8 passed (8)
+      Tests  149 passed (149)
+   Start at  21:33:16
+   Duration  412ms (transform 382ms, setup 0ms, collect 601ms, tests 74ms, environment 1ms, prepare 535ms)
+

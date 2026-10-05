@@ -1,0 +1,90 @@
+{
+  "at": "2026-10-02T16:02:20.014Z",
+  "membershipId": "0ef40a69-adf7-4425-a928-72ae89bc470e",
+  "sourceCustomerId": "6d4f62e5-499c-435a-9989-6ca80865cb7d",
+  "targetCustomerId": "b075d5fc-61ba-4f8f-bba7-d25ac9f40908",
+  "newStripePayment": false,
+  "productionChanged": false,
+  "data": {
+    "httpStatus": 200,
+    "replayed": true,
+    "sameKey": true,
+    "originalHttpStatus": 201,
+    "refreshedRetry": true,
+    "originalFinancialRowsUnchanged": true,
+    "counts": {
+      "merge_audits": 1,
+      "invoices": 3
+    },
+    "facts": {
+      "commerce_payments": {
+        "count": 14,
+        "hash": "0e6bc4cceb3a1ab766cc1486efff59e4"
+      },
+      "commerce_refunds": {
+        "count": 8,
+        "hash": "9408ca2098d64afacc73f0cea7aee0ec"
+      },
+      "commerce_orders": {
+        "count": 14,
+        "hash": "940b820ba49d5b7f8acf5396bc5d5dd3"
+      },
+      "customer_paid_memberships": {
+        "count": 3,
+        "hash": "8491d5bbb3a940e8fe6b7feb1bec2a5a"
+      },
+      "customer_membership_invoices": {
+        "count": 6,
+        "hash": "85a03de61fffb91f2db29865ae352591"
+      },
+      "customer_membership_cycles": {
+        "count": 28,
+        "hash": "3a3282c005170bcb0f5ccc1d956b261c"
+      },
+      "customer_credit_ledger": {
+        "count": 19,
+        "hash": "1e2cf3cad99e5bd44b1d3735fab55409"
+      },
+      "customer_package_ledger": {
+        "count": 14,
+        "hash": "c649f9b1de2d87fa736ef74c25eb4168"
+      },
+      "customer_membership_ledger": {
+        "count": 32,
+        "hash": "e555ff392015da3227e5a26ef9d3946b"
+      },
+      "customer_packages": {
+        "count": 1,
+        "hash": "2d93ef4f335ac9bb088dfb67b0305161"
+      },
+      "gift_cards": {
+        "count": 2,
+        "hash": "bd02d172bc0bda50a58749d6f48b2ff2"
+      },
+      "appointments": {
+        "count": 78,
+        "hash": "916a54aeac333d9332c0ba4d51aa727a"
+      },
+      "tickets": {
+        "count": 53,
+        "hash": "eaf0560ad6783ab546750fff8484b3ab"
+      },
+      "payments": {
+        "count": 54,
+        "hash": "757073821e5703b0e252a57ee1eb14b2"
+      },
+      "ticket_refunds": {
+        "count": 14,
+        "hash": "880bc0f6370b3dacd259b886972fd5a3"
+      },
+      "earnings": {
+        "count": 79,
+        "hash": "19d23e00977ae38149416a10c2ca1d7c"
+      },
+      "tip_allocations": {
+        "count": 12,
+        "hash": "579b5e8c484b234d7888a846c06113e0"
+      }
+    }
+  }
+}

@@ -1,0 +1,36 @@
+$ vitest run src/commerce.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+{"level":30,"time":1790983976436,"pid":68967,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","req":{"id":"req-1","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","stripe-signature":"t=1790983976,v1=93f97a3b2fbda9be74e9822f115e47ce0239b3e5d866992bb5db9a75de9e5433","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790983976439,"pid":68967,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","res":{"statusCode":200},"responseTime":1.2739170000004378,"msg":"request completed"}
+{"level":30,"time":1790983976440,"pid":68967,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","req":{"id":"req-2","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790983976442,"pid":68967,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790983976442,"pid":68967,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","res":{"statusCode":401},"responseTime":1.9561250000006112,"msg":"request completed"}
+{"level":30,"time":1790983976443,"pid":68967,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","req":{"id":"req-3","method":"POST","url":"/v1/commerce/accounts/refresh","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"57"}},"msg":"incoming request"}
+{"level":30,"time":1790983976443,"pid":68967,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790983976443,"pid":68967,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","res":{"statusCode":401},"responseTime":0.42720899999949324,"msg":"request completed"}
+ ✓ src/commerce.test.ts (54 tests) 18403ms
+   ✓ disables and replaces lost credentials without duplicating value, revokes old access, and delivers only the current card 800ms
+   ✓ never turns manually gifted face value into refundable purchase cash 698ms
+   ✓ accepts signed thin events through the complete server auth stack and keeps account administration protected 2154ms
+   ✓ never issues online assets until a signed paid fact, and deduplicates events and payments 503ms
+   ✓ limits purchase refunds to unused paid value and freezes it against concurrent redemption 321ms
+   ✓ restores reserved assets when Stripe refund fails and ignores a later payment replay after refund 459ms
+   ✓ records known-refund webhook receipts without double reversing value through duplicates and stale pending events 789ms
+   ✓ accepts a repeated signed refund whose receipt predates event-provenance metadata without changing its money 707ms
+   ✓ publishes package terms and rejects an obsolete purchase quote before creating a customer or order 490ms
+   ✓ preserves package purchase rules and price after catalog changes and refunds exactly unused value 1072ms
+   ✓ conserves original cents and quantities through package consume, purchase refund, restore and reconsume 576ms
+   ✓ treats unlimited as a dated entitlement and caps manual purchase refund at actual money received 371ms
+   ✓ captures Dashboard refunds with no commerce metadata and prevents spending or another purchase refund 340ms
+   ✓ returns selected frozen inclusive and exclusive tax and fee components after current shop pricing changes 505ms
+   ✓ quotes and settles a group against the original package and gift budgets without consuming during review 426ms
+   ✓ reconciles prepaid cash sales and original purchase refunds without counting service use as new cash 428ms
+   ✓ handles an unlimited entitlement across its actual expiry boundary and caps repeated manual refunds without reviving access 2212ms
+
+ Test Files  1 passed (1)
+      Tests  54 passed (54)
+   Start at  19:32:43
+   Duration  26.84s (transform 5.23s, setup 1.78s, collect 6.55s, tests 18.40s, environment 0ms, prepare 27ms)
+

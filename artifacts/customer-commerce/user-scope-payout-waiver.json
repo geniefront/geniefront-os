@@ -1,0 +1,21 @@
+{
+  "recordedAt": "2026-10-03T03:11:12.397376+00:00",
+  "source": {
+    "chatTitle": "查看 Stripe 进度",
+    "threadId": "01a0f5c7-7824-7380-b0da-999b5a29f17f",
+    "userMessageId": "01a0ffbb-27b6-7921-a650-ff083a6d941d",
+    "directUserInstruction": "告诉他测试银行没事，成功提现不需要他验证",
+    "verifiedByReadingSourceChat": true
+  },
+  "waived": [
+    "Successful bank payout verification",
+    "Actual successful automatic bank-arrival batch verification that depends on successful payout"
+  ],
+  "status": "unverified_user_waived",
+  "verified": false,
+  "activeBlocker": false,
+  "implementationRetained": true,
+  "existingFailureAndReturnEvidenceRetained": true,
+  "remainingGoalScopeUnchanged": true,
+  "productionOrRealMoneyAuthorized": false
+}

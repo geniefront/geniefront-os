@@ -16,7 +16,7 @@ it('evaluates overnight hours in the shop timezone, not the browser',()=>{
   expect(isShopOpen(hours,'America/New_York',new Date('2026-09-20T07:00:00Z'))).toBe(false);
 });
 it('provides every public copy key in all supported languages',()=>{
-  for(const locale of ['en','zh-Hans','es','vi','ko']){
+  for(const locale of ['en','zh-Hans','zh-Hant','es','vi','ko']){
     expect(Object.keys(PUBLIC_COPY[locale]!).sort()).toEqual(Object.keys(PUBLIC_COPY.en!).sort());
     expect(Object.values(PUBLIC_COPY[locale]!).every(Boolean)).toBe(true);
   }

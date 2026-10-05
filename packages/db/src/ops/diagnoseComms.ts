@@ -36,7 +36,7 @@ const env = process.env;
  * 因此这里重复一遍最小逻辑，且**必须与那两处保持一致** —— 不一致的后果是
  * 体检报告说的和实际发信行为对不上，而体检工具存在的意义正是「它说什么就是什么」。
  */
-const provider = env['EMAIL_PROVIDER']?.trim().toLowerCase() === 'ses' ? 'ses' : 'resend';
+const provider = env['EMAIL_PROVIDER']?.trim().toLowerCase() || 'resend';
 const marketingDomain = env['MARKETING_EMAIL_DOMAIN'] ?? 'mkt.geniefront.com';
 
 const mask = (v: string | undefined): string =>
@@ -57,6 +57,9 @@ async function main(): Promise<void> {
     console.log(`AWS_REGION                    ${awsRegion(env)}`);
     console.log(`SES_CONFIGURATION_SET         ${env['SES_CONFIGURATION_SET'] ?? '(未配置)'}`);
     console.log(`SES_SNS_TOPIC_ARN             ${env['SES_SNS_TOPIC_ARN'] ?? '(未配置)'}`);
+  } else if (provider === 'maileroo') {
+    console.log(`MAILEROO_API_KEY               ${env['MAILEROO_API_KEY'] ? 'configured' : '(missing)'}`);
+    console.log(`MAILEROO_WEBHOOK_SECRET        ${env['MAILEROO_WEBHOOK_SECRET'] ? 'configured' : '(missing)'}`);
   } else {
     console.log(`RESEND_API_KEY                ${mask(env['RESEND_API_KEY'])}`);
     console.log(`RESEND_WEBHOOK_SECRET         ${env['RESEND_WEBHOOK_SECRET'] ? '已配置' : '(未配置)'}`);
@@ -70,7 +73,7 @@ async function main(): Promise<void> {
 
   const credsOk = provider === 'ses'
     ? Boolean(env['AWS_ACCESS_KEY_ID'] && env['AWS_SECRET_ACCESS_KEY'])
-    : Boolean(env['RESEND_API_KEY']);
+    : provider === 'maileroo' ? Boolean(env['MAILEROO_API_KEY']) : Boolean(env['RESEND_API_KEY']);
   if (!credsOk || !env['FROM_EMAIL']) {
     console.log('\n[x] emailConfigured() 为 false —— flushEmails() 会直接 return。'
       + '发件箱里的信永远停在 pending，且不会留下任何 last_error。');
@@ -128,7 +131,17 @@ async function main(): Promise<void> {
   // ── 3. 发信供应商 ───────────────────────────────────────────────────────
   //
   // ⚠️ 只查当前 EMAIL_PROVIDER 那一家。另一家配得再好，邮件也不从它那里出去。
-  if (provider === 'resend') {
+  if (provider === 'maileroo') {
+    section('Maileroo');
+    if (env['MAILEROO_ACCOUNT_API_KEY']) {
+      const res = await fetch('https://api.maileroo.com/v1/domains?per_page=100', { headers: { Authorization: `Bearer ${env['MAILEROO_ACCOUNT_API_KEY']}` }, signal: AbortSignal.timeout(15000) });
+      if (!res.ok) console.log(`Domain lookup HTTP ${res.status}`);
+      else {
+        const body = await res.json() as { data: { domains: { domain_name: string; status: boolean }[] } };
+        for (const d of body.data.domains) console.log(`${d.status ? '[ok]' : '[pending]'} ${d.domain_name}`);
+      }
+    } else console.log('Domain management credential is missing.');
+  } else if (provider === 'resend') {
     section('Resend');
     if (!env['RESEND_API_KEY']) {
       console.log('没有 API key，跳过。');

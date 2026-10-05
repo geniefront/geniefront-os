@@ -41,27 +41,42 @@ async function call<T>(
     throw new ApiError('NO_PUBLIC_KEY', 400);
   }
 
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}${path}`, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(key ? { 'X-GF-Public-Key': key } : {}),
-        ...(idem ? { 'Idempotency-Key': idem } : {}),
-      },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    });
-  } catch {
-    throw new ApiError('NETWORK', 0);
+  // Only GETs are automatically retried. A write may have succeeded even if
+  // its response was lost; keep its existing idempotency/manual recovery flow.
+  const read = method === 'GET';
+  const attempts = read ? 3 : 1;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const controller = read ? new AbortController() : undefined;
+    const timer = controller ? setTimeout(() => controller.abort(), 5000) : undefined;
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: {
+          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+          ...(key ? { 'X-GF-Public-Key': key } : {}),
+          ...(idem ? { 'Idempotency-Key': idem } : {}),
+        },
+        ...(controller ? { signal: controller.signal } : {}),
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      });
+      // The timeout also covers a response whose headers arrive but body hangs.
+      const json = await res.json().catch(() => null) as
+        { code?: string; details?: Record<string, unknown> } | null;
+      if (controller?.signal.aborted) throw new ApiError('TIMEOUT', 0);
+      if (!res.ok) throw new ApiError(json?.code ?? 'INTERNAL', res.status, json?.details ?? {});
+      if (json === null) throw new ApiError('INVALID_RESPONSE', 502);
+      return json as T;
+    } catch (cause) {
+      const error = cause instanceof ApiError ? cause :
+        new ApiError(controller?.signal.aborted ? 'TIMEOUT' : 'NETWORK', 0);
+      const transient = error.status === 0 || [502, 503, 504].includes(error.status);
+      if (!read || !transient || attempt === attempts - 1) throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+    await new Promise(resolve => setTimeout(resolve, attempt === 0 ? 500 : 1500));
   }
-
-  const json = await res.json().catch(() => ({} as Record<string, unknown>));
-  if (!res.ok) {
-    const j = json as { code?: string; details?: Record<string, unknown> };
-    throw new ApiError(j.code ?? 'INTERNAL', res.status, j.details ?? {});
-  }
-  return json as T;
+  throw new ApiError('NETWORK', 0);
 }
 
 export interface Shop {
@@ -87,6 +102,8 @@ export interface Shop {
     selfRescheduleMax?: number;
     allowClientPickStaff?: boolean;
     cancellationPolicyNotice?: string;
+    depositRequired?:boolean;depositMethod?:'fixed'|'percentage';depositAmountCents?:number;depositPercentBps?:number;
+    retainDepositAfterCutoff?:boolean;depositPolicyVersion?:string;
   };
   turnstileSiteKey: string | null;
   publicKey?: string;
@@ -154,6 +171,7 @@ export interface BookInput {
   /** 组合套餐选择（U10）。与 items 二选一，服务端展开定价。 */
   bundleSelections?: Array<{ bundleId: string; startsAt: string; expectedVersion?: number }>;
   partySize: number;
+  depositConsent?:{accepted:true;policyVersion:string;serviceTotalCents:number;amountCents:number};
   notes?: string;
   website: string;
   formElapsedMs: number;
@@ -199,14 +217,22 @@ export interface GuestActions {
 export interface ManagedBooking {
   bookingId: string;
   status: string;
+  deposit?:{status:string;financialStatus?:string;amountCents:number;availableCents:number;excessCents?:number;appliedCents?:number;refundedCents?:number;retainedCents?:number;serviceRemainingCents?:number;currency:string;expiresAt:string;checkoutUrl:string|null;paymentMethod?:'online'|'frontdesk';
+    additionalPayment?:{amountCents:number;expiresAt:string;state:string;checkoutUrl:string|null;paymentMethod:'online'|'frontdesk'};
+    guestAllocation?:{method:string;guests:Array<{guestIndex:number;serviceTotalCents:number;amountCents:number;cancelled?:boolean;refundStatus?:string|null}>};
+    policy:{cancelCutoffHours:number;notice:string;retainAfterCutoff:boolean}};
   startsAt: string;
   endsAt: string;
   timezone: string;
   durationMin: number;
   priceCents: number;
+  originalPriceCents?:number;
+  guests?:Array<{guestIndex:number;status:'active'|'cancelled';serviceTotalCents:number;refundableDepositCents?:number|null;refundStatus?:string|null}>;
+  guestCancellation?:{enabled:boolean;reason:string|null;currency:string};
   specialistName: string | null;
   items: Array<{
     guestIndex?: number; guestIndices?: number[];
+    status?:string;
     serviceId: string;
     name: string;
     addonIds: string[];
@@ -249,6 +275,9 @@ export const cancelManagedBooking = (
     'POST', `/public/v1/bookings/${bookingId}/cancel`,
     { manageToken, ...(last4 ? { last4 } : {}) },undefined,publicKey,
   );
+
+export const cancelManagedGuests=(bookingId:string,args:{manageToken:string;last4:string;requestId:string;guestIndices:number[];reason:string;expectedRefundCents:number;depositAdjustment?:{accepted:true;quoteHash:string}},publicKey?:string)=>
+  call<{bookingId:string;status:string;remainingGuests:number;replayed:boolean}>('POST',`/public/v1/bookings/${bookingId}/cancel-guests`,args,undefined,publicKey);
 
 export const rescheduleManagedBooking = (
   bookingId: string,

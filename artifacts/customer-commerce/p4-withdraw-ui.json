@@ -1,0 +1,40 @@
+{
+  "at": "2026-10-02T22:01:05.303154+00:00",
+  "screenshotsReviewed": [
+    "p4-withdraw-consent-mobile-en.png",
+    "p4-withdraw-reload-mobile-en.png",
+    "p4-withdraw-final-mobile-zh.png",
+    "p4-withdraw-final-desktop-en.png",
+    "p4-withdraw-desk-final-en.png"
+  ],
+  "customerMobile": {
+    "width": 390,
+    "scrollWidth": 390,
+    "language": "zh-Hans",
+    "withdrawn": true,
+    "currentAnnualAmount": 999,
+    "paidInvoices": 5,
+    "availableUnits": 1,
+    "newSalesPickerHiddenAfterSettingsRestore": true,
+    "pageErrors": 0
+  },
+  "customerDesktop": {
+    "width": 1280,
+    "scrollWidth": 1280,
+    "language": "en",
+    "withdrawn": true,
+    "historicalPlanLabelsCorrected": true
+  },
+  "owner": {
+    "currentPlan": "QA Next Annual Care",
+    "pendingPlanRemoved": true,
+    "priorSessionErrorBufferEntries": 4,
+    "freshAuthenticatedSessionPageErrors": 0,
+    "freshAuthenticatedSession": "commerce-withdraw-desk",
+    "oldSessionErrors": "4 retained useSession/SessionProvider errors with Vite hot-update module URLs; not reproduced in fresh authenticated session",
+    "width": 1280,
+    "scrollWidth": 1280
+  },
+  "nativeResponseLossAndSameKeyReplay": true,
+  "productionPublished": false
+}

@@ -1,0 +1,3 @@
+/tmp/commerce-checkout-quote-build-final.txt
+(!) Some chunks are larger than 700 kB after minification. Consider:
+✓ built in 6.37s

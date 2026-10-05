@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { withTenant, type TenantContext } from '@gf/db';
 import { elasticKey, elasticRequest } from './elastic';
 import { isCaptureMode } from '../comms/mode';
+import { emailProvider } from './provider';
 export interface ValidationResult {
   result: 'valid' | 'invalid' | 'risky' | 'unknown'; reason: string;
   suggestedEmail?: string | null; cached?: boolean;
@@ -22,7 +23,6 @@ export async function validateEmail(email: string, tenant?: TenantContext): Prom
   const normalized = email.trim().toLowerCase();
   if (!z.string().email().safeParse(normalized).success) return { result: 'invalid', reason: 'invalid_format' };
   if (isCaptureMode() || process.env['NODE_ENV'] === 'test') return { result: 'unknown', reason: 'capture' };
-  if (!elasticKey()) return { result: 'unknown', reason: 'not_configured' };
   if (tenant?.locationId) {
     try {
       const [cached] = await withTenant(tenant, tx => tx<{ result: ValidationResult['result']; reason: string; suggested_email: string | null }[]>`
@@ -33,7 +33,9 @@ export async function validateEmail(email: string, tenant?: TenantContext): Prom
   }
   let result: ValidationResult;
   try {
-    result = interpretValidation(await elasticRequest('POST', `/verifications/${encodeURIComponent(normalized)}`, undefined, elasticKey(), 3500));
+    result = emailProvider() !== 'elasticemail' || !elasticKey()
+      ? { result: 'unknown', reason: 'verification_not_supported' }
+      : interpretValidation(await elasticRequest('POST', `/verifications/${encodeURIComponent(normalized)}`, undefined, elasticKey(), 3500));
   } catch { result = { result: 'unknown', reason: 'verification_unavailable' }; }
   if (tenant?.locationId) {
     // Unknowns are briefly cached to avoid spending quota or repeatedly delaying sends during outages.

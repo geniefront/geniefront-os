@@ -1,0 +1,77 @@
+{
+  "at": "2026-10-02T03:42:06.125263+00:00",
+  "scope": "P4 manager termination, original invoice refunds, stopped benefits, protected ended invoice access",
+  "stageComplete": false,
+  "goalComplete": false,
+  "productionPublished": false,
+  "migration": 176,
+  "checks": {
+    "api": {
+      "files": 13,
+      "tests": 338,
+      "membershipTests": 35
+    },
+    "web": {
+      "files": 9,
+      "tests": 45
+    },
+    "booking": {
+      "files": 15,
+      "tests": 74,
+      "serial": true
+    },
+    "typecheckPackages": 16,
+    "guards": true,
+    "buildWeb": true,
+    "buildBooking": true,
+    "emptyUpgradeReplay": true,
+    "preservedDbIncrementalUpgrade": true,
+    "finalPreviewRestarted": true
+  },
+  "actualAnnual": {
+    "originalGrossCents": 199800,
+    "paidInvoices": 2,
+    "refundCents": 50000,
+    "originalFirstInvoiceRemainingCapCents": 49900,
+    "stopFacts": 23,
+    "revokedQuantity": 1,
+    "stoppedCycles": 24,
+    "providerCanceled": true,
+    "signedCancellationEvents": 1,
+    "signedRefundEvents": 2,
+    "commandReplayRuns": 2,
+    "sdkReconciliationRuns": 3,
+    "newSubscriptionCreated": false
+  },
+  "actualDiscountMembership": {
+    "originalGrossCents": 4900,
+    "refundCents": 4900,
+    "stoppedCycles": 1,
+    "originalServiceAndPriceHistoryPreserved": true,
+    "providerCanceled": true,
+    "signedCancellationEvents": 1,
+    "signedRefundEvents": 2,
+    "commandReplayRuns": 2,
+    "sdkReconciliationRuns": 3,
+    "newSubscriptionCreated": false
+  },
+  "isolatedFailureCoverage": [
+    "provider canceled before transactional write failure; retry retrieves cancellation",
+    "provider refund failure retains ended benefits and original cap",
+    "late paid invoice retained as cash and stopped without new benefits",
+    "risk review caps and pending termination freezing",
+    "SDK refund recovery without a webhook",
+    "service returned after termination remains unavailable",
+    "manager review changes, tenant isolation and immutable decisions",
+    "unknown browser response preserves original key and input",
+    "canceled subscriptions continue SDK reconciliation until local pending refunds and missing settlement facts clear; fresh requests rearm reconciliation"
+  ],
+  "limitations": [
+    "keep_current_paid currently has isolated DB/provider adapter and real pre-submit UI evidence; no real retained-benefit refund in this batch",
+    "captured notices are not actual email delivery",
+    "provider Test Clock time remains distinct from actual DB time; full future grant matrix pending",
+    "historical failed refund requests remain review records even after a fresh authorized request",
+    "all cashier entrypoints, plan changes, action-required UI, external membership refund approval, long-term access and remaining full goal scenarios pending",
+    "full A13 and P4 are not marked complete"
+  ]
+}

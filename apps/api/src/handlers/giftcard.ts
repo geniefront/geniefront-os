@@ -11,9 +11,10 @@
  *    卖了一万块卡的店会以为自己赚了一万。
  */
 
-import { randomBytes } from 'node:crypto';
+import type {CheckoutPlanningBalances} from './checkoutPlanning';
+import { randomBytes,randomUUID,createHash } from 'node:crypto';
 import {
-  SaveGiftCardTemplate, IssueGiftCard, RedeemGiftCard, RefundGiftCard, AdjustGiftCard,
+  SaveGiftCardTemplate, IssueGiftCard, RedeemGiftCard, RefundGiftCard, AdjustGiftCard,DisableGiftCard,ReissueGiftCard,
   AppError, ERROR_CODES,
 } from '@gf/contracts';
 import {
@@ -101,20 +102,24 @@ async function appendLedger(
  * `org` 的卡同 org 任意店都行。RLS 已经把跨 org 挡死了，
  * 这里判的是 org 内部的那一层。
  */
-async function loadCard(tx: Tx, ctx: Ctx, by: { code?: string; id?: string }) {
+async function loadCard(tx: Tx, ctx: Ctx, by: { code?: string; id?: string;allowDisabled?:boolean }) {
   const code = by.code ? normalizeCardCode(by.code) : null;
   const [card] = await tx<{
     id: string; location_id: string; scope: string; status: string;
-    balance_cents: number; face_value_cents: number; sale_price_cents: number;
+    balance_cents: number; face_value_cents: number; sale_price_cents: number; reserved_cents:number;commerce_frozen:boolean;credential_disabled:boolean;
+    purchase_snapshot:{commissionBasis?:CommissionBasis}|null;
     holder_customer_id: string | null; expires_at: Date | string | null;
   }[]>`
-    select id, location_id, scope, status, balance_cents,
+    select id, location_id, scope, status, balance_cents, reserved_cents,commerce_frozen,credential_disabled,purchase_snapshot,
            face_value_cents, sale_price_cents, holder_customer_id, expires_at
     from gift_cards
     where ${by.id ? tx`id = ${by.id}` : tx`replace(code, '-', '') = ${code}`}
     for update`;
 
   if (!card) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'gift_card' } });
+  if(card.credential_disabled&&!by.allowDisabled)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'gift_card_disabled'}});
+
+  if(card.commerce_frozen)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'gift_card_under_review'}});
 
   if (card.scope !== 'org' && card.location_id !== ctx.locationId) {
     throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
@@ -133,6 +138,45 @@ async function loadCard(tx: Tx, ctx: Ctx, by: { code?: string; id?: string }) {
   }
   return card;
 }
+
+async function generateGiftCardCode(tx:Tx){
+  for(let n=0;n<6;n++){const code=encodeCardCode(randomBytes(32));const [taken]=await tx`select id from gift_cards where code=${code}`;if(!taken)return code;}
+  throw new AppError(ERROR_CODES.INTERNAL,{details:{reason:'code_generation'}});
+}
+async function credentialCard(tx:Tx,ctx:Ctx,id:string,expectedVersion:number){
+  const [card]=await tx<{id:string;location_id:string;credential_version:number;code:string;status:string;expires_at:Date|null;purchase_order_id:string|null}[]>`
+    select id,location_id,credential_version,code,status,expires_at,purchase_order_id from gift_cards where id=${id} for update`;
+  if(!card)throw new AppError(ERROR_CODES.NOT_FOUND);
+  if(card.location_id!==ctx.locationId)throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+  if(card.credential_version!==expectedVersion)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'gift_credential_changed'}});
+  return card;
+}
+async function revokeGiftAccess(tx:Tx,card:{id:string;purchase_order_id:string|null}){
+  if(card.purchase_order_id)await tx`update commerce_access_tokens set revoked_at=now() where order_id=${card.purchase_order_id} and revoked_at is null`;
+  await tx`update email_outbox set status='failed',last_error='gift_credential_superseded' where commerce_gift_card_id=${card.id} and status='pending'`;
+}
+registerHandler(DisableGiftCard,async({input,ctx,tx,audit})=>{
+  const card=await credentialCard(tx,ctx,input.giftCardId,input.expectedVersion);
+  await tx`update gift_cards set credential_disabled=true,updated_at=now() where id=${card.id}`;
+  await revokeGiftAccess(tx,card);
+  audit({entityType:'gift_card',entityId:card.id,after:{credentialDisabled:true,credentialVersion:card.credential_version,reason:input.reason}});
+  return {giftCardId:card.id,credentialVersion:card.credential_version,disabled:true};
+});
+registerHandler(ReissueGiftCard,async({input,ctx,tx,audit})=>{
+  const card=await credentialCard(tx,ctx,input.giftCardId,input.expectedVersion);
+  if(['void','expired'].includes(card.status)||(card.expires_at&&new Date(card.expires_at).getTime()<Date.now()))
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'gift_card_inactive'}});
+  const code=await generateGiftCardCode(tx),version=card.credential_version+1;
+  await revokeGiftAccess(tx,card);
+  await tx`update gift_cards set code=${code},credential_version=${version},credential_disabled=false,updated_at=now() where id=${card.id}`;
+  if(card.purchase_order_id){
+    const [order]=await tx<import('../commerce/model').OrderRow[]>`select * from commerce_orders where id=${card.purchase_order_id}`;
+    if(order){const {queueCommerceNotice}=await import('./commerceNotifications');await queueCommerceNotice(tx,ctx,order,'reissue',randomUUID());}
+  }
+  audit({entityType:'gift_card',entityId:card.id,before:{credentialHash:createHash('sha256').update(card.code).digest('hex')},
+    after:{credentialHash:createHash('sha256').update(code).digest('hex'),credentialVersion:version,reason:input.reason}});
+  return {giftCardId:card.id,credentialVersion:version,code};
+});
 
 // ───────────────────────────────────────────────────────────────── 模板
 
@@ -187,8 +231,8 @@ registerHandler(SaveGiftCardTemplate, async ({ input, ctx, tx, audit }: HandlerA
 
 // ───────────────────────────────────────────────────────────────── 发卡
 
-registerHandler(IssueGiftCard, async ({ input, ctx, tx, audit }: HandlerArgs<
-  typeof IssueGiftCard.input._type>) => {
+export const issueGiftCardInTransaction = async ({ input, ctx, tx, audit }: HandlerArgs<
+  Omit<typeof IssueGiftCard.input._type,'channel'|'businessKey'|'offlinePayment'|'reason'>>) => {
   const settings = await giftCardSettings(tx, ctx.locationId);
 
   let face = input.faceValueCents ?? 0;
@@ -224,14 +268,7 @@ registerHandler(IssueGiftCard, async ({ input, ctx, tx, audit }: HandlerArgs<
    * 撞号的概率可以忽略，但**还是要重试**：唯一索引撞了直接 500
    * 比多写三行难看得多。
    */
-  let code = '';
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const candidate = encodeCardCode(randomBytes(32));
-    const [taken] = await tx<{ id: string }[]>`
-      select id from gift_cards where code = ${candidate}`;
-    if (!taken) { code = candidate; break; }
-  }
-  if (!code) throw new AppError(ERROR_CODES.INTERNAL, { details: { reason: 'code_generation' } });
+  const code=await generateGiftCardCode(tx);
 
   const expiresAt = validDays
     ? new Date(Date.now() + validDays * 86400_000) : null;
@@ -272,12 +309,26 @@ registerHandler(IssueGiftCard, async ({ input, ctx, tx, audit }: HandlerArgs<
     faceValueCents: face, salePriceCents: sale,
     expiresAt: expiresAt ? expiresAt.toISOString() : null,
   };
+};
+registerHandler(IssueGiftCard, async args => {
+  const {input,tx}=args;
+  if(input.source!=='front_desk'||input.soldTicketId || (input.holderCustomerId&&input.purchaserCustomerId&&input.holderCustomerId!==input.purchaserCustomerId))
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'use_commerce_purchase'}});
+  const {commercePurchaseInput}=await import('@gf/contracts');
+  const {createOrderInTransaction}=await import('./commerce');
+  const order=await createOrderInTransaction({...args,input:commercePurchaseInput.parse({...input,kind:'gift_card',
+    customerId:input.purchaserCustomerId??input.holderCustomerId??undefined})},input);
+  const [card]=await tx<{id:string;code:string;face_value_cents:number;sale_price_cents:number;expires_at:string|null}[]>`
+    select id,code,face_value_cents,sale_price_cents,expires_at from gift_cards where id=${order.assetId}`;
+  if(!card)throw new AppError(ERROR_CODES.INTERNAL);
+  return {giftCardId:card.id,code:card.code,faceValueCents:card.face_value_cents,salePriceCents:card.sale_price_cents,expiresAt:card.expires_at};
 });
 
 // ───────────────────────────────────────────────────────────────── 核销
 
 registerHandler(RedeemGiftCard, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof RedeemGiftCard.input._type>) => {
+  if(input.ticketId)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'use_ticket_payment_for_service'}});
   if (!input.code && !input.giftCardId) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'missing_card' } });
   }
@@ -287,7 +338,7 @@ registerHandler(RedeemGiftCard, async ({ input, ctx, tx, audit }: HandlerArgs<
   });
 
   const balance = await ledgerBalance(tx, card.id);
-  const plan = planRedeem(balance, input.dueCents);
+  const plan = planRedeem(Math.max(0,balance-card.reserved_cents), input.dueCents);
 
   if (plan.appliedCents === 0) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
@@ -303,7 +354,7 @@ registerHandler(RedeemGiftCard, async ({ input, ctx, tx, audit }: HandlerArgs<
 
   const settings = await giftCardSettings(tx, ctx.locationId);
   const commissionBaseCents = commissionBaseForGiftCard(
-    settings.commissionBasis, plan.appliedCents,
+    card.purchase_snapshot?.commissionBasis??settings.commissionBasis, plan.appliedCents,
     card.face_value_cents, card.sale_price_cents);
 
   audit({
@@ -328,29 +379,23 @@ registerHandler(RedeemGiftCard, async ({ input, ctx, tx, audit }: HandlerArgs<
 
 registerHandler(RefundGiftCard, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof RefundGiftCard.input._type>) => {
-  const card = await loadCard(tx, ctx, { id: input.giftCardId });
+  const card = await loadCard(tx, ctx, { id: input.giftCardId,allowDisabled:true });
 
   /*
    * 不指定金额时退**最近一次核销**的全额。
    * 前台最常见的动作是「刚才刷错了，退回去」，让她算金额是多余的一步。
    */
-  let amount = input.amountCents ?? 0;
-  let reversalOf = input.reversalOfId ?? null;
-  if (!input.amountCents) {
-    const [last] = await tx<{ id: string; amount_cents: number }[]>`
-      select id, amount_cents from customer_credit_ledger
-      where kind = 'gift_card' and subject_id = ${card.id} and entry = 'redeem'
-        and not exists (
-          select 1 from customer_credit_ledger r where r.reversal_of_id = customer_credit_ledger.id)
-      order by seq desc limit 1`;
-    if (!last) {
-      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-        details: { reason: 'nothing_to_refund', giftCardId: card.id },
-      });
-    }
-    amount = Math.abs(last.amount_cents);
-    reversalOf = last.id;
-  }
+  const [original]=await tx<{id:string;remaining:number;ticket_id:string|null}[]>`
+    select l.id,l.ticket_id,(-l.amount_cents-coalesce((select sum(r.amount_cents) from customer_credit_ledger r where r.reversal_of_id=l.id and r.entry='refund'),0))::int as remaining
+    from customer_credit_ledger l where l.kind='gift_card' and l.subject_id=${card.id} and l.entry='redeem'
+      and (${input.reversalOfId??null}::uuid is null or l.id=${input.reversalOfId??null})
+      and -l.amount_cents>coalesce((select sum(r.amount_cents) from customer_credit_ledger r where r.reversal_of_id=l.id and r.entry='refund'),0)
+    order by l.seq desc limit 1`;
+  if(!original)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'nothing_to_refund'}});
+  if(original.ticket_id)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'use_ticket_refund_for_service'}});
+  const amount=input.amountCents??original.remaining;
+  if(amount>original.remaining)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'refund_exceeds_original_redemption'}});
+  const reversalOf=original.id;
 
   const { balanceCents } = await appendLedger(tx, ctx, {
     giftCardId: card.id, entry: 'refund', amountCents: amount,
@@ -367,7 +412,7 @@ registerHandler(RefundGiftCard, async ({ input, ctx, tx, audit }: HandlerArgs<
 
 registerHandler(AdjustGiftCard, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof AdjustGiftCard.input._type>) => {
-  const card = await loadCard(tx, ctx, { id: input.giftCardId });
+  const card = await loadCard(tx, ctx, { id: input.giftCardId,allowDisabled:true });
 
   if (input.amountCents === 0) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'zero_adjustment' } });
@@ -380,7 +425,7 @@ registerHandler(AdjustGiftCard, async ({ input, ctx, tx, audit }: HandlerArgs<
    * 下一次核销的 `planRedeem` 会算出 0，前台看到的是「这张卡没钱」——
    * 而账上那个负数没人会去查。
    */
-  if (balance + input.amountCents < 0) {
+  if (balance + input.amountCents < card.reserved_cents) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
       details: { reason: 'would_go_negative', balanceCents: balance, delta: input.amountCents },
     });
@@ -415,7 +460,7 @@ registerHandler(AdjustGiftCard, async ({ input, ctx, tx, audit }: HandlerArgs<
  */
 export async function redeemForTicket(
   tx: Tx, ctx: Ctx,
-  args: { ticketId: string; dueCents: number; giftCardId?: string; code?: string },
+  args: { ticketId: string; dueCents: number; giftCardId?: string; code?: string;persist?:boolean;balances?:CheckoutPlanningBalances },
 ): Promise<{ appliedCents: number; commissionBaseCents: number; giftCardId: string }> {
   const card = await loadCard(tx, ctx, {
     ...(args.code ? { code: args.code } : {}),
@@ -423,7 +468,8 @@ export async function redeemForTicket(
   });
 
   const balance = await ledgerBalance(tx, card.id);
-  const plan = planRedeem(balance, args.dueCents);
+  const available=args.balances?.gifts.get(card.id)??Math.max(0,balance-card.reserved_cents);
+  const plan = planRedeem(available, args.dueCents);
 
   if (plan.shortfallCents > 0) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
@@ -438,7 +484,8 @@ export async function redeemForTicket(
     });
   }
 
-  await appendLedger(tx, ctx, {
+  args.balances?.gifts.set(card.id,available-plan.appliedCents);
+  if(args.persist!==false)await appendLedger(tx, ctx, {
     giftCardId: card.id, entry: 'redeem', amountCents: -plan.appliedCents,
     customerId: card.holder_customer_id, ticketId: args.ticketId,
   });
@@ -448,7 +495,7 @@ export async function redeemForTicket(
     giftCardId: card.id,
     appliedCents: plan.appliedCents,
     commissionBaseCents: commissionBaseForGiftCard(
-      settings.commissionBasis, plan.appliedCents,
+      card.purchase_snapshot?.commissionBasis??settings.commissionBasis, plan.appliedCents,
       card.face_value_cents, card.sale_price_cents),
   };
 }

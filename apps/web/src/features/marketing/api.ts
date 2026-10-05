@@ -8,13 +8,11 @@ import type {
   LoyaltyQueryResponse,
   GiftCardsQueryResponse,
   SavePackageTemplateInput,
-  IssuePackageInput,
   RedeemPackageInput,
   SaveCouponTemplateInput,
   VoidCouponInput,
   SaveLoyaltyRulesInput,
   AdjustLoyaltyPointsInput,
-  IssueGiftCardInput,
   AdjustGiftCardInput,
 } from './types';
 
@@ -72,22 +70,6 @@ export function useSavePackageTemplate() {
       return res.result;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['desk', 'packages'] });
-    },
-  });
-}
-
-export function useIssuePackage() {
-  const { membershipId } = useSession();
-  const queryClient = useQueryClient();
-  const attempt = useAttemptKey();
-  return useMutation({
-    mutationFn: async (input: IssuePackageInput) => {
-      const res = await runCommand<{ customerPackageId: string }>('package.issue', input, membershipId!, attempt.take([membershipId, input]));
-      return res.result;
-    },
-    onSuccess: (_, input) => {
-      attempt.settle([membershipId, input]);
       queryClient.invalidateQueries({ queryKey: ['desk', 'packages'] });
     },
   });
@@ -163,27 +145,6 @@ export function useAdjustLoyaltyPoints() {
     onSuccess: (_, input) => {
       attempt.settle([membershipId, input]);
       queryClient.invalidateQueries({ queryKey: ['desk', 'loyalty'] });
-    },
-  });
-}
-
-export function useIssueGiftCard() {
-  const { membershipId } = useSession();
-  const queryClient = useQueryClient();
-  const attempt = useAttemptKey();
-  return useMutation({
-    mutationFn: async (input: IssueGiftCardInput) => {
-      const res = await runCommand<{ giftCardId: string; code: string; faceValueCents: number; salePriceCents: number }>(
-        'giftcard.issue',
-        input,
-        membershipId!,
-        attempt.take([membershipId, input]),
-      );
-      return res.result;
-    },
-    onSuccess: (_, input) => {
-      attempt.settle([membershipId, input]);
-      queryClient.invalidateQueries({ queryKey: ['desk', 'giftcards'] });
     },
   });
 }

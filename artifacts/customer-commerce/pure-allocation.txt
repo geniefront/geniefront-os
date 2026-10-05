@@ -1,0 +1,11 @@
+$ vitest run src/commerce.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/payroll
+
+ ✓ src/commerce.test.ts (8 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  20:14:43
+   Duration  203ms (transform 16ms, setup 0ms, collect 16ms, tests 2ms, environment 0ms, prepare 35ms)
+

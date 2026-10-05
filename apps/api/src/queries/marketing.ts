@@ -1,3 +1,4 @@
+import {customerFamilies} from '../customerIdentity';
 /**
  * 营销中心聚合查询（Marketing.tsx，P1 次卡套餐 / 优惠券 / 积分）
  */
@@ -24,6 +25,8 @@ export interface PackageTemplateDto {
   active: boolean;
   serviceIds: string[];
   serviceNames: string[];
+  names:unknown;
+  onlineSale:boolean;scope:'location'|'org';coverageMode:'bundle'|'any_included'|null;commissionBasis:'catalog_price'|'sale_price'|'zero'|null;
 }
 
 export interface CustomerPackageViewDto {
@@ -39,6 +42,7 @@ export interface CustomerPackageViewDto {
   expiresAt: string | null;
   status: string;
   createdAt: string;
+  canRedeem:boolean;
 }
 
 export async function loadPackages(
@@ -53,9 +57,9 @@ export async function loadPackages(
 }> {
   const tpls = await tx<{
     id: string; name: unknown; price_cents: number; sessions: number;
-    valid_days: number | null; active: boolean; service_ids: string[];
+    valid_days: number | null; active: boolean; service_ids: string[];online_sale:boolean;scope:'location'|'org';coverage_mode:'bundle'|'any_included'|null;commission_basis:'catalog_price'|'sale_price'|'zero'|null;
   }[]>`
-    select id, name, price_cents, sessions, valid_days, active, service_ids::text[] as service_ids
+    select id, name, price_cents, sessions, valid_days, active, service_ids::text[] as service_ids,online_sale,scope,coverage_mode,commission_basis
     from package_templates
     where location_id = ${ctx.locationId}
     order by sort asc, created_at desc`;
@@ -70,7 +74,7 @@ export async function loadPackages(
     template_id: string; sold_count: string; revenue_cents: string;
   }[]>`
     select template_id, count(*)::text as sold_count,
-           coalesce(sum(case when pt.price_cents is not null then pt.price_cents else 0 end), 0)::text as revenue_cents
+           coalesce(sum(coalesce((cp.purchase_snapshot->>'amountCents')::int,pt.price_cents,0)),0)::text as revenue_cents
     from customer_packages cp
     join package_templates pt on pt.id = cp.template_id
     where cp.location_id = ${ctx.locationId}
@@ -117,6 +121,7 @@ export async function loadPackages(
       active: t.active,
       serviceIds: t.service_ids ?? [],
       serviceNames: (t.service_ids ?? []).map((id) => srvMap.get(id) || '已下架项目'),
+      names:t.name,onlineSale:t.online_sale,scope:t.scope,coverageMode:t.coverage_mode,commissionBasis:t.commission_basis,
     };
   });
 
@@ -124,14 +129,19 @@ export async function loadPackages(
     id: string; customer_id: string; customer_name: string | null;
     template_id: string; template_name: unknown; service_ids: string[] | null;
     total_sessions: number; remaining_sessions: number;
-    expires_at: string | null; status: string; created_at: string;
+    expires_at: string | null; status: string; created_at: string;can_redeem:boolean;
   }[]>`
-    select cp.id, cp.customer_id, c.display_name as customer_name,
-           cp.template_id, pt.name as template_name, pt.service_ids::text[] as service_ids,
-           cp.total_sessions, cp.remaining_sessions,
-           cp.expires_at::text as expires_at, cp.status, cp.created_at::text as created_at
+    select cp.id, f.root_id as customer_id, c.display_name as customer_name,
+           cp.template_id, coalesce(cp.purchase_snapshot->'name',pt.name) as template_name,
+           case when cp.purchase_snapshot is not null then array(select jsonb_array_elements_text(cp.purchase_snapshot->'serviceIds'))
+                else pt.service_ids::text[] end as service_ids,
+           cp.total_sessions,case when cp.refund_frozen or cp.commerce_frozen then 0 else greatest(0,cp.remaining_sessions-cp.reserved_sessions) end as remaining_sessions,
+           cp.expires_at::text as expires_at, cp.status, cp.created_at::text as created_at,
+           cp.status='active' and not cp.refund_frozen and not cp.commerce_frozen and (cp.expires_at is null or cp.expires_at>now())
+             and (cp.total_sessions=0 or cp.remaining_sessions>cp.reserved_sessions) as can_redeem
     from customer_packages cp
-    left join customers c on c.id = cp.customer_id
+    join ${customerFamilies(tx)}f on f.id=cp.customer_id
+    left join customers c on c.id = f.root_id
     left join package_templates pt on pt.id = cp.template_id
     where cp.location_id = ${ctx.locationId}
     order by cp.created_at desc limit 100`;
@@ -152,6 +162,7 @@ export async function loadPackages(
       expiresAt: up.expires_at,
       status: up.status,
       createdAt: up.created_at,
+      canRedeem:up.can_redeem,
     };
   });
 

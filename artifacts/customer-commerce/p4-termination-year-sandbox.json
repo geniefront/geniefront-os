@@ -1,0 +1,98 @@
+{
+  "at": "2026-10-02T03:49:01.177Z",
+  "family": "year",
+  "actualStripeSandbox": true,
+  "originalPurchaseReused": true,
+  "productionChanged": false,
+  "db": {
+    "provider_status": "canceled",
+    "terminated_at": "2026-10-02 03:29:17.442697+00",
+    "commerce_frozen": false,
+    "termination_id": "2e75e5a5-49ce-4ff2-94f6-b69863cae0fd",
+    "termination_status": "complete",
+    "unused_benefits": "revoke_all",
+    "provider_canceled_at": "2027-10-01 15:25:38+00",
+    "paid_invoices": 2,
+    "original_paid_cents": 199800,
+    "stopped_cycles": 24,
+    "remaining_active_cycles": 0,
+    "available_quantity": 0,
+    "signed_cancellation_events": 1
+  },
+  "provider": {
+    "status": "canceled",
+    "canceledAt": "2027-10-01T15:25:38.000Z"
+  },
+  "refund": {
+    "id": "re_3ULkvUJDnwwxW56m0IqgxAvs",
+    "status": "succeeded",
+    "amountCents": 50000,
+    "balanceGrossCents": -50000,
+    "balanceFeeCents": 0,
+    "balanceNetCents": -50000,
+    "signedEvents": 2
+  },
+  "ledger": [
+    {
+      "entry": "issue",
+      "rows": 1,
+      "quantity": 1,
+      "value_cents": 8325
+    },
+    {
+      "entry": "revoke",
+      "rows": 1,
+      "quantity": -1,
+      "value_cents": -8325
+    },
+    {
+      "entry": "stop",
+      "rows": 23,
+      "quantity": 0,
+      "value_cents": 0
+    }
+  ],
+  "notices": [
+    {
+      "entity_type": "commerce_refund_buyer",
+      "n": 1,
+      "status": "captured"
+    },
+    {
+      "entity_type": "customer_membership_termination",
+      "n": 1,
+      "status": "captured"
+    }
+  ],
+  "security": [
+    {
+      "relname": "customer_membership_refund_requests",
+      "relrowsecurity": true,
+      "relforcerowsecurity": true,
+      "app_update": false,
+      "app_delete": false,
+      "anon_select": false
+    },
+    {
+      "relname": "customer_membership_termination_cycles",
+      "relrowsecurity": true,
+      "relforcerowsecurity": true,
+      "app_update": false,
+      "app_delete": false,
+      "anon_select": false
+    },
+    {
+      "relname": "customer_membership_terminations",
+      "relrowsecurity": true,
+      "relforcerowsecurity": true,
+      "app_update": true,
+      "app_delete": false,
+      "anon_select": false
+    }
+  ],
+  "foreignDecisionRows": 0,
+  "originalService": null,
+  "replayRuns": 2,
+  "reconcileRuns": 3,
+  "clockTimeNotCopiedToDatabase": true
+}

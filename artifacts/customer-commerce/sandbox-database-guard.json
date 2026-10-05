@@ -1,0 +1,23 @@
+{
+  "at": "2026-10-01T08:28:19.242Z",
+  "database": "gf_commerce_ci",
+  "destructiveActions": [
+    {
+      "action": "test",
+      "exitCode": 1,
+      "blockedBeforeDatabaseAccess": true
+    },
+    {
+      "action": "db-test",
+      "exitCode": 1,
+      "blockedBeforeDatabaseAccess": true
+    },
+    {
+      "action": "rebuild",
+      "exitCode": 1,
+      "blockedBeforeDatabaseAccess": true
+    }
+  ],
+  "defaultResetDatabase": "gf_commerce_stage_ci",
+  "goalComplete": false
+}

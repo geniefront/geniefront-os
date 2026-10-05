@@ -1,0 +1,63 @@
+{
+  "at": "2026-10-02T01:00:46.539112+00:00",
+  "scope": "P4 existing Stripe-paid membership service redemption and original-unit restoration",
+  "stageComplete": false,
+  "goalComplete": false,
+  "productionPublished": false,
+  "realEmailSent": false,
+  "scenarios": {
+    "actualCashierSelectedPaidCycleAndService": true,
+    "actualCashierZeroNewMoneyClose": true,
+    "originalFundedUnitCommission": true,
+    "actualTicketRefundOriginalBenefitsOnly": true,
+    "noCashConversionOfBenefits": true,
+    "originalBenefitPeriodPreserved": true,
+    "customerHistoryConsumeAndRestore": true,
+    "desktopEnglish": true,
+    "desktopChinese": true,
+    "mobileChinese": true,
+    "refundedReceiptDesktopAndMobileEnglish": true,
+    "prepaidCoverageSeparatedFromNewCash": true,
+    "tipsBasedOnServiceBeforePrepaidCoverage": true
+  },
+  "sessions": {
+    "commerce-member-units-customer": {
+      "finalViewport": [
+        390,
+        844
+      ],
+      "horizontalOverflow": false,
+      "restorationShown": true,
+      "availableQuantity": 1,
+      "providerIdsVisible": false,
+      "browserErrors": 0,
+      "freshFinalProfileOnly": true
+    },
+    "commerce-member-units-desk-final": {
+      "finalViewport": [
+        390,
+        844
+      ],
+      "horizontalOverflow": false,
+      "browserErrors": 0,
+      "freshAfterHistoricalHmrProfile": true
+    }
+  },
+  "screenshots": [
+    "membership-service-covered-desk-zh.png",
+    "membership-service-receipt-en.png",
+    "membership-service-consumed-mobile-zh.png",
+    "membership-service-refund-review-zh.png",
+    "membership-service-restored-desktop-en.png",
+    "membership-service-restored-mobile-zh.png",
+    "membership-service-refunded-receipt-en.png",
+    "membership-service-refunded-receipt-mobile-en.png"
+  ],
+  "limitations": [
+    "This batch returns a service allocation; it does not refund the original membership purchase or terminate the subscription.",
+    "The historical desk profile has three blank browser errors recorded separately. Zero errors applies only to the fresh final profiles.",
+    "A developer HMR update closed the first refund modal before submission; a stale-ref action did not refund. Reopened the same original ticket using fresh refs; one actual refund/restoration exists.",
+    "Before-refund receipt screenshot preserves the then-current layout. The final refunded receipt shows corrected column spacing on desktop/mobile.",
+    "Provider renewal clocks and the real application clock remain separate; actual future benefit grants and the complete failure/restart matrix remain unverified."
+  ]
+}

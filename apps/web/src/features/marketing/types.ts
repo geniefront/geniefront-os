@@ -25,6 +25,7 @@ export interface PackageTemplateView {
   totalUnits: number;
   validDays: number | null;
   active: boolean;
+  names?:unknown;onlineSale?:boolean;scope?:'location'|'org';coverageMode?:'bundle'|'any_included'|null;commissionBasis?:'catalog_price'|'sale_price'|'zero'|null;
 }
 
 export interface CustomerPackageView {
@@ -40,6 +41,7 @@ export interface CustomerPackageView {
   expiresAt: string | null;
   status: string;
   createdAt: string;
+  canRedeem?:boolean;
 }
 
 export interface CouponTemplateView {
@@ -103,19 +105,6 @@ export interface SavePackageTemplateInput {
   active?: boolean;
 }
 
-export interface IssuePackageInput {
-  /** 已知客户 ID 时直接传；与 `customer` 二选一。 */
-  customerId?: string;
-  /** 前台只报了姓名（可选附手机号）时传这个，由后端解析成真实客户。 */
-  customer?: {
-    name: string;
-    phoneE164?: string;
-    email?: string;
-  };
-  templateId: string;
-  soldPriceCentsOverride?: number;
-}
-
 export interface RedeemPackageInput {
   customerPackageId: string;
   ticketId?: string;
@@ -149,14 +138,6 @@ export interface AdjustLoyaltyPointsInput {
   customerId: string;
   pointsDelta: number;
   reason: string;
-}
-
-export interface IssueGiftCardInput {
-  faceValueCents: number;
-  salePriceCents?: number;
-  recipientName?: string;
-  purchaserCustomerId?: string;
-  recipientNote?: string;
 }
 
 export interface AdjustGiftCardInput {

@@ -1,0 +1,13 @@
+.git
+**/node_modules
+**/dist
+**/.turbo
+**/coverage
+.env
+.env.*
+artifacts
+playwright-report
+test-results
+deploy/certs
+*.log
+.DS_Store

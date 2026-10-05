@@ -41,7 +41,7 @@
     "check:env": "bash scripts/check-env.sh",
     "db:generate": "pnpm --filter @gf/db generate",
     "db:migrate": "pnpm --filter @gf/db migrate",
-    "db:seed": "pnpm --filter @gf/db seed",
+    "db:seed": "tsx packages/db/src/seedEntry.ts",
     "qa:reset": "tsx packages/db/src/qa/cli.ts reset",
     "qa:seed": "tsx packages/db/src/qa/cli.ts seed",
     "db:tidy": "pnpm --filter @gf/api tidy",

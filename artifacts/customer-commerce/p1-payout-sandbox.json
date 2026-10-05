@@ -1,0 +1,84 @@
+{
+  "at": "2026-10-02T08:38:25.340Z",
+  "scope": "One actual manual test payout from the original merchant; no customer income duplication",
+  "actualStripeSandbox": true,
+  "localPayoutId": "2c766270-6f02-442a-b685-14546efedc80",
+  "amountCents": 1000,
+  "currency": "usd",
+  "status": "failed",
+  "failureCode": "insufficient_funds",
+  "automatic": false,
+  "reconciliationStatus": "not_applicable",
+  "arrivalAt": "2026-10-02T00:00:00.000Z",
+  "bankReceiptClaimed": false,
+  "manualSourcesNotInvented": true,
+  "transactions": [
+    {
+      "role": "debit",
+      "gross_cents": -1000,
+      "fee_cents": 0,
+      "net_cents": -1000
+    },
+    {
+      "role": "reversal",
+      "gross_cents": 1000,
+      "fee_cents": 0,
+      "net_cents": 1000
+    }
+  ],
+  "signedEvents": [
+    {
+      "event_type": "payout.created",
+      "n": 1
+    },
+    {
+      "event_type": "payout.failed",
+      "n": 1
+    },
+    {
+      "event_type": "payout.paid",
+      "n": 1
+    },
+    {
+      "event_type": "payout.updated",
+      "n": 2
+    }
+  ],
+  "tasks": [
+    {
+      "kind": "payout_reconcile",
+      "status": "pending",
+      "scheduled": true
+    }
+  ],
+  "scan": [
+    {
+      "kind": "payout_scan",
+      "status": "pending",
+      "last_error": null,
+      "payout_scan_cursor": null,
+      "scheduled": true
+    }
+  ],
+  "scanCommands": [
+    {
+      "command": "commerce.refreshPayouts",
+      "n": 1
+    },
+    {
+      "command": "commerce.renewTaskLease",
+      "n": 6
+    },
+    {
+      "command": "commerce.savePayoutScan",
+      "n": 3
+    }
+  ],
+  "customerPaymentRowsUnchanged": true,
+  "customerPaymentGrossUnchanged": true,
+  "foreignRows": 0,
+  "creationReplayRuns": 1,
+  "sdkReconciliationRuns": 3,
+  "availableUsdCents": 3520,
+  "productionChanged": false
+}

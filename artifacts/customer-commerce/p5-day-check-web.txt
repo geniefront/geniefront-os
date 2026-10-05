@@ -1,0 +1,13 @@
+$ vitest run --passWithNoTests src/features/dayclose/CommerceDayPanel.test.tsx src/pages/BusinessData.test.tsx src/features/dayclose/cashCount.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/features/dayclose/cashCount.test.ts (4 tests) 1ms
+ ✓ src/features/dayclose/CommerceDayPanel.test.tsx (2 tests) 88ms
+ ✓ src/pages/BusinessData.test.tsx (4 tests) 78ms
+
+ Test Files  3 passed (3)
+      Tests  10 passed (10)
+   Start at  11:21:50
+   Duration  3.25s (transform 599ms, setup 1.43s, collect 2.15s, tests 167ms, environment 1.68s, prepare 186ms)
+

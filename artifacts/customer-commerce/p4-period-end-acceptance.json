@@ -1,0 +1,49 @@
+{
+  "at": "2026-10-02T22:17:24.535035+00:00",
+  "scope": "P4 original changed-price subscription native cancel/resume and genuine Stripe TestClock period-end termination",
+  "migrationUnchanged": 185,
+  "sourceChanges": "Added guarded native lifecycle verifier; no application or database schema changes in this batch",
+  "actualStages": [
+    "native scheduled cancellation verified via SDK reconciliation after absent listener",
+    "listener restored, native renewal restored with real signed subscription.updated",
+    "native cancellation repeated with real signed subscription.updated",
+    "same test clock advanced to 2028-02-01 boundary, real signed subscription.deleted and SDK canceled status",
+    "original protected page and invoice portal still readable"
+  ],
+  "checks": {
+    "guards": true,
+    "diff": true,
+    "nativeReadAndProviderVerification": true,
+    "newPaymentOrRefund": false,
+    "originalFinancialRowsUnchanged": true,
+    "repeatAuthenticatedReconciliationRunsAfterEnd": 2,
+    "currentPaymentRowJsonFingerprint": "16:007752639c9178921089555f1122decf",
+    "capturedLifecycleNotices": {
+      "cancellation": 2,
+      "resumed": 1,
+      "ended": 1
+    }
+  },
+  "clockLimit": {
+    "applicationClockAdvanced": false,
+    "stripeClockTime": 1833027658,
+    "originalAvailableUnitsAtApplicationTime": 1,
+    "futurePlannedUnitsAtApplicationTime": 28,
+    "fullBenefitCalendarAcceptance": false
+  },
+  "knownGap": {
+    "manageTokenExpiresAt": "2026-10-31T14:19:00.282Z",
+    "enrollmentExpiryDays": 30,
+    "paidCoverageDoesNotExtendAccess": true,
+    "longTermManagementAccessComplete": false
+  },
+  "remaining": [
+    "repair paid membership long-term resource access",
+    "application-calendar full expiry/grant and term-end service matrix",
+    "real pending schedule cancellation/dispute/concurrency cases",
+    "full roles/currencies/stores/languages/notifications and remaining P0\u2013P6/A01\u2013A22"
+  ],
+  "goalComplete": false,
+  "allAcceptancePassed": false,
+  "productionPublished": false
+}

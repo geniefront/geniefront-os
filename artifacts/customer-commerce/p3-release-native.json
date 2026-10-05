@@ -1,0 +1,72 @@
+{
+  "at": "2026-10-02T16:25:08.212Z",
+  "originalOrderId": "17426af3-ec3e-4840-899f-5af22788ef2d",
+  "originalRetentionId": "8fab99fd-4e79-460f-844c-18f3d67a26b7",
+  "originalDecisionUnchanged": true,
+  "originalPaidCents": 2000,
+  "priorRefundCents": 1200,
+  "actualStripeReleaseRefundCents": 800,
+  "originalHttpStatus": 201,
+  "replay": {
+    "httpStatus": 200,
+    "replayed": true,
+    "sameKey": true
+  },
+  "facts": {
+    "release_id": "983142f0-7b52-4205-92a1-96a501ab3c63",
+    "amount_cents": 800,
+    "guest_allocation": [
+      {
+        "guestIndex": 0,
+        "amountCents": 800
+      }
+    ],
+    "refund_id": "00eddc35-405c-48c4-ae38-8f07a1f15552",
+    "status": "succeeded",
+    "stripe_refund_id": "re_3ULhoOJDnwwxW56m0rfkBriA",
+    "fee_cents": 0,
+    "net_cents": -800,
+    "signed_refund_events": 2,
+    "releases": 1,
+    "release_entries": 1,
+    "refunded": 2000,
+    "balance": 0,
+    "hold_status": "refunded",
+    "audits": 1,
+    "notices": 1
+  },
+  "publicSummary": {
+    "status": "refunded",
+    "financialStatus": "refunded",
+    "amountCents": 2000,
+    "currency": "USD",
+    "availableCents": 0,
+    "appliedCents": 0,
+    "refundedCents": 2000,
+    "retainedCents": 0,
+    "expiresAt": "2026-10-01 11:18:54.432393+00",
+    "serviceRemainingCents": 0,
+    "checkoutUrl": null,
+    "paymentMethod": "online",
+    "policy": {
+      "cancelCutoffHours": 48,
+      "notice": "Sandbox QA: agreed unused deposit may be retained after the original cutoff; staff will record the decision.",
+      "retainAfterCutoff": true
+    },
+    "guestAllocation": {
+      "guests": [
+        {
+          "guestIndex": 0,
+          "amountCents": 2000,
+          "serviceTotalCents": 10000,
+          "cancelled": false,
+          "refundStatus": "succeeded"
+        }
+      ],
+      "method": "equal_without_guest_mapping"
+    }
+  },
+  "newStripePayment": false,
+  "realEmailSent": false,
+  "productionPublished": false
+}

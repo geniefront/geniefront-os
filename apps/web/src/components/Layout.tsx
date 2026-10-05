@@ -1,4 +1,4 @@
-import { planAllowsPath } from '@gf/contracts';
+import { planAllowsPath,commerceText } from '@gf/contracts';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { lazy, Suspense, useState, useRef, useEffect, useMemo } from 'react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
@@ -349,7 +349,8 @@ export function Layout() {
       group: plan === 'voice_booking' ? t('customers') : t('groupCrm') || '客户与运营',
       items: [
         { name: t('customers') || '客户档案 CRM', icon: Users, path: '/customers' },
-        { name: t('marketing') || '营销中心', icon: Gift, path: '/marketing' },
+        ...(can('commerce.read')||can('settings.manage')?[{ name: t('marketing') || '营销中心', icon: Gift, path: '/marketing' }]:[]),
+        ...(can('commerce.read')?[{name:commerceText(language,'title'),icon:CircleDollarSign,path:'/commerce'}]:[]),
         { name: t('rotation') || '技师轮牌', icon: Clock, path: '/rotation' },
         { name: t('rooms') || '包厢工位', icon: BedDouble, path: '/rooms' },
         { name: t('employeePerformance') || '员工中心', icon: TrendingUp, path: '/employee-performance' },

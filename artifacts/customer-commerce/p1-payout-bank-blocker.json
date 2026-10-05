@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-02T07:26:26.004947+00:00",
+  "scope": "Successful payout test remains pending while the actual failed-bank case is verified",
+  "initialConnectBlockResolved": true,
+  "originalSandboxMerchantReused": true,
+  "defaultTestBankFailureCode": "insufficient_funds",
+  "officialTestBankTable": "https://docs.stripe.com/connect/testing#bank-numbers",
+  "platformExternalAccountAttempt": {
+    "errorCode": "oauth_not_supported",
+    "completed": false
+  },
+  "bankSettingsNotChangedByAgent": true,
+  "merchantDashboardRemediationMenuLocated": true,
+  "userQuestionPending": true,
+  "independentWorkContinues": true,
+  "productionChanged": false
+}

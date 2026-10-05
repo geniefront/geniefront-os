@@ -1,0 +1,424 @@
+{
+  "at": "2026-10-03T04:56:41.612223+00:00",
+  "scope": "Original P0–P6 and A01–A22, local/isolated DB/Stripe test mode",
+  "requiredScopeComplete": true,
+  "allAcceptanceCovered": true,
+  "goalComplete": true,
+  "productionPublished": false,
+  "checks": {
+    "api": {
+      "files": 139,
+      "tests": 1810
+    },
+    "db": {
+      "files": 14,
+      "tests": 127
+    },
+    "nonDatabaseUnits": {
+      "files": 210,
+      "tests": 1378,
+      "webTests": 631,
+      "bookingTests": 95
+    },
+    "browser": {
+      "files": 1,
+      "tests": 7
+    },
+    "typecheckPackages": 16,
+    "guards": true,
+    "diffCheck": true,
+    "webBuild": true,
+    "bookingBuild": true,
+    "contractsBuild": true,
+    "migrations": 188,
+    "migrationEmptyUpgradeReplay": true
+  },
+  "unitApiDbTotal": 3315,
+  "browserTests": 7,
+  "validationLayers": [
+    "pure functions",
+    "isolated real DB/API",
+    "SDK failure injection",
+    "actual Stripe sandbox",
+    "native browser",
+    "read-only Playwright replay"
+  ],
+  "acceptedUserWaivers": [
+    {
+      "scope": "Successful bank payout and dependent actual successful automatic bank-arrival batch",
+      "status": "unverified_user_waived",
+      "verified": false,
+      "source": "user-scope-payout-waiver.json"
+    }
+  ],
+  "unverifiedOutsideDefaultExecution": [
+    "production publication",
+    "live money movement",
+    "real customer message delivery",
+    "physical phone conversation",
+    "physical QA cash exchange"
+  ],
+  "scenarios": [
+    {
+      "id": "A01",
+      "status": "passed",
+      "summary": "实收 $80、面值 $100，首次核销 $30 后账本余额 $70；销售与服务分列。",
+      "isolatedTest": {
+        "source": "apps/api/src/commerce.test.ts",
+        "title": "records real offline receipt facts separately from $100 face liability; duplicate issuance stays one"
+      },
+      "evidence": [
+        "stripe-checkout.json",
+        "stripe-gift-consumption.json",
+        "p6-final-readonly-audit.json",
+        "p5-day-native-range.json"
+      ],
+      "validationNote": ""
+    },
+    {
+      "id": "A02",
+      "status": "passed",
+      "summary": "原真实礼品卡 $30 ＋现金记录 $50 结清 $80 服务；响应丢失后刷新重放无第二次扣款。",
+      "isolatedTest": {
+        "source": "apps/api/src/giftcard.test.ts",
+        "title": "同一个幂等键刷两次只扣一次"
+      },
+      "evidence": [
+        "p6-a02-paid.json",
+        "p6-a02-paid-receipt.png",
+        "p6-a02-refunded.json"
+      ],
+      "validationNote": "现金为 QA 前台记录；没有观察实体现金。"
+    },
+    {
+      "id": "A03",
+      "status": "passed",
+      "summary": "未用价值按原实付比例限额退款，预留阻止消费，失败可恢复。",
+      "isolatedTest": {
+        "source": "apps/api/src/commerce.test.ts",
+        "title": "limits purchase refunds to unused paid value and freezes it against concurrent redemption"
+      },
+      "evidence": [
+        "browser-offline-gift.json",
+        "stripe-checkout.json",
+        "p6-final-readonly-audit.json"
+      ],
+      "validationNote": ""
+    },
+    {
+      "id": "A04",
+      "status": "passed",
+      "summary": "原 $500／10 次核销一次剩 9 次；改模板后继续依购买快照履约。",
+      "isolatedTest": {
+        "source": "apps/api/src/commerce.test.ts",
+        "title": "preserves package purchase rules and price after catalog changes and refunds exactly unused value"
+      },
+      "evidence": [
+        "p2-package-payout-purchase.json",
+        "p2-package-service-consumed.json",
+        "p2-package-unused-refund-sandbox.json",
+        "p6-final-readonly-audit.json"
+      ],
+      "validationNote": ""
+    },
+    {
+      "id": "A05",
+      "status": "passed",
+      "summary": "两个前台争用最后一次只有一笔成功，组单不能重复覆盖该次权益。",
+      "isolatedTest": {
+        "source": "apps/api/src/commerce.test.ts",
+        "title": "serializes two desks consuming the last package session"
+      },
+      "evidence": [
+        "p6-api-full.txt"
+      ],
+      "validationNote": "并发通过真实隔离 DB／命令事务验证。"
+    },
+    {
+      "id": "A06",
+      "status": "passed",
+      "summary": "Unlimited 在实际 DB 时间边界到期；人工退款不超过实收，终止后服务退回不恢复可用性。",
+      "isolatedTest": {
+        "source": "apps/api/src/commerce.test.ts",
+        "title": "handles an unlimited entitlement across its actual expiry boundary and caps repeated manual refunds without reviving access"
+      },
+      "evidence": [
+        "p2-unlimited-acceptance.json",
+        "p2-unlimited-native.json",
+        "p6-e2e-output.txt"
+      ],
+      "validationNote": "临界时间采用隔离库两秒实际等待；原生一日期限样例采用线下收款和两笔退款记录。"
+    },
+    {
+      "id": "A07",
+      "status": "passed",
+      "summary": "$100 服务抵扣实际已付 $20，只新增 $80；定金与服务收入／提成分开。",
+      "isolatedTest": {
+        "source": "apps/api/src/appointmentDeposits.test.ts",
+        "title": "applies $20 already-paid deposit to a $100 service without discounting it, and restores the original deposit on service refunds"
+      },
+      "evidence": [
+        "stripe-deposit-confirmed.json",
+        "stripe-deposit-service.json",
+        "stripe-deposit-refunded.json"
+      ],
+      "validationNote": ""
+    },
+    {
+      "id": "A08",
+      "status": "passed",
+      "summary": "实际同槽 201／409 竞争、原 15 分钟自然到期、关页后释放容量和 Stripe 链接；迟到支付原子确认或退款。",
+      "isolatedTest": {
+        "source": "apps/api/src/appointmentDeposits.test.ts",
+        "title": "keeps late collected money but queues a full refund when another booking owns the released capacity"
+      },
+      "evidence": [
+        "p3-native-expiry-pending.json",
+        "p3-native-expiry-expired.json",
+        "p6-e2e-output.txt"
+      ],
+      "validationNote": "自然到期与真实 Stripe Session 是原生实测；迟到付款竞争分支采用 SDK 故障注入和真实 DB。"
+    },
+    {
+      "id": "A09",
+      "status": "passed",
+      "summary": "多人分摊、部分取消、豁免、改期及独立补款守恒，未付款 $34→$14→$2 不延长原期限。",
+      "isolatedTest": {
+        "source": "apps/api/src/appointmentDepositAdjustments.test.ts",
+        "title": "quotes only current services for the surviving guest after pending cancellation and replacement"
+      },
+      "evidence": [
+        "browser-deposit-waiver.json",
+        "browser-guest-cancellation.json",
+        "browser-guest-self-cancellation.json",
+        "p3-adjustments-final-audit.json",
+        "p3-pending-requote-paid.json",
+        "p6-e2e-output.txt"
+      ],
+      "validationNote": ""
+    },
+    {
+      "id": "A10",
+      "status": "passed",
+      "summary": "月付 $99 首款与成功续费各产生唯一已付账单和周期权益。",
+      "isolatedTest": {
+        "source": "apps/api/src/customerMemberships.test.ts",
+        "title": "records one $99 invoice and one benefit despite duplicate events, concurrent webhook processing and changed catalog"
+      },
+      "evidence": [
+        "browser-membership-monthly.json",
+        "stripe-membership-clock-renewed.json",
+        "stripe-membership-clock-recovered.json",
+        "p6-final-readonly-audit.json"
+      ],
+      "validationNote": ""
+    },
+    {
+      "id": "A11",
+      "status": "passed",
+      "summary": "年付 $999 的 12 个日历月批次按已付期间规划；双 worker 不重复发放，漏跑补偿只发当前有效批次。",
+      "isolatedTest": {
+        "source": "apps/api/src/customerMemberships.test.ts",
+        "title": "plans all 12 annual calendar batches, grants only due benefits, and two workers cannot issue twice"
+      },
+      "evidence": [
+        "browser-membership-annual.json",
+        "stripe-membership-clock-annual-renewed.json",
+        "p6-api-full.txt",
+        "p6-unit-full.txt"
+      ],
+      "validationNote": "Stripe Test Clock 验证真实续费；应用日历与任务发行／过期通过纯函数及真实隔离 DB 验证，未推进保留库时钟。"
+    },
+    {
+      "id": "A12",
+      "status": "passed",
+      "summary": "真实续费拒付及同账单补付、门户取消／恢复、实际期末终止；未付款不发权益。",
+      "isolatedTest": {
+        "source": "apps/api/src/customerMemberships.test.ts",
+        "title": "accepts a recovered paid renewal once; cancel-at-end and old active events cannot resurrect terminal subscriptions"
+      },
+      "evidence": [
+        "p4-clock-acceptance.json",
+        "browser-membership-portal-canceled.json",
+        "browser-membership-portal-resumed.json",
+        "p4-period-end-ended.json"
+      ],
+      "validationNote": ""
+    },
+    {
+      "id": "A13",
+      "status": "passed",
+      "summary": "年付立即终止、停止未来批次，原账单退款上限与 provider 取消状态一致。",
+      "isolatedTest": {
+        "source": "apps/api/src/customerMemberships.test.ts",
+        "title": "freezes an annual membership, verifies immediate cancellation, stops eleven future grants and refunds the selected original invoice once"
+      },
+      "evidence": [
+        "p4-termination-year-sandbox.json",
+        "p4-termination-discount-sandbox.json",
+        "p4-termination-acceptance.json"
+      ],
+      "validationNote": ""
+    },
+    {
+      "id": "A14",
+      "status": "passed",
+      "summary": "六种来源与会员折扣在单票及三票组单中合计 30,785 分；税 585、费 200、小费 1,000 分，覆盖和提成守恒。",
+      "isolatedTest": {
+        "source": "apps/api/src/customerMemberships.test.ts",
+        "title": "conserves membership, package, discount, deposit, gift, credit, cash, tax, fee and tips through three original-source returns"
+      },
+      "evidence": [
+        "p6-api-full.txt",
+        "p5-source-acceptance.json",
+        "p5-group-verify-paid.json",
+        "p5-checkout-quote-acceptance.json",
+        "p4-discount-acceptance.json"
+      ],
+      "validationNote": "六来源整单和组单采用真实 DB／API，组合内会员 provider 使用 SDK fixture；各商业模块及原生组合收银另有实际 sandbox 和浏览器证据。"
+    },
+    {
+      "id": "A15",
+      "status": "passed",
+      "summary": "三次组合退款和作废拒绝不超额；原生组单、指定项目、定金双来源及礼品卡 $40＋$40 退款恢复原来源。",
+      "isolatedTest": {
+        "source": "apps/api/src/customerMemberships.test.ts",
+        "title": "conserves all six payment sources across a quoted three-ticket group and each original service return"
+      },
+      "evidence": [
+        "p6-api-full.txt",
+        "p5-group-verify-refunded.json",
+        "p5-item-verify-final.json",
+        "p3-adjustments-service-partial.json",
+        "p3-adjustments-service-full.json",
+        "p6-a02-partial.json",
+        "p6-a02-refunded.json"
+      ],
+      "validationNote": ""
+    },
+    {
+      "id": "A16",
+      "status": "passed",
+      "summary": "租户隔离、共享联系方式不自动授予资产；显式合并保留原合同和订阅身份。",
+      "isolatedTest": {
+        "source": "apps/api/src/customerMemberships.test.ts",
+        "title": "merges an explicitly selected identity without rewriting paid records, duplicating subscriptions or granting a shared-phone stranger its assets"
+      },
+      "evidence": [
+        "p6-api-full.txt",
+        "p5-merge-native-replay.json",
+        "p5-merge-verify-use.json",
+        "p5-merge-verify-return.json"
+      ],
+      "validationNote": ""
+    },
+    {
+      "id": "A17",
+      "status": "passed",
+      "summary": "验签、账户／模式与业务域验证，事件／支付／周期去重；漏收经 provider 对账恢复，旧事件不反转退款。",
+      "isolatedTest": {
+        "source": "apps/api/src/commerce.test.ts",
+        "title": "reconciles a missed paid webhook only after inspecting a pre-existing provider refund"
+      },
+      "evidence": [
+        "p6-api-full.txt",
+        "stripe-payment-webhooks.json",
+        "stripe-checkout.json",
+        "p4-clock-acceptance.json"
+      ],
+      "validationNote": "错误签名、乱序、漏收采用隔离故障注入；成功支付／退款／续费有真实签名通知与 SDK 事实。"
+    },
+    {
+      "id": "A18",
+      "status": "passed",
+      "summary": "外部成功后的 DB 写失败可恢复；退款预留／冻结保护未用余额；原生已提交响应丢失可同键重放。",
+      "isolatedTest": {
+        "source": "apps/api/src/customerMemberships.test.ts",
+        "title": "recovers an external cancellation after a transactional write failure without canceling again or refunding early"
+      },
+      "evidence": [
+        "p6-api-full.txt",
+        "p5-group-native-replay.json",
+        "p5-gift-service-replayed.json",
+        "p3-adjustments-native-verified.json",
+        "p6-a02-paid.json"
+      ],
+      "validationNote": "DB 故障分支采用 SDK 故障注入；原生响应丢失是在实际成功提交后注入，二者分别记录。"
+    },
+    {
+      "id": "A19",
+      "status": "passed",
+      "summary": "租约／旧 worker 排除、漏跑补偿、月末／闰年／DST 与跨营业日退款守恒。",
+      "isolatedTest": {
+        "source": "apps/api/src/commerce.test.ts",
+        "title": "lets only one API instance claim a task and rejects an old lease result"
+      },
+      "evidence": [
+        "p6-api-full.txt",
+        "p6-unit-full.txt",
+        "p5-day-acceptance.json",
+        "p3-native-expiry-expired.json"
+      ],
+      "validationNote": "日历由 membershipPeriods 测试；23／25 小时营业日、封账后退款和双任务由实际隔离 DB 验证。"
+    },
+    {
+      "id": "A20",
+      "status": "passed",
+      "summary": "Connect 未就绪／断开阻止新销售；requires_action 不发权益；关页后能恢复正确订单状态。",
+      "isolatedTest": {
+        "source": "apps/api/src/customerMemberships.test.ts",
+        "title": "does not grant for active subscriptions, unpaid invoices, out-of-band settlement, wrong account or mode"
+      },
+      "evidence": [
+        "p6-api-full.txt",
+        "booking-mobile-zh.png",
+        "stripe-connect-ui-reconfirmed.json",
+        "stripe-membership-clock-failed.json",
+        "stripe-membership-clock-recovered.json",
+        "p3-native-expiry-expired.json",
+        "p6-e2e-output.txt"
+      ],
+      "validationNote": "需再次认证使用真实 DB 与 SDK 状态注入；真实测试卡拒付／补付另有 sandbox 证据。"
+    },
+    {
+      "id": "A21",
+      "status": "passed",
+      "summary": "SaaS／AI、普通现金刷卡、组合套餐及旧命令回归通过，顾客事件不串域。",
+      "isolatedTest": {
+        "source": "apps/api/src/commerce.test.ts",
+        "title": "never lets customer connected-account events enter platform SaaS or AI-credit billing"
+      },
+      "evidence": [
+        "p6-api-full.txt",
+        "p6-db-full.txt",
+        "p6-unit-full.txt"
+      ],
+      "validationNote": ""
+    },
+    {
+      "id": "A22",
+      "status": "passed",
+      "summary": "英文／简中原生流程及桌面／手机证据，其他语言抽查；后台／booking 六语言入口，权限与离线只读。",
+      "isolatedTest": {
+        "source": "apps/api/src/commerce.test.ts",
+        "title": "blocks technician asset-list, redemption, and prepaid checkout access at the server boundary"
+      },
+      "evidence": [
+        "p6-e2e-output.txt",
+        "p6-e2e-preservation.json",
+        "p6-web-full.txt",
+        "p6-booking-full.txt",
+        "p5-refund-native-locales.json",
+        "p5-package-buyer-restored-locales.json",
+        "p6-desk-traditional-commerce.png",
+        "p6-booking-traditional-expired.png"
+      ],
+      "validationNote": "新增繁体静态词典；历史五语言 AI 健康摘要与分享入口仍使用已有简中数据回退。"
+    }
+  ],
+  "currentPreservedPaymentCheckpoint": {
+    "count": 23,
+    "hash": "235c5b906f6520058e8a4c673c6a4a2a"
+  },
+  "remainingRequiredWork": []
+}

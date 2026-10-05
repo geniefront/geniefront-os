@@ -1,0 +1,26 @@
+$ vitest run --passWithNoTests
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/db
+
+ ✓ src/rls.test.ts (39 tests) 185ms
+ ✓ src/licenseCodes.migration.test.ts (21 tests) 213ms
+ ✓ src/qa/seed.sanity.test.ts (22 tests) 4190ms
+   ✓ Seed V2 sanity > reset+seed twice is logically identical for essential_trial 334ms
+   ✓ Seed V2 sanity > multi_location_owner has distinct tenant data on both shops 419ms
+ ✓ src/serviceBundles.migration.test.ts (1 test) 55ms
+ ✓ src/shopSlug.sql.test.ts (12 tests) 53ms
+ ✓ src/hostedBookingSlug.migration.test.ts (1 test) 56ms
+ ✓ src/healthFeatureDefaults.migration.test.ts (1 test) 15ms
+ ✓ src/qa/safety.test.ts (10 tests) 1ms
+ ✓ src/qa/baselineSafety.test.ts (9 tests) 1ms
+ ✓ src/settingsMedia.migration.test.ts (3 tests) 18ms
+ ✓ src/manageTokenWrap.sql.test.ts (1 test) 13ms
+ ✓ src/qa/clock.test.ts (3 tests) 1ms
+ ✓ src/copilotSessionsMigration.test.ts (2 tests) 1ms
+ ✓ src/formAccessLogSeedResetMigration.test.ts (2 tests) 0ms
+
+ Test Files  14 passed (14)
+      Tests  127 passed (127)
+   Start at  00:05:02
+   Duration  5.81s (transform 331ms, setup 0ms, collect 786ms, tests 4.80s, environment 0ms, prepare 33ms)
+

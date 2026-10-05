@@ -1,5 +1,8 @@
 # 18 · 接口文档（完整版）
 
+> **2026-09-27 账号清理更新：** 当前环境账号和 seed 命令以[环境账号清单](qa/TEST_ACCOUNTS.md)为准。下文旧账号、演示店及旧密码仅适用于历史记录或隔离测试 fixture，不能作为现行 local/staging/prod 登录配置；原 `ops` 管理员保留。
+
+
 > **给前端直接用的一份。** 读完这一份就能写完整个前端，不需要翻别的文档。
 >
 > 更短的入门版在 [`16-FRONTEND-CONTRACT.md`](16-FRONTEND-CONTRACT.md)（十分钟读完）。
@@ -1503,3 +1506,23 @@ pnpm turbo run typecheck test \
 
 **合计 90 条。**
 
+
+## 付费会员的逐项价格优惠
+
+`GET /v1/desk/tickets` 在有 `commerce.read` 时返回 `availableMembershipDiscounts`。每个报价含 `membershipId`、`cycleId`、`planVersionId`、名称、折扣 basis point、原到期时间／时区，以及项目数组 `items: [{ticketItemId, expectedTotalCents, expectedDiscountCents}]`。报价来自客户原已付、已发放且未过期／冻结的购买快照；不要求有剩余服务次数，因此支持纯折扣计划。没有资格时数组为空，不返回 Stripe IDs 或资源访问 token。
+
+单客 `ticket.pay`／`ticket.close` 可传 `membershipDiscount: {membershipId, cycleId, planVersionId, items}`，items 从服务端报价选择。服务端在原命令事务内锁会员／周期并重算；金额或版本不符返回 `membership_discount_quote_changed`／`membership_discount_unavailable` 等 validation reason，整单回滚。重复项目、其他客户／门店、次数已覆盖行、组合套餐子行或已有行优惠均拒绝。默认每行只能选一种会员／普通价格优惠。
+
+`discountCents` 仍表示需要 `ticket.discount` 的**授权手工折扣**；不能把服务端会员优惠再加到这个输入。手工折扣只分到其他未覆盖且未选会员优惠的项目，不足则拒绝。会员优惠要求 `commerce.sell`，无需把履行购买权益当成新授权折扣。`tickets.discount_cents` 保存两类优惠之和，逐项来源追加到 `ticket_price_adjustments`。报价金额均为整数分，会员百分比每行 half-up；税按折后未覆盖金额、小费独立，纯折扣会员费不转入服务提成。
+
+服务退款仍用 `ticket.refund` 的 `original_payment`，`refundAmountCents` **包括本次 refundTipCents**，不能在外部把小费再相加。会员覆盖通过 membership_cents 退回原单位，现金／刷卡仍按原来源；优惠记录不删除或重算。收据增加 `membershipReturnedCents`，与其他支付来源退回金额分开显示。会员服务退回不取消续费，也不退款会员购买款。当前其他／组单收银的完整来源选择和统一报价图仍在实施中。
+
+## 店长会员终止及原 Invoice 退款
+
+`GET /v1/desk/commerce/memberships/:id/termination-review` 要求 `commerce.refund`，返回 no-store 的 reviewHash、原账单 paid/refunded/reserved/cap、当前／未来次数及既有终止状态。保留当前周期的可退值另列 keep_current_refundable。只返回本门店金融资源；不返回访问令牌或 Stripe 对象 ID。
+
+`commerce.terminateMembership`：`{membershipId, expectedReviewHash, unusedBenefits: 'revoke_all'|'keep_current_paid', refunds: [{invoiceId, amountCents}], reason, confirmed: true}`。refunds 可为空，最多 24 张且不能重复。要求 commerce.refund、原因及稳定幂等键；事务重算 hash、锁原会员／支付，保存不可变核对决定及退款预留后冻结，排持久 subscription_update 任务。外部取消未确认前不能提交购买退款。
+
+`commerce.refundMembership` 在外部取消确认之后追加原账单退款，输入另外包含 terminationId，refunds 至少一项；同样核对新 hash、累计原实付及保留价值。失败历史不删除。私有 `commerce.completeMembershipTermination` 只接受服务器核验的 canceled 事实，停止／收回原周期，记录原 provider canceled_at，并唤醒退款及原订单对账；不可由前台或顾客直接调用。未知结果必须沿用原命令输入与键。
+
+顾客 status 增加 termination、benefitsActive、每张 Invoice refunded_cents/pending_refund_cents/refund_failed，以及 stop/revoke 流水；stop 的 quantity=0 表示未发放，另列 planned_quantity，不能把它当已发次数扣减。原 gross／优惠／服务退回事实保留。冻结时 Portal 不可用，确认取消后的有效资源令牌仍可查看仅该会员的账单。完整长期入口、外部会员退款审核、下期计划变更与期末自动终止矩阵继续实施。

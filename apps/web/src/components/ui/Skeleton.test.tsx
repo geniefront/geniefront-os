@@ -22,15 +22,16 @@ describe('PageSkeleton', () => {
 });
 
 describe('PageLoading', () => {
-  it('给了版式就渲染骨架，并保留说明正在加载什么的可读文案', () => {
-    const { container } = render(
+  it('兼容旧版式参数，并保留统一加载器的可读状态文案', () => {
+    render(
       <LanguageProvider>
         <PageLoading layout="board" title="正在同步运营看板" />
       </LanguageProvider>,
     );
 
-    expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(3);
-    expect(screen.getByRole('status')).toHaveTextContent('正在同步运营看板');
+    const status=screen.getByRole('status');
+    expect(status).toHaveTextContent('正在同步运营看板');
+    expect(status).not.toHaveAttribute('aria-hidden','true');
   });
 
   it('没给版式时退回原有的居中转圈，行为不变', () => {

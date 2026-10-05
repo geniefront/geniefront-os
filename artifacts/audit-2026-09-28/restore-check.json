@@ -1,0 +1,116 @@
+[
+  {
+    "args": [
+      "createdb",
+      "-U",
+      "postgres",
+      "audit_restore_repro"
+    ],
+    "exitCode": 0,
+    "output": ""
+  },
+  {
+    "args": [
+      "pg_restore",
+      "-U",
+      "postgres",
+      "-d",
+      "audit_restore_repro",
+      "--exit-on-error"
+    ],
+    "exitCode": 1,
+    "output": "pg_restore: error: COPY failed for table \"locations\": ERROR:  function gf_normalize_shop_slug(text) does not exist\nLINE 3:      and p_slug = gf_normalize_shop_slug(p_slug)\n                          ^\nHINT:  No function matches the given name and argument types. You might need to add explicit type casts.\nQUERY:  \n  select p_slug is not null\n     and p_slug = gf_normalize_shop_slug(p_slug)\n     and char_length(p_slug) between 2 and 64\n     and p_slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'\n     and not gf_shop_slug_reserved(p_slug);\n\nCONTEXT:  SQL function \"gf_shop_slug_canonical\" during inlining\nCOPY locations, line 1: \"aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa\t11111111-1111-4111-8111-111111111111\t{\"en\": \"Lotus Nails & Spa\"...\"\n"
+  },
+  {
+    "args": [
+      "createdb",
+      "-U",
+      "postgres",
+      "audit_restore_control"
+    ],
+    "exitCode": 0,
+    "output": ""
+  },
+  {
+    "args": [
+      "pg_restore",
+      "-U",
+      "postgres",
+      "-d",
+      "audit_restore_control",
+      "--section=pre-data",
+      "--exit-on-error"
+    ],
+    "exitCode": 0,
+    "output": ""
+  },
+  {
+    "args": [
+      "psql",
+      "-U",
+      "postgres",
+      "-d",
+      "audit_restore_control",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-c",
+      "alter function public.gf_shop_slug_canonical(text) set search_path=public,pg_catalog;"
+    ],
+    "exitCode": 0,
+    "output": "ALTER FUNCTION\n"
+  },
+  {
+    "args": [
+      "pg_restore",
+      "-U",
+      "postgres",
+      "-d",
+      "audit_restore_control",
+      "--section=data",
+      "--exit-on-error"
+    ],
+    "exitCode": 0,
+    "output": ""
+  },
+  {
+    "args": [
+      "pg_restore",
+      "-U",
+      "postgres",
+      "-d",
+      "audit_restore_control",
+      "--section=post-data",
+      "--exit-on-error"
+    ],
+    "exitCode": 0,
+    "output": ""
+  },
+  {
+    "args": [
+      "psql",
+      "-U",
+      "postgres",
+      "-d",
+      "postgres",
+      "-At",
+      "-c",
+      "select json_build_object('locations',(select count(*) from locations),'tickets',(select count(*) from tickets),'payments',(select count(*) from payments),'payment_total',(select sum(amount_cents) from payments),'refund_total',(select sum(amount_cents) from ticket_refunds),'forced_rls',(select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relrowsecurity and c.relforcerowsecurity));"
+    ],
+    "exitCode": 0,
+    "output": "{\"locations\" : 6, \"tickets\" : 104, \"payments\" : 100, \"payment_total\" : 711853, \"refund_total\" : 4600, \"forced_rls\" : 132}\n"
+  },
+  {
+    "args": [
+      "psql",
+      "-U",
+      "postgres",
+      "-d",
+      "audit_restore_control",
+      "-At",
+      "-c",
+      "select json_build_object('locations',(select count(*) from locations),'tickets',(select count(*) from tickets),'payments',(select count(*) from payments),'payment_total',(select sum(amount_cents) from payments),'refund_total',(select sum(amount_cents) from ticket_refunds),'forced_rls',(select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relrowsecurity and c.relforcerowsecurity));"
+    ],
+    "exitCode": 0,
+    "output": "{\"locations\" : 6, \"tickets\" : 104, \"payments\" : 100, \"payment_total\" : 711853, \"refund_total\" : 4600, \"forced_rls\" : 132}\n"
+  }
+]

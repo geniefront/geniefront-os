@@ -45,3 +45,5 @@ deploy/certs/origin.id
 # Local booking QA captures include temporary guest links and test messages.
 artifacts/public-booking/
 artifacts/public-booking-mobile.png
+
+!.env.commerce-sandbox.example

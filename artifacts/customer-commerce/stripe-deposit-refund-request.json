@@ -1,0 +1,18 @@
+{
+  "at": "2026-10-01T05:03:15.125Z",
+  "liveMode": false,
+  "orderId": "ade9dfbf-c878-4782-9965-b4f2f6dacb5d",
+  "ticketId": "2f404649-20c7-46ba-9ad0-d25a22a6677e",
+  "purchaseRefundId": "6c2155c4-3679-469a-89da-c98d98ac2e4e",
+  "serviceRefund": {
+    "refund_amount_cents": 2000,
+    "cash_cents": 1600,
+    "deposit_cents": 400,
+    "refund_rows": 1,
+    "restoration_rows": 1,
+    "restored_cents": 400
+  },
+  "originalStripeRefundRequestedCents": 400,
+  "refundVerified": false,
+  "goalComplete": false
+}

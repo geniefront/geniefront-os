@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-01T01:07:16.965Z",
+  "previousMigrations": 151,
+  "migrations": [
+    "20260930154700_customer_commerce.sql",
+    "20260930195316_customer_commerce_review.sql",
+    "20260930201833_customer_commerce_settlement.sql",
+    "20260930211958_package_unit_ranges.sql",
+    "20260930215757_commerce_accounts_v2.sql",
+    "20260930221431_gift_card_credentials.sql",
+    "20261001003907_appointment_deposit_holds.sql",
+    "20261001005843_appointment_deposit_payments.sql"
+  ],
+  "legacyLedgerUnchanged": true,
+  "legacyRemaining": 9,
+  "units": [
+    "cents",
+    "sessions"
+  ],
+  "legacySource": "legacy_migration",
+  "originalPurchaseRulesClaimed": false,
+  "fakePaymentsCreated": 0,
+  "quantityOpeningRows": 1,
+  "security": {
+    "discovery_private": true,
+    "protected_tables": 10
+  },
+  "actualExecutorReplayPassed": true
+}

@@ -1,0 +1,28 @@
+{
+  "at": "2026-10-02T00:43:00.504Z",
+  "scope": "P4 actual browser service of the original Stripe-paid membership",
+  "stage": "restored",
+  "membershipId": "0ef40a69-adf7-4425-a928-72ae89bc470e",
+  "ticketId": "f501ac11-39bf-4c2c-9e31-b401c290bba5",
+  "originalPurchaseAndRenewalsVerified": true,
+  "facts": {
+    "status": "refunded",
+    "total_cents": 10000,
+    "refund_cents": 10000,
+    "available_units": "{[0,1)}",
+    "new_payment_cents": 0,
+    "coverage": 10000,
+    "funded_value": -9900,
+    "redemptions": 1,
+    "restorations": 1,
+    "membership_return": 10000,
+    "money_return": 0,
+    "original_commission_base": 9900,
+    "paid_invoices": 3,
+    "cash_cents": 29700
+  },
+  "newStripeCharge": false,
+  "productionPublished": false,
+  "realEmailSent": false,
+  "goalComplete": false
+}

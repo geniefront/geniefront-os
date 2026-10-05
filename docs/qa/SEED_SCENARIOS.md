@@ -1,5 +1,8 @@
 # Seed V2 scenarios
 
+> **2026-09-27 账号清理更新：** 当前环境账号和 seed 命令以[环境账号清单](TEST_ACCOUNTS.md)为准。下文旧账号、演示店及旧密码仅适用于历史记录或隔离测试 fixture，不能作为现行 local/staging/prod 登录配置；原 `ops` 管理员保留。
+
+
 QA reset/seed is scenario-selectable. It does **not** rebuild Lotus/Golden Foot.
 
 ```bash
@@ -207,7 +210,7 @@ Lotus/Golden Foot (`11111111-…` / `22222222-…`) are **not** deleted.
 2. `GF_QA_ALLOW_RESET=1`
 3. `DATABASE_TEST_TARGET=isolated`
 4. `MIGRATION_DATABASE_URL` is explicit in the process env (not implicit `.env` fallback)
-5. Host is local (`127.0.0.1` / `localhost` / `::1`)
+5. Host is local (`127.0.0.1` / `localhost` / `::1`); port 55322 is refused because it is the persistent manual-QA database
 6. Roles are `postgres` (migration) and `app_user` (app)
 7. URLs do not contain `qiuyubvhirjtglonbkon`, `geniefront.com`, `desk.geniefront.com`, `api.geniefront.com`
 

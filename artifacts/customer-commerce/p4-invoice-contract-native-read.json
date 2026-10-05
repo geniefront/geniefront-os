@@ -1,0 +1,39 @@
+{
+  "at": "2026-10-02T16:47:56.358Z",
+  "readonly": true,
+  "migration": 183,
+  "results": [
+    {
+      "membershipId": "0ef40a69-adf7-4425-a928-72ae89bc470e",
+      "httpStatus": 200,
+      "invoices": 3,
+      "cycles": 3,
+      "availableUnits": 1,
+      "allContractsMatchOriginal": true
+    },
+    {
+      "membershipId": "ed6bb876-4545-4333-810b-2ed8829039d3",
+      "httpStatus": 200,
+      "invoices": 2,
+      "cycles": 24,
+      "availableUnits": 0,
+      "allContractsMatchOriginal": true
+    },
+    {
+      "membershipId": "3e8f3fc2-7486-4171-a8b9-94a4c9d9959b",
+      "httpStatus": 200,
+      "invoices": 1,
+      "cycles": 1,
+      "availableUnits": 0,
+      "allContractsMatchOriginal": true
+    }
+  ],
+  "payments": {
+    "count": 14,
+    "hash": "99c54d5375794365efd655bf0a22cfda"
+  },
+  "originalTokensReused": true,
+  "newStripePayment": false,
+  "planChangeScheduled": false,
+  "productionPublished": false
+}

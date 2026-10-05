@@ -1,0 +1,123 @@
+{
+  "at": "2026-10-02T01:56:50.073690+00:00",
+  "scope": "P4 purchased member line discounts; initial P5 price-adjustment provenance, combined unit/member/manual price and original service return",
+  "stageComplete": false,
+  "goalComplete": false,
+  "productionPublished": false,
+  "actualPurchase": {
+    "realStripeSandbox": true,
+    "amountCents": 4900,
+    "feeCents": 172,
+    "netCents": 4728,
+    "signedInvoiceVerified": true,
+    "purchasedQuota": 1,
+    "purchasedDiscountBps": 1000,
+    "originalMonthlyAndAnnualPurchaseSnapshotsPreserved": true,
+    "sandboxSalesSettingsRestored": true
+  },
+  "actualService": {
+    "ticketId": "1b199538-5dff-4a49-85ff-cee0e63de57a",
+    "subtotalCents": 19000,
+    "membershipCoverageCents": 10000,
+    "memberPriceDiscountCents": 500,
+    "manualDiscountCents": 1000,
+    "serviceNewMoneyCents": 7500,
+    "tipCents": 1000,
+    "totalNewMoneyCents": 8500,
+    "fundedMembershipUnitCents": 4900,
+    "commissionBaseCents": 12400,
+    "returnMembershipCents": 10000,
+    "returnCashCents": 8500,
+    "restoredUnitCount": 1,
+    "remainingCommissionBaseCents": 0,
+    "remainingTipEarningsCents": 0,
+    "originalMembershipPurchaseRefunded": false,
+    "renewalCanceled": false,
+    "cashTransferPhysicallyVerified": false,
+    "offlineCashQaRecording": true,
+    "newStripeServiceChargeOrRefund": false
+  },
+  "checks": {
+    "migrationCount": 175,
+    "emptyUpgradeReplayPassed": true,
+    "preservedDbIncrementalMigrationPassed": true,
+    "api": {
+      "files": 13,
+      "tests": 329,
+      "membershipTests": 26
+    },
+    "web": {
+      "files": 8,
+      "tests": 40
+    },
+    "booking": {
+      "files": 15,
+      "tests": 73,
+      "serial": true
+    },
+    "payroll": {
+      "files": 8,
+      "tests": 149,
+      "newPricingTests": 3
+    },
+    "typecheckPackages": 16,
+    "guards": true,
+    "webBuild": true,
+    "bookingBuild": true,
+    "diffCheck": true,
+    "readOnlyActualPriceAndRlsVerified": true,
+    "sixLanguageMemberStatusSampled": true
+  },
+  "isolatedDb": {
+    "zeroQuotaDiscountPlan": true,
+    "sameLineDoesNotStack": true,
+    "coveredLineNotDiscounted": true,
+    "manualDiscountLimitedToOtherUncoveredLines": true,
+    "changedCatalogKeepsPurchasedVersion": true,
+    "frontdeskBenefitWithoutArbitraryDiscountPermission": true,
+    "staleQuoteWrongSourceAndFrozenBenefitRollback": true,
+    "exclusiveAndInclusiveTaxAfterMemberPrice": true,
+    "refundUsesStoredTaxDespitePolicyChange": true,
+    "multiplePartialReturnsConserveMoneyAndRestoreOnce": true,
+    "sourceGuardsAndForceRlsAppendOnly": true
+  },
+  "acceptanceStatus": {
+    "A14": "partial member unit/member price/manual discount/new cash/tip sample; package/deposit/gift/credit unified graph still pending",
+    "A15": "partial combined member service return and isolated multiple partial returns; full mixed graph/void matrix pending",
+    "A22": "partial desktop English/Chinese plus six-language protected membership phone sampling; all flows still pending"
+  },
+  "evidence": [
+    "browser-membership-discount-purchase.json",
+    "browser-membership-discount-units-consumed.json",
+    "browser-membership-discount-units-restored.json",
+    "browser-membership-discount-ui.json",
+    "p4-discount-price-facts.json",
+    "p4-discount-service-security.json",
+    "p4-discount-prior-payments-preserved.json",
+    "p4-discount-migration-upgrade.json",
+    "p4-discount-api.txt",
+    "p4-discount-web.txt",
+    "p4-discount-booking.txt",
+    "p4-discount-payroll.txt",
+    "p4-discount-historical-failures.txt"
+  ],
+  "unverified": [
+    "other cashier and group selections, server quote/all-source allocation graph",
+    "package/deposit/gift/credit combined price and refund matrices",
+    "four-module day close, reports and customer merge",
+    "complete future grant and restart matrix, next-plan change",
+    "period-end and immediate subscription termination, original purchase refunds",
+    "risk handling, action-required recovery and long-term access",
+    "all remaining P1/P2/P3/P5/P6 and A01-A22"
+  ],
+  "limitations": [
+    "The $49 purchase is real Stripe test mode. The $85 cash service receipt/refund is QA bookkeeping, not physical funds transfer.",
+    "The new plan was necessary because earlier actual memberships purchased discountBps=0; original immutable contracts were not altered.",
+    "Initial partial-return test treated refundAmountCents as excluding tips; corrected the fixture to include them without weakening product limits.",
+    "Guard rejected Number(BigInt cents); switched to exact parseInt on integer text, retaining the integer policy.",
+    "Read-only verifier initially queried nonexistent earnings kind tip; corrected to actual tip_cash/tip_card without changing financial rows.",
+    "Type check found a missing callback type after the mixed-source label change; final 16-package check passed.",
+    "Six-language proof initially used an overescaped regex; corrected the read-only selector and waited for network idle before captures.",
+    "Before-status-extension screenshots preserve their actual historical point. Final restored captures show purchased discounts."
+  ]
+}

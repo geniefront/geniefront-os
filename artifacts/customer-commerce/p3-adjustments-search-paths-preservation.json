@@ -1,0 +1,52 @@
+{
+  "at": "2026-10-03T02:40:22.981Z",
+  "beforeMigrations": 187,
+  "afterMigrations": 188,
+  "financialTables": {
+    "commerce_orders": {
+      "count": 19,
+      "hash": "746ba2ccc468d72b8e92c128491b13d3"
+    },
+    "commerce_payments": {
+      "count": 19,
+      "hash": "b916dce918eb6e0a68ca5684eeae875c"
+    },
+    "commerce_refunds": {
+      "count": 14,
+      "hash": "afd7b59b0332405e59b976ce66a3500e"
+    },
+    "commerce_appointment_holds": {
+      "count": 9,
+      "hash": "f921a40ae402efb756c941fdba1ea9e6"
+    },
+    "commerce_deposit_ledger": {
+      "count": 26,
+      "hash": "9a9b6098cd621de70a7ac7868843f5ba"
+    },
+    "commerce_deposit_requests": {
+      "count": 8,
+      "hash": "a837eb1e5415fbc4c07d0ac72bfc0e87"
+    },
+    "commerce_deposit_requotes": {
+      "count": 2,
+      "hash": "5c040f41202d37e4cc14370d72e78a66"
+    },
+    "tickets": {
+      "count": 117,
+      "hash": "6b88688572ac88cd6ba8d84329422a34"
+    },
+    "payments": {
+      "count": 115,
+      "hash": "210fcde04d438de00e97b33fdb3dc9e4"
+    },
+    "ticket_refunds": {
+      "count": 18,
+      "hash": "ca044880a2eb3795325febec76d589b7"
+    }
+  },
+  "unchangedFinancialTables": 10,
+  "fixedFunctionSearchPaths": 24,
+  "functionBodiesAndPrivilegesUnchanged": true,
+  "executorReplayPassed": true,
+  "productionPublished": false
+}

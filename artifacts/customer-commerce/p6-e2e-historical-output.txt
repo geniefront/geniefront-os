@@ -1,0 +1,226 @@
+
+Running 7 tests using 1 worker
+
+
+
+[1/7] e2e/commerce/receipts.spec.ts:13:1 › public purchase catalog offers six languages on desktop and mobile
+[2/7] e2e/commerce/receipts.spec.ts:20:1 › paid amended booking shows only the surviving service and exact $2 deposit
+  1) e2e/commerce/receipts.spec.ts:20:1 › paid amended booking shows only the surviving service and exact $2 deposit 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('body')
+    Timeout: 12000ms
+    - Expected substring  - 1
+    + Received string     + 6
+
+    - $2.00
+    +
+    +     Golden Foot SpaEnglish中文繁體中文EspañolTiếng Việt한국어Golden Foot SpaYour appointmentView your booking or make a change below.bookedTuesday, October 610:00 AMAmerica/Los AngelesGuest 1 · Appointment deposit sandbox QACancelled10:00 AM–10:30 AM$100Guest 2 · Guest B cancellation browser QACancelled10:00 AM–10:30 AM$70Guest 2 · Adjustment $10 QA10:00 AM–10:30 AM$1030 min$10Deposit paidAvailable paid deposit$2Remaining service amount before tax and tip$8Original quoted deposit by guestGuest 1 · Cancelled$20Guest 2$14Payment confirms your booking. If payment arrives after expiry, we check capacity again and refund if unavailable.Cancel at least 4 hours before the appointment to refund the unused deposit.Later cancellations and no-shows require frontdesk review; deposits are not automatically forfeited.Sandbox QA: unused deposit is refundable before the original cancellation deadline.Add to calendar ↗Booking policyOnline rescheduling and cancellation apply to the entire booking, including every guest. To change services, specialists, guest count or contact information, contact the shop.Within 15 minutes of booking, before your appointment starts, advance-notice limits do not apply to cancellation or rescheduling.After that: Cancel at least 4 hours ahead. Reschedule at least 4 hours ahead.Want to change your appointment?Enter the last 4 digits of the phone number you used to book. We will check them when you save a change or cancel.Last 4 digits of your booking phone numberExample: if you booked with (212) 555-1234, enter 1234. This is not a text message code. Continue to edit To change services or contact details, call the shop. Book againPowered byGenieFront
+    +     
+    +   
+    +
+    +
+
+    Call log:
+      - Expect "toContainText" with timeout 12000ms
+      - waiting for locator('body')
+        28 × locator resolved to <body>…</body>
+           - unexpected value "
+        Golden Foot SpaEnglish中文繁體中文EspañolTiếng Việt한국어Golden Foot SpaYour appointmentView your booking or make a change below.bookedTuesday, October 610:00 AMAmerica/Los AngelesGuest 1 · Appointment deposit sandbox QACancelled10:00 AM–10:30 AM$100Guest 2 · Guest B cancellation browser QACancelled10:00 AM–10:30 AM$70Guest 2 · Adjustment $10 QA10:00 AM–10:30 AM$1030 min$10Deposit paidAvailable paid deposit$2Remaining service amount before tax and tip$8Original quoted deposit by guestGuest 1 · Cancelled$20Guest 2$14Payment confirms your booking. If payment arrives after expiry, we check capacity again and refund if unavailable.Cancel at least 4 hours before the appointment to refund the unused deposit.Later cancellations and no-shows require frontdesk review; deposits are not automatically forfeited.Sandbox QA: unused deposit is refundable before the original cancellation deadline.Add to calendar ↗Booking policyOnline rescheduling and cancellation apply to the entire booking, including every guest. To change services, specialists, guest count or contact information, contact the shop.Within 15 minutes of booking, before your appointment starts, advance-notice limits do not apply to cancellation or rescheduling.After that: Cancel at least 4 hours ahead. Reschedule at least 4 hours ahead.Want to change your appointment?Enter the last 4 digits of the phone number you used to book. We will check them when you save a change or cancel.Last 4 digits of your booking phone numberExample: if you booked with (212) 555-1234, enter 1234. This is not a text message code. Continue to edit To change services or contact details, call the shop. Book againPowered byGenieFront
+        
+      
+    
+    "
+
+
+      20 | test('paid amended booking shows only the surviving service and exact $2 deposit',async({page})=>{
+      21 |  await openPrivate(page,p.paidUrl);await expect(page.getByRole('heading',{name:'Your appointment',exact:true})).toBeVisible();
+    > 22 |  await expect(page.locator('body')).toContainText('$2.00');await expect(page.locator('body')).toContainText('$10.00');
+         |                                     ^
+      23 |  await expect(page.locator('body')).not.toContainText('$80.00');await layout(page);
+      24 |  await page.setViewportSize({width:390,height:844});await page.getByRole('combobox').selectOption('zh-Hans');await layout(page);
+      25 |  await page.screenshot({path:'artifacts/customer-commerce/p6-e2e-paid-mobile-zh.png'});
+        at /Users/naiyouzhu/siteadmin/geniefront-os/e2e/commerce/receipts.spec.ts:22:37
+
+    Error Context: artifacts/customer-commerce/p6-e2e-results/receipts-paid-amended-book-f2890-service-and-exact-2-deposit/error-context.md
+
+
+
+
+[3/7] e2e/commerce/receipts.spec.ts:27:1 › naturally expired reservation has no payment action after page closure
+  2) e2e/commerce/receipts.spec.ts:27:1 › naturally expired reservation has no payment action after page closure 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('region', { name: '占位已過期' })
+    Expected: visible
+    Timeout: 12000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 12000ms
+      - waiting for getByRole('region', { name: '占位已過期' })
+
+
+      29 |  await expect(page.locator('a[href*="checkout.stripe.com"]')).toHaveCount(0);
+      30 |  await page.setViewportSize({width:390,height:844});await page.getByRole('combobox').selectOption('zh-Hant');
+    > 31 |  await expect(page.getByRole('region',{name:'占位已過期'})).toBeVisible();await layout(page);
+         |                                                        ^
+      32 |  await page.screenshot({path:'artifacts/customer-commerce/p6-e2e-expired-mobile-hant.png'});
+      33 | });
+      34 | test('original $500 package receipt retains its restored unit and $450 purchase refund',async({page})=>{
+        at /Users/naiyouzhu/siteadmin/geniefront-os/e2e/commerce/receipts.spec.ts:31:56
+
+    Error Context: artifacts/customer-commerce/p6-e2e-results/receipts-naturally-expired-dd4ee-t-action-after-page-closure/error-context.md
+
+
+
+
+[4/7] e2e/commerce/receipts.spec.ts:34:1 › original $500 package receipt retains its restored unit and $450 purchase refund
+[5/7] e2e/commerce/receipts.spec.ts:40:1 › refunded unlimited receipt stays inactive instead of advertising zero usable sessions
+  3) e2e/commerce/receipts.spec.ts:40:1 › refunded unlimited receipt stays inactive instead of advertising zero usable sessions 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('body')
+    Timeout: 12000ms
+    - Expected substring  - 1
+    + Received string     + 6
+
+    - Inactive
+    +
+    +     Back to bookingEnglish简体中文繁體中文Español한국어Tiếng ViệtGolden Foot SpaGift cards & PackagesRefunded$500.00Refunded: $500.00This package cannot be used.Expires: Oct 3, 2026, 4:01 PMBack to bookingPaid membershipsCheck gift card balanceGift card numberCheck balancePowered byGenieFront
+    +     
+    +   
+    +
+    +
+
+    Call log:
+      - Expect "toContainText" with timeout 12000ms
+      - waiting for locator('body')
+        - locator resolved to <body>…</body>
+        - unexpected value "
+        Back to bookingEnglish简体中文繁體中文Español한국어Tiếng ViệtGift cards & PackagesProcessingBack to bookingPaid membershipsCheck gift card balanceGift card numberCheck balancePowered byGenieFront
+        
+      
+    
+    "
+        27 × locator resolved to <body>…</body>
+           - unexpected value "
+        Back to bookingEnglish简体中文繁體中文Español한국어Tiếng ViệtGolden Foot SpaGift cards & PackagesRefunded$500.00Refunded: $500.00This package cannot be used.Expires: Oct 3, 2026, 4:01 PMBack to bookingPaid membershipsCheck gift card balanceGift card numberCheck balancePowered byGenieFront
+        
+      
+    
+    "
+
+
+      39 | });
+      40 | test('refunded unlimited receipt stays inactive instead of advertising zero usable sessions',async({page})=>{
+    > 41 |  await openPrivate(page,p.unlimitedUrl);await expect(page.locator('body')).toContainText('Inactive');
+         |                                                                            ^
+      42 |  await expect(page.locator('body')).toContainText('$500.00');await expect(page.locator('a[href*="checkout.stripe.com"]')).toHaveCount(0);await layout(page);
+      43 | });
+      44 | test('ended original membership retains protected invoice history and six-language access',async({page})=>{
+        at /Users/naiyouzhu/siteadmin/geniefront-os/e2e/commerce/receipts.spec.ts:41:76
+
+    Error Context: artifacts/customer-commerce/p6-e2e-results/receipts-refunded-unlimite-d12f9-tising-zero-usable-sessions/error-context.md
+
+
+
+
+[6/7] e2e/commerce/receipts.spec.ts:44:1 › ended original membership retains protected invoice history and six-language access
+  4) e2e/commerce/receipts.spec.ts:44:1 › ended original membership retains protected invoice history and six-language access 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('body')
+    Timeout: 12000ms
+    - Expected substring  - 1
+    + Received string     + 6
+
+    - Canceled
+    +
+    +     Back to bookingEnglish简体中文繁體中文Español한국어Tiếng ViệtGolden Foot SpaPaid membershipsOnline sales are currently unavailable. Please contact the store.QA Monthly Care$119.00 / monthBenefits each calendar monthServices per benefit period: 1Covered services: Appointment deposit sandbox QAMonthlyQA Annual Care$999.00 / yearBenefits each calendar monthServices per benefit period: 1Covered services: Appointment deposit sandbox QAAnnualQA Member Price$49.00 / monthBenefits each calendar monthServices per benefit period: 1Covered services: Appointment deposit sandbox QAMember discount (%): 10%MonthlyQA Next Monthly Care$149.00 / monthBenefits each calendar monthServices per benefit period: 2Covered services: Appointment deposit sandbox QAMonthlyQA Next Annual Care$999.00 / yearBenefits each calendar monthServices per benefit period: 2Covered services: Appointment deposit sandbox QAAnnualPowered byGenieFront
+    +     
+    +   
+    +
+    +
+
+    Call log:
+      - Expect "toContainText" with timeout 12000ms
+      - waiting for locator('body')
+        - locator resolved to <body>…</body>
+        - unexpected value "
+        Back to bookingEnglish简体中文繁體中文Español한국어Tiếng ViệtPaid membershipsPowered byGenieFront
+        
+      
+    
+    "
+        27 × locator resolved to <body>…</body>
+           - unexpected value "
+        Back to bookingEnglish简体中文繁體中文Español한국어Tiếng ViệtGolden Foot SpaPaid membershipsOnline sales are currently unavailable. Please contact the store.QA Monthly Care$119.00 / monthBenefits each calendar monthServices per benefit period: 1Covered services: Appointment deposit sandbox QAMonthlyQA Annual Care$999.00 / yearBenefits each calendar monthServices per benefit period: 1Covered services: Appointment deposit sandbox QAAnnualQA Member Price$49.00 / monthBenefits each calendar monthServices per benefit period: 1Covered services: Appointment deposit sandbox QAMember discount (%): 10%MonthlyQA Next Monthly Care$149.00 / monthBenefits each calendar monthServices per benefit period: 2Covered services: Appointment deposit sandbox QAMonthlyQA Next Annual Care$999.00 / yearBenefits each calendar monthServices per benefit period: 2Covered services: Appointment deposit sandbox QAAnnualPowered byGenieFront
+        
+      
+    
+    "
+
+
+      43 | });
+      44 | test('ended original membership retains protected invoice history and six-language access',async({page})=>{
+    > 45 |  await openPrivate(page,p.membershipUrl);await expect(page.locator('body')).toContainText('Canceled');
+         |                                                                             ^
+      46 |  await expect(page.getByRole('button',{name:/View invoices/})).toBeVisible();
+      47 |  await page.getByRole('combobox',{name:'Language'}).selectOption('zh-Hant');await layout(page);
+      48 |  await page.screenshot({path:'artifacts/customer-commerce/p6-e2e-membership-hant.png'});
+        at /Users/naiyouzhu/siteadmin/geniefront-os/e2e/commerce/receipts.spec.ts:45:77
+
+    Error Context: artifacts/customer-commerce/p6-e2e-results/receipts-ended-original-me-03738-ory-and-six-language-access/error-context.md
+
+
+
+
+[7/7] e2e/commerce/receipts.spec.ts:50:1 › desk switches to Traditional Chinese and disables writes while offline
+  5) e2e/commerce/receipts.spec.ts:50:1 › desk switches to Traditional Chinese and disables writes while offline 
+
+    Error: expect(locator).toBeDisabled() failed
+
+    Locator: getByRole('button', { name: '儲存計畫', exact: true })
+    Expected: disabled
+    Timeout: 12000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeDisabled" with timeout 12000ms
+      - waiting for getByRole('button', { name: '儲存計畫', exact: true })
+
+
+      54 |   await expect(page.getByRole('heading',{name:'顧客收款',exact:true})).toBeVisible();await layout(page);
+      55 |   await page.screenshot({path:'artifacts/customer-commerce/p6-e2e-desk-hant.png'});
+    > 56 |   await context.setOffline(true);await expect(page.getByRole('button',{name:'儲存計畫',exact:true})).toBeDisabled();
+         |                                                                                                  ^
+      57 |  }finally{await context.close();}
+      58 | });
+      59 |
+        at /Users/naiyouzhu/siteadmin/geniefront-os/e2e/commerce/receipts.spec.ts:56:98
+
+    Error Context: artifacts/customer-commerce/p6-e2e-results/receipts-desk-switches-to--b8f5a-sables-writes-while-offline/error-context.md
+
+
+  5 failed
+    e2e/commerce/receipts.spec.ts:20:1 › paid amended booking shows only the surviving service and exact $2 deposit 
+    e2e/commerce/receipts.spec.ts:27:1 › naturally expired reservation has no payment action after page closure 
+    e2e/commerce/receipts.spec.ts:40:1 › refunded unlimited receipt stays inactive instead of advertising zero usable sessions 
+    e2e/commerce/receipts.spec.ts:44:1 › ended original membership retains protected invoice history and six-language access 
+    e2e/commerce/receipts.spec.ts:50:1 › desk switches to Traditional Chinese and disables writes while offline 
+  2 passed (1.1m)
+(node:18959) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:19138) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:19164) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:19187) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:19207) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)

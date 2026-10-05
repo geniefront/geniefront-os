@@ -1,0 +1,48 @@
+{
+  "at": "2026-10-01T10:12:05.770Z",
+  "scenario": "offline",
+  "actualVoiceToolHttp": true,
+  "browserPaymentVerified": true,
+  "physicalPhoneConversationVerified": false,
+  "realEmailDeliveryVerified": false,
+  "physicalCashVerified": false,
+  "deliveryMode": "capture",
+  "stripeVerified": false,
+  "appointmentId": "951fc9f8-5389-40e8-88c4-2009985a5501",
+  "holdId": "3f64be6c-c8c9-4195-bef6-683a7ed34ec2",
+  "facts": {
+    "source": "phone_ai",
+    "status": "booked",
+    "deposit_status": "paid",
+    "hold_status": "paid",
+    "amount_cents": 2000,
+    "service_total_cents": 10000,
+    "consent": {
+      "at": "2026-10-01 10:09:39.810221+00",
+      "locale": "en",
+      "method": "voice_confirmation",
+      "accepted": true
+    },
+    "provider": "offline",
+    "external_reference": "隔离验收：语音预约前台现金记录 20 USD",
+    "recorded_by": "c0dc0ca6-d5b8-4e70-a1ef-b6a361d87b6a",
+    "checkout_session_id": null,
+    "stripe_account_id": null,
+    "fee_cents": null,
+    "net_cents": null,
+    "balance_transaction_id": null,
+    "signed_checkout_events": 0,
+    "collected_rows": 1,
+    "deposit_balance_cents": 2000,
+    "confirmation_rows": 0,
+    "request_rows": 0,
+    "captured_request_rows": 0
+  },
+  "authoritativeReplay": {
+    "status": "confirmed",
+    "bookingConfirmed": true
+  },
+  "serviceConsumed": false,
+  "bankPayoutVerified": false,
+  "goalComplete": false
+}

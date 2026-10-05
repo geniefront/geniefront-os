@@ -1,0 +1,19 @@
+/tmp/commerce-checkout-quote-web-all-final.txt
+ ✓ src/pages/Checkout.tips.test.tsx (12 tests) 766ms
+ ✓ src/features/commerce/DepositRetentionActions.test.tsx (5 tests) 762ms
+ ✓ src/components/AppointmentDrawer.test.tsx (10 tests) 408ms
+ ✓ src/features/commerce/MembershipTermination.test.tsx (5 tests) 795ms
+ ✓ src/features/tickets/refund.test.tsx (5 tests) 71ms
+ ✓ src/features/commerce/DepositPaymentActions.test.tsx (3 tests) 385ms
+ ✓ src/features/printing/ReceiptDocument.test.tsx (5 tests) 44ms
+ ✓ src/features/checkout/paymentRetry.test.tsx (3 tests) 16ms
+ ✓ src/features/commerce/CommercePayouts.test.tsx (4 tests) 153ms
+ ✓ src/lib/moneyMutationRetry.test.tsx (7 tests) 18ms
+ ✓ src/features/commerce/GuestCancellationPanel.test.tsx (2 tests) 248ms
+ ✓ src/features/commerce/AppointmentDepositPanel.test.tsx (3 tests) 250ms
+ ✓ src/features/commerce/CustomerMembershipPlans.test.tsx (3 tests) 179ms
+ ✓ src/features/tickets/orderDisplay.test.ts (6 tests) 2ms
+ ✓ src/features/queue/inlinePayment.test.ts (4 tests) 1ms
+ Test Files  15 passed (15)
+      Tests  77 passed (77)
+   Duration  18.05s (transform 801ms, setup 2.11s, collect 6.14s, tests 4.10s, environment 4.05s, prepare 365ms)

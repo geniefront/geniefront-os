@@ -102,6 +102,7 @@ export interface EditableFormTemplate extends Omit<SaveFormTemplateInput, 'quest
 export function HealthForms() {
   const navigate = useNavigate();
   const { language, setLanguage, t } = useLanguage();
+  const summaryLanguage = language === 'zh-Hant' ? 'zh-Hans' : language;
   const formsQ = useFormsQuery();
   const save = useSaveFormTemplate();
   const share = useShareForm();
@@ -1156,7 +1157,7 @@ export function HealthForms() {
 
                 {/* 标语 */}
                 <p className="text-xs font-semibold text-teal-100">
-                  {selectedRecord.aiSummary.headline[language] || selectedRecord.aiSummary.headline['zh-Hans']}
+                  {selectedRecord.aiSummary.headline[summaryLanguage] || selectedRecord.aiSummary.headline['zh-Hans']}
                 </p>
 
                 {/* 核心警报与避开部位 */}
@@ -1168,7 +1169,7 @@ export function HealthForms() {
                       {t('healthForms.alerts')}:
                     </span>
                     <ul className="list-disc list-inside text-teal-100/90 space-y-0.5">
-                      {(selectedRecord.aiSummary.keyAlerts[language] || selectedRecord.aiSummary.keyAlerts['zh-Hans'] || []).map((alert, aIdx) => (
+                      {(selectedRecord.aiSummary.keyAlerts[summaryLanguage] || selectedRecord.aiSummary.keyAlerts['zh-Hans'] || []).map((alert, aIdx) => (
                         <li key={aIdx}>{alert}</li>
                       ))}
                     </ul>
@@ -1181,7 +1182,7 @@ export function HealthForms() {
                       {t('healthForms.avoidAreas')}:
                     </span>
                     <div className="flex flex-wrap gap-1 pt-0.5">
-                      {(selectedRecord.aiSummary.avoidAreasList[language] || selectedRecord.aiSummary.avoidAreasList['zh-Hans'] || []).map((area, aIdx) => (
+                      {(selectedRecord.aiSummary.avoidAreasList[summaryLanguage] || selectedRecord.aiSummary.avoidAreasList['zh-Hans'] || []).map((area, aIdx) => (
                         <Badge key={aIdx} variant="destructive" className="text-[9px] bg-rose-600/80">
                           {area}
                         </Badge>
@@ -1194,7 +1195,7 @@ export function HealthForms() {
                 <div className="rounded-xl bg-teal-950/70 p-2.5 border border-teal-500/40 text-[11px] space-y-1">
                   <span className="font-bold text-teal-200 block">💡 {t('healthForms.technicianAdvice')}:</span>
                   <p className="text-teal-100 leading-relaxed">
-                    {selectedRecord.aiSummary.technicianAdvice[language] || selectedRecord.aiSummary.technicianAdvice['zh-Hans']}
+                    {selectedRecord.aiSummary.technicianAdvice[summaryLanguage] || selectedRecord.aiSummary.technicianAdvice['zh-Hans']}
                   </p>
                 </div>
               </div>

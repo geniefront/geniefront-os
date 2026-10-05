@@ -18,6 +18,8 @@ const LEGACY_LANGUAGE_ALIASES: Record<string, Language> = {
   zh: 'zh-Hans',
   'zh-CN': 'zh-Hans',
   zh_CN: 'zh-Hans',
+  'zh-TW': 'zh-Hant',
+  zh_TW: 'zh-Hant',
 };
 
 function normalizeLanguage(raw: string | null): Language | null {

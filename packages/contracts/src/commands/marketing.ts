@@ -6,6 +6,7 @@
 
 import { z } from 'zod';
 import { defineCommand, uuid, cents, basisPoints, phoneE164 } from '../command.js';
+import {legacyCommerceSaleFields} from './commerce.js';
 
 // ─────────────────────────────────────────────────────────── 套餐次卡 (Packages)
 
@@ -18,6 +19,8 @@ export const packageSaveTemplateInput = z.object({
   validDays: z.number().int().min(1).optional().nullable(),
   scope: z.enum(['location', 'org']).default('location'),
   onlineSale: z.boolean().default(false),
+  coverageMode:z.enum(['bundle','any_included']).optional(),
+  commissionBasis:z.enum(['catalog_price','sale_price','zero']).optional(),
   active: z.boolean().default(true),
   sort: z.number().int().default(0),
 });
@@ -43,6 +46,7 @@ export const packageSaveTemplate = defineCommand({
 });
 
 export const packageIssueInput = z.object({
+  ...legacyCommerceSaleFields,
   templateId: uuid,
   /** 已知客户 ID 时直接传；与 `customer` 二选一，两者都给时以此为准。 */
   customerId: uuid.optional(),
@@ -83,26 +87,34 @@ export const packageIssue = defineCommand({
   name: 'package.issue',
   input: packageIssueInput,
   output: packageIssueOutput,
-  permission: 'ticket.write',
+  permission: 'commerce.sell',
+  fieldPermissions:[{field:'channel',used:v=>v.channel==='complimentary',need:'commerce.gift'},
+    {field:'priceCentsSnapshot',used:v=>v.soldPriceCentsOverride!==undefined||v.priceCentsSnapshot!==undefined||v.customSessions!==undefined||v.validDays!==undefined,need:'commerce.configure'}],
   ai: {
     description: '向客户发售/发放次卡套餐，并计入客户预付资产账本',
     confirm: 'always',
+    exposed:false,
   },
-  reversible: true,
-  idempotency: 'optional',
+  auditRedact:['priceCents','amountCents'],
+  reversible: false,
+  idempotency: 'required',
 });
 
 export const marketingIssuePackage = defineCommand({
   name: 'marketing.issuePackage',
   input: packageIssueInput,
   output: packageIssueOutput,
-  permission: 'ticket.write',
+  permission: 'commerce.sell',
+  fieldPermissions:[{field:'channel',used:v=>v.channel==='complimentary',need:'commerce.gift'},
+    {field:'priceCentsSnapshot',used:v=>v.soldPriceCentsOverride!==undefined||v.priceCentsSnapshot!==undefined||v.customSessions!==undefined||v.validDays!==undefined,need:'commerce.configure'}],
   ai: {
     description: '向客户发售/发放次卡套餐，并计入客户预付资产账本',
     confirm: 'always',
+    exposed:false,
   },
-  reversible: true,
-  idempotency: 'optional',
+  auditRedact:['priceCents','amountCents'],
+  reversible: false,
+  idempotency: 'required',
 });
 
 export const packageRedeemInput = z.object({
@@ -128,26 +140,32 @@ export const packageRedeem = defineCommand({
   name: 'package.redeem',
   input: packageRedeemInput,
   output: packageRedeemOutput,
-  permission: 'ticket.write',
+  permission: 'commerce.sell',
   ai: {
     description: '核销客户名下的套餐次卡项目，并在资产账本记录扣减',
     confirm: 'always',
   },
   reversible: true,
-  idempotency: 'optional',
+  idempotency: 'required',
 });
 
 export const marketingRedeemPackage = defineCommand({
   name: 'marketing.redeemPackage',
   input: packageRedeemInput,
   output: packageRedeemOutput,
-  permission: 'ticket.write',
+  permission: 'commerce.sell',
   ai: {
     description: '核销客户名下的套餐次卡项目，并在资产账本记录扣减',
     confirm: 'always',
   },
   reversible: true,
-  idempotency: 'optional',
+  idempotency: 'required',
+});
+export const packageRestore=defineCommand({
+  name:'package.restore',input:z.object({redemptionId:uuid,reason:z.string().trim().min(2).max(500)}),
+  output:z.object({packageId:uuid,restoredSessions:z.number().int().nonnegative(),remainingSessions:z.number().int().nonnegative()}),
+  permission:'commerce.refund',ai:{description:'Restore one original package redemption',confirm:'always',exposed:false},
+  reversible:false,idempotency:'required',auditRedact:['valueCents'],
 });
 
 // ─────────────────────────────────────────────────────────── 优惠券 (Coupons)
@@ -313,6 +331,7 @@ export const MARKETING_COMMANDS = [
   marketingIssuePackage,
   packageRedeem,
   marketingRedeemPackage,
+  packageRestore,
   couponSaveTemplate,
   marketingSaveCouponTemplate,
   couponVoid,

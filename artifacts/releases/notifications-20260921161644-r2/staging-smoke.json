@@ -1,0 +1,1 @@
+{"environment": "staging", "checks": [{"check": "api-health", "status": 200}, {"check": "desk", "status": 200}, {"check": "booking", "status": 200}, {"check": "short-names-authentication", "status": 401}, {"check": "short-names-ui", "asset": "Settings-BVpfuf-s.js", "status": 200, "matchesBuild": true}]}

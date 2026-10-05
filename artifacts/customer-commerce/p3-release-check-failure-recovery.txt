@@ -1,0 +1,11 @@
+$ vitest run src/appointmentDepositRetention.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ✓ src/appointmentDepositRetention.test.ts (14 tests) 2812ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  12:26:25
+   Duration  6.12s (transform 687ms, setup 1.92s, collect 1.22s, tests 2.81s, environment 0ms, prepare 54ms)
+

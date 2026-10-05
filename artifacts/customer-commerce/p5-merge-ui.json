@@ -1,0 +1,31 @@
+{
+  "at": "2026-10-02T16:07:21.019379+00:00",
+  "scope": "Actual native merge replay, original protected member page and service restoration",
+  "records": [
+    {
+      "session": "commerce-merge-native",
+      "width": 390,
+      "height": 844,
+      "horizontalOverflow": false,
+      "linkedOriginal": true,
+      "mergedProfile": true,
+      "availableOne": false,
+      "paidInvoicesThree": false,
+      "errors": []
+    },
+    {
+      "session": "commerce-member-monthly-portal-final",
+      "width": 390,
+      "height": 844,
+      "horizontalOverflow": false,
+      "linkedOriginal": false,
+      "mergedProfile": false,
+      "availableOne": true,
+      "paidInvoicesThree": true,
+      "errors": []
+    }
+  ],
+  "originalManageTokenPreserved": true,
+  "allLanguagesComplete": false,
+  "productionPublished": false
+}

@@ -1,0 +1,20 @@
+$ vitest run --passWithNoTests src/pages/Checkout.tips.test.tsx src/features/commerce/DepositRetentionActions.test.tsx src/components/AppointmentDrawer.test.tsx src/features/commerce/MembershipTermination.test.tsx src/features/commerce/DepositPaymentActions.test.tsx src/features/printing/ReceiptDocument.test.tsx src/features/commerce/CommercePayouts.test.tsx src/features/commerce/GuestCancellationPanel.test.tsx src/features/commerce/AppointmentDepositPanel.test.tsx src/features/commerce/CustomerMembershipPlans.test.tsx --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/pages/Checkout.tips.test.tsx (10 tests) 555ms
+ ✓ src/features/commerce/DepositRetentionActions.test.tsx (5 tests) 641ms
+ ✓ src/components/AppointmentDrawer.test.tsx (10 tests) 373ms
+ ✓ src/features/commerce/MembershipTermination.test.tsx (5 tests) 1200ms
+ ✓ src/features/commerce/DepositPaymentActions.test.tsx (3 tests) 388ms
+ ✓ src/features/printing/ReceiptDocument.test.tsx (5 tests) 44ms
+ ✓ src/features/commerce/CommercePayouts.test.tsx (4 tests) 118ms
+ ✓ src/features/commerce/GuestCancellationPanel.test.tsx (2 tests) 259ms
+ ✓ src/features/commerce/AppointmentDepositPanel.test.tsx (3 tests) 231ms
+ ✓ src/features/commerce/CustomerMembershipPlans.test.tsx (3 tests) 162ms
+
+ Test Files  10 passed (10)
+      Tests  50 passed (50)
+   Start at  02:20:04
+   Duration  14.43s (transform 674ms, setup 1.47s, collect 5.07s, tests 3.97s, environment 2.76s, prepare 268ms)
+

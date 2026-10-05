@@ -1,0 +1,16 @@
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/components/AppointmentDrawer.test.tsx (9 tests) 409ms
+ ✓ src/pages/Checkout.tips.test.tsx (4 tests) 295ms
+ ✓ src/features/commerce/DepositPaymentActions.test.tsx (3 tests) 609ms
+   ✓ records the exact held deposit only after receiving a reference and preserves its idempotency key after an interrupted response 366ms
+ ✓ src/features/commerce/GuestCancellationPanel.test.tsx (2 tests) 256ms
+ ✓ src/features/commerce/AppointmentDepositPanel.test.tsx (2 tests) 224ms
+ ✓ src/features/printing/ReceiptDocument.test.tsx (3 tests) 37ms
+
+ Test Files  6 passed (6)
+      Tests  23 passed (23)
+   Start at  06:15:56
+   Duration  8.67s (transform 796ms, setup 1.16s, collect 3.25s, tests 1.83s, environment 1.75s, prepare 148ms)
+

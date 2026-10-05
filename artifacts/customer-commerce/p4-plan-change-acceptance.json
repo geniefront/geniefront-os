@@ -1,0 +1,70 @@
+{
+  "at": "2026-10-02T21:38:17.446445+00:00",
+  "scope": "P4 explicit next-period changes on original membership, monthly then annual, with real Stripe TestClock charges",
+  "migration": 184,
+  "checks": {
+    "apiFiles": 4,
+    "apiTests": 128,
+    "bookingFiles": 2,
+    "bookingTests": 14,
+    "webFiles": 1,
+    "webTests": 3,
+    "contractsFiles": 19,
+    "contractsTests": 97,
+    "typecheckPackages": 16,
+    "guards": true,
+    "bookingBuild": true,
+    "webBuild": true,
+    "diff": true,
+    "emptyUpgradeReplay": true,
+    "advisorsWarnings": 166,
+    "newObjectFindings": 0,
+    "finalOwnershipMembershipTests": 45,
+    "finalApiTypes": true
+  },
+  "nativeEvidence": {
+    "originalSubscriptionReused": true,
+    "providerSchedules": 1,
+    "changes": [
+      {
+        "amount": 149,
+        "cadence": "month",
+        "effectiveDate": "2027-01-01",
+        "fee": 4.62,
+        "net": 144.38
+      },
+      {
+        "amount": 999,
+        "cadence": "year",
+        "effectiveDate": "2027-02-01",
+        "fee": 29.27,
+        "net": 969.73
+      }
+    ],
+    "successfulResponsesLostThenSameKeyReplayed": 2,
+    "originalContractPreserved": true,
+    "original14PaymentHash": "99c54d5375794365efd655bf0a22cfda",
+    "current16PaymentHash": "007752639c9178921089555f1122decf",
+    "futureBenefitsRemainPlanned": true,
+    "applicationClockAdvanced": false,
+    "settingsRestored": true,
+    "noticesCaptured": 2,
+    "realEmailSent": false
+  },
+  "remaining": [
+    "pending change withdrawal and cancellation interactions",
+    "termination/dispute/concurrent scheduling races",
+    "foreign schedule recovery and review",
+    "full calendar, roles, currencies, stores and languages matrix",
+    "P0\u2013P6/A01\u2013A22 complete acceptance"
+  ],
+  "allAcceptancePassed": false,
+  "goalComplete": false,
+  "productionPublished": false,
+  "foreignScheduleRecoveryTests": {
+    "unownedCreatedScheduleRejected": true,
+    "boundMetadataChangeRejected": true,
+    "boundPhaseChangeNotOverwritten": true,
+    "realProviderMutationForTheseCases": false
+  }
+}

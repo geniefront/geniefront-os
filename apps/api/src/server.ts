@@ -7,6 +7,7 @@
  */
 
 import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
+import {ZodError} from 'zod';
 import cors from '@fastify/cors';
 import {
   AppError, ERROR_CODES, httpStatusFor,
@@ -46,6 +47,10 @@ import './handlers/customer';
 import './handlers/sms';
 import './handlers/resource';
 import './handlers/marketing';
+import './handlers/commerce';
+import './handlers/appointmentDeposits';
+import './handlers/appointmentDepositRetention';
+import { registerCommerceRoutes } from './commerce/routes';
 import './handlers/profile';
 import './handlers/notification';
 import './handlers/support';
@@ -65,6 +70,7 @@ import { registerPasswordResetRoutes } from './auth/passwordReset';
 import { registerEmailUnsubscribeRoutes } from './email/unsubscribeRoutes';
 import { registerSesWebhook } from './email/snsWebhook';
 import { registerResendWebhook } from './email/resendWebhook';
+import { registerMailerooWebhook } from './email/mailerooWebhook';
 import { staffContextFromToken, STAFF_TOKEN_HEADER } from './auth/staffSession';
 import { registerRawBodyParser } from './rawBody';
 import { flushEmails } from './email/flush';
@@ -91,7 +97,7 @@ import { registerAiRoutes } from './routes/ai';
 import { registerMiscRoutes } from './routes/misc';
 import { registerPlatformEmailRoutes } from './platform/emailRoutes';
 import { registerPlatformRoutes } from './platform/routes';
-import { LOGGER_REDACT_PATHS } from './logRedact';
+import { LOGGER_REDACT_PATHS,redactRequestUrl } from './logRedact';
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
@@ -101,6 +107,8 @@ export function buildServer(): FastifyInstance {
         paths: [...LOGGER_REDACT_PATHS],
         censor: '[redacted]',
       },
+      serializers:{req:(request)=>({id:request.id,method:request.method,url:redactRequestUrl(request.url??''),
+        hostname:request.hostname,remoteAddress:request.ip,headers:request.headers})},
     },
     // Cloudflare 在前面，真实 IP 在 CF-Connecting-IP / X-Forwarded-For
     trustProxy: true,
@@ -127,7 +135,7 @@ export function buildServer(): FastifyInstance {
     credentials: false,
     allowedHeaders: [
       'Authorization', 'Content-Type', 'X-Membership-Id', 'Idempotency-Key',
-      'X-Device-Token', 'X-Staff-Token', 'X-GF-Public-Key', 'X-GF-Form-Token',
+      'X-Device-Token', 'X-Staff-Token', 'X-GF-Public-Key', 'X-GF-Form-Token', 'X-GF-Commerce-Token',
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     maxAge: 86400,
@@ -155,6 +163,10 @@ export function buildServer(): FastifyInstance {
 
   // ── 错误映射 ───────────────────────────────────────────────────────────────
   app.setErrorHandler((err, req, reply) => {
+    if(err instanceof ZodError) {
+      return reply.status(400).send(new AppError(ERROR_CODES.VALIDATION_FAILED,
+        {details:{issues:err.issues.map(issue=>({path:issue.path,message:issue.message}))}}).toJSON());
+    }
     if (err instanceof AppError) {
       const status = httpStatusFor[err.code];
       if (status >= 500) req.log.error({ err }, err.code);
@@ -189,7 +201,9 @@ export function buildServer(): FastifyInstance {
     if (path.startsWith('/public/')) return;
     if (path.startsWith('/v1/public/')) return;
     if (path === '/v1/stripe/webhook') return;
-    if (['/v1/webhooks/resend','/v1/webhooks/ses'].includes(path)) return;
+    if (path === '/v1/stripe/commerce-webhook') return;
+    if (path === '/v1/stripe/commerce-account-webhook') return;
+    if (['/v1/webhooks/resend','/v1/webhooks/ses','/v1/webhooks/maileroo'].includes(path)) return;
     // 供应商通知只能配置 URL；路径标识由 webhook 路由自行常数时间校验。
     if (path === '/v1/webhooks/elasticemail' || path.startsWith('/v1/webhooks/elasticemail/')) return;
     if (path === '/v1/webhooks/mailslurp' || path.startsWith('/v1/webhooks/mailslurp/')) return;
@@ -252,6 +266,7 @@ export function buildServer(): FastifyInstance {
    * 根本不经过这条命令总线。
    */
   const ENQUEUES_NOTIFICATIONS = new Set([
+    'appointment.addItem','appointment.replaceItem','commerce.requoteAppointmentDeposit','commerce.sendDepositNotice','commerce.recordOfflineDeposit',
     'appointment.create',
     'appointment.reschedule',
     'appointment.cancel',
@@ -317,6 +332,7 @@ export function buildServer(): FastifyInstance {
 
   // ── 外部与特化路由 ─────────────────────────────────────────────────────────
   registerStripeRoutes(app, ctxFromHeaders);
+  registerCommerceRoutes(app, ctxFromHeaders);
   registerSignupCheckoutRoutes(app);
   registerCopilotRoutes(app, ctxFromHeaders);
   registerAuthRoutes(app);
@@ -332,6 +348,7 @@ export function buildServer(): FastifyInstance {
    * 而丢掉的正是最该进抑制名单的地址。
    */
   registerResendWebhook(app);   // Svix HMAC
+  registerMailerooWebhook(app);
   registerSesWebhook(app);      // SNS X.509
   registerKioskRoutes(app);
   registerTelnyxRoutes(app);

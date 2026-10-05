@@ -17,6 +17,13 @@ export const PERMISSIONS = [
   'ticket.discount',
   'ticket.void',
   'ticket.refund',
+  'commerce.read',
+  'commerce.sell',
+  'commerce.configure',
+  'commerce.refund',
+  'commerce.gift',
+  'commerce.waiveDeposit',
+  'commerce.retainDeposit',
 
   // 轮牌
   'rotation.read',
@@ -105,6 +112,7 @@ export const ROLE_PRESETS = {
   owner: PERMISSIONS,
 
   manager: [
+    'commerce.read', 'commerce.sell', 'commerce.configure', 'commerce.refund', 'commerce.gift', 'commerce.waiveDeposit', 'commerce.retainDeposit',
     'appointment.read', 'appointment.write', 'appointment.cancel', 'appointment.overbook',
     'ticket.read', 'ticket.write', 'ticket.discount', 'ticket.void', 'ticket.refund',
     'rotation.read', 'rotation.override',
@@ -123,6 +131,7 @@ export const ROLE_PRESETS = {
   ],
 
   front_desk: [
+    'commerce.read', 'commerce.sell',
     'appointment.read', 'appointment.write', 'appointment.cancel', 'appointment.overbook',
     'ticket.read', 'ticket.write', 'ticket.discount',
     'rotation.read', 'rotation.override',

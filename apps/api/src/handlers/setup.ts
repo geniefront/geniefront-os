@@ -20,7 +20,7 @@ import {
   LEGACY_SETUP_MISSING_BY_CODE,
 } from '@gf/contracts';
 import { normalizeOrigin } from '../public/origin';
-import { jsonb } from '@gf/db';
+import { jsonb,readOnlineBooking } from '@gf/db';
 import { businessDateOf } from '@gf/scheduling';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { loadSetupReadiness } from '../queries/setupReadiness';
@@ -640,6 +640,16 @@ registerHandler(SaveOnlineBooking, async ({ input, ctx, tx, audit }: HandlerArgs
   if (!cur) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
 
   const before = (cur.settings['online_booking'] ?? {}) as Record<string, unknown>;
+  const previous=readOnlineBooking(cur.settings),depositMethod=input.depositMethod??previous.depositMethod??'fixed';
+  const depositPercentBps=depositMethod==='percentage'?(input.depositPercentBps??previous.depositPercentBps??null):null;
+  const depositAmountCents=depositMethod==='fixed'?(input.depositAmountCents??previous.depositAmountCents??2000):0;
+  if((depositMethod==='fixed'&&input.depositPercentBps!==undefined)
+    ||(depositMethod==='percentage'&&input.depositAmountCents!==undefined&&input.depositAmountCents!==0)
+    ||(depositMethod==='percentage'&&(!depositPercentBps||!Number.isInteger(depositPercentBps)||depositPercentBps<1||depositPercentBps>10000))
+    ||(input.depositRequired&&depositMethod==='fixed'&&depositAmountCents<=0)){
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'invalid_deposit_policy'}});
+  }
+  const retainDepositAfterCutoff=input.retainDepositAfterCutoff??previous.retainDepositAfterCutoff??false;
 
   /**
    * ⚠️ 打开在线预约前先看一眼**有没有可订的项目**。
@@ -674,10 +684,11 @@ registerHandler(SaveOnlineBooking, async ({ input, ctx, tx, audit }: HandlerArgs
     self_reschedule_max: input.selfRescheduleMax,
     slot_interval_minutes: input.slotIntervalMinutes ?? 30,
     deposit_required: input.depositRequired ?? false,
-    deposit_amount_cents: input.depositAmountCents ?? 2000,
+    deposit_amount_cents:depositAmountCents,
+    deposit_method:depositMethod,deposit_percent_bps:depositPercentBps,retain_deposit_after_cutoff:retainDepositAfterCutoff,
     allow_client_pick_staff: input.allowClientPickStaff ?? true,
     require_card_on_file: input.requireCardOnFile ?? false,
-    cancellation_policy_notice: input.cancellationPolicyNotice ?? '',
+    cancellation_policy_notice: input.cancellationPolicyNotice ?? previous.cancellationPolicyNotice ?? '',
   };
 
   await tx`update locations set
@@ -688,18 +699,19 @@ registerHandler(SaveOnlineBooking, async ({ input, ctx, tx, audit }: HandlerArgs
   await tx`
     insert into location_scheduling_rules (
       location_id, slot_interval_minutes, cancel_cutoff_hours,
-      deposit_required, deposit_amount_cents, allow_client_pick_staff,
+      deposit_required, deposit_amount_cents,deposit_method,deposit_percent_bps,retain_deposit_after_cutoff,allow_client_pick_staff,
       require_card_on_file, cancellation_policy_notice, updated_at
     ) values (
       ${ctx.locationId}, ${input.slotIntervalMinutes ?? 30}, ${input.cancelCutoffHours ?? 4},
-      ${input.depositRequired ?? false}, ${input.depositAmountCents ?? 2000}, ${input.allowClientPickStaff ?? true},
-      ${input.requireCardOnFile ?? false}, ${input.cancellationPolicyNotice ?? ''}, now()
+      ${input.depositRequired ?? false},${depositAmountCents},${depositMethod},${depositPercentBps},${retainDepositAfterCutoff},${input.allowClientPickStaff ?? true},
+      ${input.requireCardOnFile ?? false},${input.cancellationPolicyNotice??previous.cancellationPolicyNotice??''},now()
     )
     on conflict (location_id) do update set
       slot_interval_minutes = excluded.slot_interval_minutes,
       cancel_cutoff_hours = excluded.cancel_cutoff_hours,
       deposit_required = excluded.deposit_required,
       deposit_amount_cents = excluded.deposit_amount_cents,
+      deposit_method=excluded.deposit_method,deposit_percent_bps=excluded.deposit_percent_bps,retain_deposit_after_cutoff=excluded.retain_deposit_after_cutoff,
       allow_client_pick_staff = excluded.allow_client_pick_staff,
       require_card_on_file = excluded.require_card_on_file,
       cancellation_policy_notice = excluded.cancellation_policy_notice,

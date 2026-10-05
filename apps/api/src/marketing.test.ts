@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { withTenant, closeDb } from '@gf/db';
 import { buildContext } from './actor';
-import { dispatch } from './bus';
+import { dispatchWithCommerceSale as dispatch } from './test/commerceSaleDispatch';
 import './handlers/marketing';
 import './handlers/ticket';
 import { loadPackages, loadCoupons, loadLoyalty } from './queries/marketing';
@@ -38,10 +38,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  for (const id of cleanupPackageTemplateIds) {
-    await withTenant(tenant, (tx) => tx`delete from customer_packages where template_id = ${id}`);
-    await withTenant(tenant, (tx) => tx`delete from package_templates where id = ${id}`);
-  }
+  // Paid purchase/quantity history is retained until the isolated database reset.
   for (const id of cleanupCouponIds) {
     await withTenant(tenant, (tx) => tx`delete from coupon_templates where id = ${id}`);
   }
@@ -257,7 +254,7 @@ describe('次卡套餐 (Packages)', () => {
 
   it('前台只报姓名+手机号发售：次卡挂在正确的实名客户名下，不落占位客户', async () => {
     const buyerName = `次卡实名客户-${Math.floor(Math.random() * 1e6)}`;
-    const buyerPhone = `+1617${Math.floor(1000000 + Math.random() * 9000000)}`;
+    const buyerPhone = '+16175550199'; // Fictional NANP number; arbitrary 7 digits can be invalid.
 
     const issueRes = await dispatch<{ packageId: string; customerId: string }>(
       'package.issue',

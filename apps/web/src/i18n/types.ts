@@ -12,16 +12,14 @@ import type { Locale } from '@gf/contracts';
 /**
  * 界面语言。
  *
- * 为 `Locale` 的子集：繁体中文（`zh-Hant`）目前**仅作为数据语言**存在 ——
- * 服务端可以存储繁体的服务名并正确回显，但界面文案尚未提供繁体译本，
- * 因此不进入语言切换器。补齐译本后将其加入 `UI_LANGUAGES` 即可，
- * 类型系统会立即指出所有缺失的词条。
+ * 与服务端的六种语言一致；繁体中文也提供完整界面词典。
  */
-export type Language = Extract<Locale, 'en' | 'zh-Hans' | 'ko' | 'vi' | 'es'>;
+export type Language = Locale;
 
 /** 语言切换器按此顺序渲染。母语名而非英文名 —— 挑语言的人多半看不懂英文名。 */
 export const UI_LANGUAGES: { code: Language; label: string }[] = [
   { code: 'zh-Hans', label: '中文' },
+  { code: 'zh-Hant', label: '繁體中文' },
   { code: 'en', label: 'English' },
   { code: 'ko', label: '한국어' },
   { code: 'es', label: 'Español' },

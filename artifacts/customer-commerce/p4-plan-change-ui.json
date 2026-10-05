@@ -1,0 +1,26 @@
+{
+  "at": "2026-10-02T21:32:31.139169+00:00",
+  "nativeScreenshotsReviewed": true,
+  "customerEnglishDesktop": {
+    "width": 1280,
+    "scrollWidth": 1280,
+    "pageErrors": 0,
+    "currentAnnualAmount": 999,
+    "paidInvoices": 5,
+    "availableServices": 1
+  },
+  "ownerEnglishDesktop": {
+    "width": 1280,
+    "scrollWidth": 1280,
+    "pageErrors": 0,
+    "currentPlanName": "QA Next Annual Care",
+    "paidInvoices": 5,
+    "availableServices": 1
+  },
+  "earlierNativeFlows": [
+    "monthly consent and response-loss reload in English mobile",
+    "annual consent and response-loss reload in Chinese mobile",
+    "Stripe portal after annual change"
+  ],
+  "productionPublished": false
+}

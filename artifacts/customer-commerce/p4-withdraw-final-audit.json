@@ -1,0 +1,49 @@
+{
+  "withdrawal": {
+    "count": 1
+  },
+  "at": "2026-10-02T21:58:43.549Z",
+  "migrations": 185,
+  "payments": {
+    "count": 16,
+    "hash": "007752639c9178921089555f1122decf"
+  },
+  "rows": [
+    {
+      "id": "70ee36bf-9fcc-4613-b7d1-8d1846d3d441",
+      "status": "applied",
+      "cadence": "month",
+      "amount_cents": 14900,
+      "fee_cents": 462,
+      "net_cents": 14438,
+      "signed_invoice_events": 1,
+      "matching_captured_notices": 1
+    },
+    {
+      "id": "3f57b25b-0f7a-4f3d-abc3-f1a14a775b3a",
+      "status": "applied",
+      "cadence": "year",
+      "amount_cents": 99900,
+      "fee_cents": 2927,
+      "net_cents": 96973,
+      "signed_invoice_events": 1,
+      "matching_captured_notices": 1
+    }
+  ],
+  "contracts": {
+    "members": 3,
+    "invoices": 5,
+    "cycles": 16,
+    "planned_units": 28,
+    "provider_schedules": 1,
+    "settings": {
+      "salesEnabled": true,
+      "depositsEnabled": true,
+      "membershipsEnabled": false
+    }
+  },
+  "originalSalesSettingsRestored": true,
+  "providerScheduleReused": true,
+  "realEmailSent": false,
+  "productionPublished": false
+}

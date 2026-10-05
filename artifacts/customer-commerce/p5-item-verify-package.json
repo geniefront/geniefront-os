@@ -1,0 +1,44 @@
+{
+  "at": "2026-10-02T12:42:40.201Z",
+  "scope": "verify-package",
+  "actualStripePurchaseReused": true,
+  "originalOrderId": "d3823deb-12f8-456a-bcae-0c90a0b0c6c8",
+  "ticketId": "62e6aa53-3068-45d5-9cfa-cd00d3dd2b90",
+  "originalPaidCents": 50000,
+  "originalPurchaseRefundCents": 45000,
+  "newCashIsOfflineQa": true,
+  "newStripePayment": false,
+  "remainingOriginalUnits": 1,
+  "availableUnits": "{[0,1)}",
+  "facts": {
+    "status": "closed",
+    "total_cents": 31000,
+    "refund_cents": 10000,
+    "settlement_tax_mode": "exclusive",
+    "commission_base": 20000,
+    "tips": 1000,
+    "cash_return": 0,
+    "refunds": 1,
+    "item_receipts": 1,
+    "unit_restores": 1
+  },
+  "sources": [
+    {
+      "kind": "package",
+      "seq": 0,
+      "service_cents": 10000,
+      "tax_cents": 0,
+      "fee_cents": 0,
+      "returned_service": 10000
+    },
+    {
+      "kind": "cash",
+      "seq": 1,
+      "service_cents": 20000,
+      "tax_cents": 0,
+      "fee_cents": 0,
+      "returned_service": 0
+    }
+  ],
+  "productionChanged": false
+}

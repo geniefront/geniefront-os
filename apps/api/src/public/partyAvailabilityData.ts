@@ -1,13 +1,15 @@
 import type postgres from "postgres";
 import type { PublicShopRow } from "@gf/db";
 import { readPublicBookingProfile } from "@gf/contracts";
-import { wallMinuteToInstant } from "@gf/scheduling";
+import { createWallMinuteResolver } from "@gf/scheduling";
 import {
   recurringWindows,
   type loadBookingStaff,
 } from "../queries/bookingStaff";
 
 export interface PartyAvailabilityData {
+  // Scoped to this calculation; never persisted in the public snapshot.
+  resolveMinute?: ReturnType<typeof createWallMinuteResolver>;
   locationId: string;
   services: Array<{
     id: string;
@@ -61,6 +63,7 @@ export async function loadPartyAvailabilityData(
   dates: string[],
 ): Promise<PartyAvailabilityData> {
   if (!dates.length) throw new Error("Snapshot dates required");
+  const wallMinuteToInstant = createWallMinuteResolver();
   const sorted = [...dates].sort(),
     first = sorted[0]!,
     last = sorted[sorted.length - 1]!;
@@ -125,6 +128,7 @@ export async function loadPartyAvailabilityData(
       endsAt: wallMinuteToInstant(date, shop.timezone, w.endMin),
     }));
   return {
+    resolveMinute: wallMinuteToInstant,
     locationId: shop.locationId,
     services,
     directory,

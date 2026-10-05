@@ -10,6 +10,19 @@ const data: ReceiptData = {
     payments:[{paymentId:'p',method:'card',amountCents:12800,cardLast4:null}],tipAllocations:[{staffName:'Private staff split',amountCents:2000}]},
 };
 describe('customer receipt', () => {
+ it('explains a service return as original benefits plus actual other payment sources',()=>{
+  render(<ReceiptDocument data={{...data,membershipCreditCents:10000,membershipReturnedCents:10000,order:{...data.order,
+   totalCents:18500,refundCents:18500,payments:[{paymentId:'cash',method:'cash',amountCents:8500,cardLast4:null}]}}}/>);
+  expect(screen.getByText('Returned total').parentElement).toHaveTextContent('$185.00');
+  expect(screen.getByText('Membership benefits returned').parentElement).toHaveTextContent('$100.00');
+  expect(screen.getByText('Other payment sources returned').parentElement).toHaveTextContent('$85.00');
+  expect(screen.getByText('Net paid / credit').parentElement).toHaveTextContent('$0.00');
+ });
+ it('separates paid membership service coverage from newly collected payments',()=>{
+  render(<ReceiptDocument data={{...data,membershipCreditCents:10000,order:{...data.order,totalCents:10000,refundCents:0,tipCents:0,taxCents:0,payments:[]}}}/>);
+  expect(screen.getByText('Paid membership benefits applied')).toBeInTheDocument();
+  expect(screen.getByText('Payments received').parentElement).toHaveTextContent('$0.00');
+ });
  it('uses actual store, local date, quantities and refunds without internal staff allocations', () => {
   render(<ReceiptDocument data={data}/>);
   expect(screen.getByText('Real Salon')).toBeInTheDocument();
@@ -24,6 +37,13 @@ describe('customer receipt', () => {
   expect(screen.getByText('Prepaid package credit')).toBeInTheDocument();
   expect(screen.getByText('$50.00')).toBeInTheDocument();
   expect(screen.getByText('Tendered: $100.00 · Change: $22.00')).toBeInTheDocument();
+ });
+ it('keeps an already-paid $20 deposit separate from the new $80 receipt',()=>{
+  render(<ReceiptDocument data={{...data,order:{...data.order,subtotalCents:10000,totalCents:10000,taxCents:0,tipCents:0,refundCents:0,
+    payments:[{paymentId:'cash',method:'cash',amountCents:8000,cardLast4:null},{paymentId:'deposit',method:'deposit',amountCents:2000,cardLast4:null}]}}}/>);
+  expect(screen.getByText('Payments received').parentElement).toHaveTextContent('$80.00');
+  expect(screen.getByText('Previously paid deposit applied').parentElement).toHaveTextContent('$20.00');
+  expect(screen.getByText('Order total').parentElement).toHaveTextContent('$100.00');
  });
 
 });

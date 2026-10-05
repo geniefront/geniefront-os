@@ -1,5 +1,7 @@
 import { resolveTxt } from 'node:dns/promises';
 import { domainToASCII } from 'node:url';
+import { emailProvider } from './provider';
+import type { MailerooDomain } from './maileroo';
 export function normalizeEmailDomain(value:string):string {
   const d=domainToASCII(value.trim().toLowerCase().replace(/\.$/,''));
   if(d.length>253 || !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(d)
@@ -11,7 +13,22 @@ export async function txtRecords(name:string):Promise<string[]> {
   try{return (await resolveTxt(name)).map(x=>x.join(''));}catch{return [];}
 }
 export interface DnsInstruction {type:string;name:string;value:string;action:string;required:boolean;}
-export async function domainInstructions(domain:string,token:string):Promise<DnsInstruction[]> {
+export async function domainInstructions(domain:string,token:string,maileroo?:MailerooDomain):Promise<DnsInstruction[]> {
+  if (emailProvider() === 'maileroo') {
+    const ownership = {type:'TXT',name:`_geniefront.${domain}`,value:`gf-domain=${token}`,action:'ownership',required:true};
+    if (!maileroo?.dns_records) return [ownership];
+    const dns = maileroo.dns_records;
+    const existing = (await txtRecords(domain)).filter(v => /^v=spf1\b/i.test(v));
+    const current = existing[0];
+    const conflict = existing.length > 1 || (current && /\bredirect=/i.test(current));
+    const spf = !current ? dns.spf_record.record : current.includes('include:_spf.maileroo.com') || conflict
+      ? current : current.replace(/\s+([~?+-]?all)\s*$/, ' include:_spf.maileroo.com $1');
+    return [ownership,
+      {type:'TXT',name:dns.dkim_record.host,value:dns.dkim_record.record,action:'check_existing',required:true},
+      {type:'TXT',name:domain,value:spf,action:conflict?'manual_review':current?'merge':'add',required:true},
+      {type:'TXT',name:`_dmarc.${domain}`,value:(await txtRecords(`_dmarc.${domain}`)).find(v=>/^v=DMARC1/i.test(v)) || 'v=DMARC1; p=none;',action:'preserve_or_add',required:true},
+    ];
+  }
   const spfs=(await txtRecords(domain)).filter(x=>/^v=spf1\b/i.test(x));
   const dmarc=(await txtRecords(`_dmarc.${domain}`)).find(x=>/^v=DMARC1/i.test(x));
   let spf=spfs[0] || 'v=spf1 include:_spf.elasticemail.com ~all';

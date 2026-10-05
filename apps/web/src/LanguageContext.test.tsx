@@ -59,6 +59,15 @@ describe('语言选择与持久化', () => {
     expect(screen.getByTestId('lang')).toHaveTextContent('zh-Hans');
   });
 
+  it('保留繁体中文选择，并迁移台湾旧语言代码', () => {
+    localStorage.setItem('gf.lang', 'zh-TW');
+    renderProbe('save');
+    expect(screen.getByTestId('lang')).toHaveTextContent('zh-Hant');
+    expect(screen.getByTestId('text')).toHaveTextContent('保存');
+    expect(localStorage.getItem('gf.lang')).toBe('zh-Hant');
+    expect(document.documentElement.lang).toBe('zh-Hant');
+  });
+
   it('切换语言后写回 localStorage 并同步 html lang', () => {
     function Switcher() {
       const { setLanguage, language } = useLanguage();
@@ -142,4 +151,3 @@ describe('动态词典加载与容错保护', () => {
     delete (globalThis as typeof globalThis & { __GF_TEST_DYNAMIC_I18N__?: boolean }).__GF_TEST_DYNAMIC_I18N__;
   });
 });
-

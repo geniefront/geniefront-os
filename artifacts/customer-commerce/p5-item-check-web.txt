@@ -1,0 +1,17 @@
+/tmp/commerce-item-sources-web-final.txt
+ ✓ src/pages/Checkout.tips.test.tsx (10 tests) 1159ms
+ ✓ src/features/commerce/DepositRetentionActions.test.tsx (5 tests) 931ms
+ ✓ src/components/AppointmentDrawer.test.tsx (10 tests) 722ms
+ ✓ src/features/commerce/MembershipTermination.test.tsx (5 tests) 1382ms
+ ✓ src/features/tickets/refund.test.tsx (5 tests) 91ms
+ ✓ src/features/commerce/DepositPaymentActions.test.tsx (3 tests) 1158ms
+ ✓ src/features/printing/ReceiptDocument.test.tsx (5 tests) 66ms
+ ✓ src/features/commerce/CommercePayouts.test.tsx (4 tests) 181ms
+ ✓ src/lib/moneyMutationRetry.test.tsx (7 tests) 32ms
+ ✓ src/features/commerce/GuestCancellationPanel.test.tsx (2 tests) 330ms
+ ✓ src/features/commerce/AppointmentDepositPanel.test.tsx (3 tests) 288ms
+ ✓ src/features/commerce/CustomerMembershipPlans.test.tsx (3 tests) 177ms
+ ✓ src/features/tickets/orderDisplay.test.ts (6 tests) 3ms
+ Test Files  13 passed (13)
+      Tests  68 passed (68)
+   Duration  31.11s (transform 1.52s, setup 4.58s, collect 10.36s, tests 6.52s, environment 7.20s, prepare 687ms)

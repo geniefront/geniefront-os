@@ -1,0 +1,127 @@
+{
+  "at": "2026-10-02T11:05:28.057515+00:00",
+  "scope": "P5 original-source service-return checkpoint; full P0–P6 and A01–A22 goal remains active",
+  "phaseComplete": false,
+  "goalComplete": false,
+  "productionPublished": false,
+  "runtimePreservedDatabaseMigration": 178,
+  "stageMigration": 178,
+  "migrationPromoted": true,
+  "checks": {
+    "apiFiles": 15,
+    "apiTests": 371,
+    "subsequentOrderQueryApiTests": 58,
+    "webFiles": 13,
+    "webTests": 67,
+    "payrollFiles": 9,
+    "payrollTests": 154,
+    "typecheckPackages": 16,
+    "guards": true,
+    "diffCheck": true,
+    "buildWeb": true,
+    "migrationEmptyUpgradeReplay": true,
+    "sourceRlsAndImmutableGuards": true,
+    "originalPaymentFingerprintPreserved": true,
+    "finalApiPreviewRestarted": true,
+    "nativeBrowserErrors": 0
+  },
+  "actualPackage": {
+    "originalPaidCents": 50000,
+    "originalPurchasedQuantity": 10,
+    "priorUnusedPurchaseRefundCents": 45000,
+    "serviceCoverageCents": 10000,
+    "partialServiceReturnsCents": [
+      4000,
+      6000
+    ],
+    "restoredExactUnit": "[0,1)",
+    "restoredQuantity": 1,
+    "restoredFundedValueCents": 5000,
+    "newMoneyRefundCents": 0,
+    "netCommissionCents": 0,
+    "purchasedSnapshotPreserved": true,
+    "buyerReceiptLinkReused": true,
+    "newBuyerTokenIssued": false,
+    "buyerMobileLocales": 6
+  },
+  "actualGift": {
+    "originalPaidCents": 8000,
+    "originalFaceCents": 10000,
+    "priorUnusedPurchaseRefundCents": 5600,
+    "returnedServiceCoverageCents": 3000,
+    "availableFaceCents": 3000,
+    "newMoneyRefundCents": 0,
+    "netCommissionCents": 0,
+    "refundRows": 1,
+    "assetRestoreRows": 1,
+    "nativeResponseLossAfterCommittedHttp201": true,
+    "nativePageReloadAndSavedRequestHttpReplay": 200,
+    "serverReplayed": true,
+    "canonicalInputFingerprintVerified": true
+  },
+  "isolatedMixedSourceCase": {
+    "providerMembershipMocked": true,
+    "databaseTransactionsReal": true,
+    "completeSandboxCombinationVerified": false,
+    "originalSourceKinds": [
+      "membership",
+      "package",
+      "deposit",
+      "gift_card",
+      "store_credit",
+      "cash"
+    ],
+    "memberDiscountBps": 1000,
+    "totalCents": 30785,
+    "taxCents": 585,
+    "feeCents": 200,
+    "tipCents": 1000,
+    "refundsCents": [
+      14500,
+      14500,
+      1785
+    ],
+    "originalCashRefundCents": 4785,
+    "quotaRestoreCounts": {
+      "membership": 1,
+      "package": 1
+    },
+    "netCommissionCents": 0,
+    "netTipCents": 0
+  },
+  "locales": {
+    "newCopyContractLocales": 6,
+    "nativeBackofficeSelectableLocales": 5,
+    "traditionalChineseBackofficeVerified": false,
+    "buyerMobileLocales": 6,
+    "longRefundFooterButtonsContained": true
+  },
+  "externalBlockers": [
+    {
+      "scope": "successful sandbox payout and real automatic batch",
+      "condition": "merchant default test bank ends 2227 and is errored",
+      "connectEnabled": true,
+      "platformBankUpdateUnsupported": true,
+      "userBrowserHandoffPending": true
+    }
+  ],
+  "historicalVerificationFailures": [
+    "stage source locks initially requested UPDATE on immutable facts; parent ticket locking now used",
+    "stage seed FK cleanup and deferred trigger NEW-field branches corrected",
+    "mixed fixture missing setup registration and command review audit corrected",
+    "commission test initially expected per-item earnings rows although existing earnings aggregate by staff; immutable itemLines now verify exact unit bases",
+    "initial real verifier incorrectly expected a partially_refunded payment enum; original paid status plus immutable refund total now verified",
+    "native first-write status is 201, replay is 200; recorder corrected without another first refund",
+    "recorder initially looked for the idempotency key in the body; actual header/saved request and immutable database receipt verified",
+    "cross-process JSON formatting reordered keys; canonical server financial fingerprint verified instead of ordered byte comparison",
+    "ambiguous browser selector and stale navigation reference corrected before any unintended financial submission"
+  ],
+  "nextRequired": [
+    "P5 complete single server checkout quote, per-item source graph and source-weighted refund commissions through all cashiers and groups",
+    "P2/P5 full unlimited, stopped funding, cross-store/currency, notifications, customer merge and combined day-close matrices",
+    "P1 successful bank payout, actual automatic source batch and complete failure/restart matrix after test bank correction",
+    "P3 pending hold edits, explicit supplements, paid rescheduling, retention reversals and physical voice/all-entry acceptance",
+    "P4 next-period plan changes, retained-current and period-end termination, complete calendar/missed-run/restart and external-refund approval/access matrices",
+    "P6 all A01–A22 evidence gates, traditional Chinese backoffice and full frontend/permission/offline matrices"
+  ]
+}

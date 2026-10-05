@@ -1,5 +1,8 @@
 # 分批测试手册
 
+> **2026-09-27 账号清理更新：** 当前环境账号和 seed 命令以[环境账号清单](TEST_ACCOUNTS.md)为准。下文旧账号、演示店及旧密码仅适用于历史记录或隔离测试 fixture，不能作为现行 local/staging/prod 登录配置；原 `ops` 管理员保留。
+
+
 日期：2026-09-05  
 配套：[`../CURRENT-ARCHITECTURE.md`](../CURRENT-ARCHITECTURE.md)、[`SEED_SCENARIOS.md`](SEED_SCENARIOS.md)
 
@@ -18,7 +21,7 @@
    - `NODE_ENV=test`（E2E）
 2. **QA 账号和演示账号不是同一套。**
    - QA：`qa-<scenario>@maildrop.cc` / `GenieQa!2026`（见 Seed V2）
-   - 演示：`owner@maildrop.cc` 等 / `GenieDev!2026`（见 `docs/16`）。演示数据日期常是 2026-08-25～28，拿「今天」会看到空日历。
+   - 常驻手工 QA：`qa-local-*` / `qa-staging-*`，密码来自对应 `.env` 的 `GF_BASELINE_PASSWORD`；见 [TEST_ACCOUNTS.md](TEST_ACCOUNTS.md)。旧演示账号只存在于隔离回归库。
 3. **自动绿 ≠ 能上线。** Playwright 只跑 Chromium + 英文 + 纽约时区，且 **不起 booking / ipad**。多语言、触屏 Kiosk、真邮件、真电话、真预约验证码，必须人手。
 
 ---

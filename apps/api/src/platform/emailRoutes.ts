@@ -7,6 +7,7 @@ import {writePlatformAudit} from './audit';
 import {emailPanel} from '../email/routes';
 import {elasticRequest,elasticTrackingLocked,type ElasticDomain} from '../email/elastic';
 import {emailProvider} from '../email/provider';
+import {mailerooDomains,mailerooRequest,type MailerooDomain} from '../email/maileroo';
 
 export function registerPlatformEmailRoutes(app:FastifyInstance){
  const operator=(req:FastifyRequest)=>requirePlatformOperator(req.user?.userId);
@@ -15,9 +16,14 @@ export function registerPlatformEmailRoutes(app:FastifyInstance){
   const requests=await withUser(op.userId,tx=>tx`select id,org_id,location_id,domain,managed_by,status,dns_records,last_error,note,checked_at,created_at from email_domain_requests order by created_at desc limit 200`);
   const accounts=await withUser(op.userId,tx=>tx`select location_id,account_email,status,last_error,updated_at from email_accounts order by created_at desc limit 200`);
   let domains:ElasticDomain[]=[];let providerError:string|null=null;
-  try{domains=await elasticRequest('GET','/domains');}catch{providerError='provider_unavailable';}
+  try{
+   domains=emailProvider()==='maileroo'?await Promise.all((await mailerooDomains()).map(async d=>{
+    const detail=await mailerooRequest<MailerooDomain>(`/domains/${d.id}`);
+    return {Domain:d.domain_name,Spf:detail.dns_records?.spf_record.created===true,Dkim:detail.dns_records?.dkim_record.created===true,DMARC:detail.dns_records?.dmarc_record.created===true,Verify:detail.status};
+   })):await elasticRequest('GET','/domains');
+  }catch{providerError='provider_unavailable';}
   // trackingLocked：账户拒绝按邮件关闭追踪，事务邮件已退回账户默认设置，链接会被改写。
-  return{provider:emailProvider(),domains:domains.map(({Domain,Spf,Dkim,DMARC,Verify})=>({Domain,Spf,Dkim,DMARC,Verify})),requests,accounts,providerError,marketingAvailable:false,trackingLocked:elasticTrackingLocked()};
+  return{provider:emailProvider(),domains:domains.map(({Domain,Spf,Dkim,DMARC,Verify})=>({Domain,Spf,Dkim,DMARC,Verify})),requests,accounts,providerError,marketingAvailable:false,trackingLocked:emailProvider()==='elasticemail'&&elasticTrackingLocked()};
  });
  app.get('/v1/platform/stores/:locationId/email',async req=>{
   const op=await operator(req),locationId=z.string().uuid().parse((req.params as {locationId:string}).locationId);

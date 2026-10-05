@@ -5,6 +5,7 @@
  * truthful. The test user always has exactly one active setup membership.
  */
 
+import { assertRegressionTarget } from './qa/regressionSafety';
 import { randomUUID } from 'node:crypto';
 import { ROLE_PRESETS } from '@gf/contracts';
 import { adminDatabaseSource, adminSql } from './admin';
@@ -20,6 +21,7 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 type AuthUser = { id: string; email?: string };
 
 function requireEnvironment(): void {
+  assertRegressionTarget(process.env);
   if (adminDatabaseSource !== 'process') {
     throw new Error('必须显式加载 MIGRATION_DATABASE_URL；请从仓库根目录运行 pnpm setup:test:reset。');
   }

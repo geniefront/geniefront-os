@@ -12,13 +12,15 @@ import { dispatch } from '../bus';
 import { checkRateLimits } from '../public/rateLimit';
 import { flushSms } from '../sms/flush';
 import { flushEmails } from '../email/flush';
+import {currentVoiceBooking} from './deposit';
 import '../handlers/voiceBooking';
 
 const searchSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   serviceId: z.string().uuid().optional(), membershipId: z.string().uuid().optional(),
   partySize: z.coerce.number().int().min(1).max(10).default(1) }).strict();
 const submitSchema = z.object({ providerCallId:z.string().min(1).max(200).optional(), slotToken: z.string().min(20).max(3000), customerName: z.string().trim().min(1).max(120),
-  phoneE164: VoiceBookingInput.shape.phoneE164, email: z.string().email().optional(), notes: z.string().max(1000).optional() }).strict();
+  phoneE164: VoiceBookingInput.shape.phoneE164, email: z.string().email().optional(), notes: z.string().max(1000).optional(),
+  depositConsent:VoiceBookingInput.shape.depositConsent }).strict();
 const signedSchema = z.object({ serviceId: z.string().uuid(), date: z.string(), startsAt: z.string(),
   membershipId: z.string().uuid().nullable(), membershipIds: z.array(z.string().uuid().nullable()).optional(), requestedMembershipId: z.string().uuid().optional(), partySize: z.number().int().min(1).max(10), expiresAt: z.number(), locationId: z.string().uuid() }).strict();
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
@@ -81,9 +83,14 @@ export function registerVoiceRoutes(app: FastifyInstance) {
       slot.membershipId, slot.partySize, customer.phoneE164, customer.customerName.toLowerCase()])).digest('hex');
     const result = await dispatch('voice.submitBooking', { ...selection, ...customer }, ctx,
       { idempotencyKey: `voice-book-${id}`, systemOrigin: 'xai_voice' });
+    const current=await withTenant(ctx,tx=>currentVoiceBooking(tx,ctx,SubmitVoiceBooking.output.parse(result.result).appointmentId));
     void flushSms(ctx, app.log).catch(() => app.log.warn('Voice SMS flush will retry'));
     void flushEmails(ctx, app.log).catch(() => app.log.warn('Voice email flush will retry'));
     reply.header('Cache-Control', 'no-store');
-    return { ok: true, ...SubmitVoiceBooking.output.parse(result.result), replayed: result.replayed };
+    return { ok: true, ...current, replayed: result.replayed,
+      guidance:current.deposit?.additionalPayment?
+        'The existing booking remains confirmed. Explain the separate additional deposit request and its current deadline or expired status. Do not say the additional deposit is paid or that the card will be charged automatically. Use email instructions or frontdesk assistance.':current.bookingConfirmed?'The appointment is confirmed.':current.status==='pending_deposit'?
+        'The time is held, awaiting the deposit. State the deposit and deadline. Payment confirms the booking; use email instructions or frontdesk assistance. Do not say the booking is confirmed.':
+        'The appointment is not confirmed. Explain the returned status and offer frontdesk assistance.' };
   });
 }

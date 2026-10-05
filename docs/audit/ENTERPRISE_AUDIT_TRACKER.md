@@ -1,5 +1,8 @@
 # GenieFront OS — Enterprise-Ready Systematic Audit Tracker
 
+> **2026-09-27 账号清理更新：** 当前环境账号和 seed 命令以[环境账号清单](../qa/TEST_ACCOUNTS.md)为准。下文旧账号、演示店及旧密码仅适用于历史记录或隔离测试 fixture，不能作为现行 local/staging/prod 登录配置；原 `ops` 管理员保留。
+
+
 > **Document Status:** LIVING AUDIT LEDGER  
 > **Standard:** Enterprise Ready (1,000+ Salons, Financial Consistency, Zero Floating Point, Zero RLS Leaks, Strict Concurrency, Multi-Lingual UX)  
 > **Started:** 2026-09-03  

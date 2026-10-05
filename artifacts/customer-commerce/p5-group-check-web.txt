@@ -1,0 +1,17 @@
+$ vitest run --passWithNoTests src/features/checkout/GroupCheckout.test.tsx src/features/checkout/paymentRetry.test.tsx src/features/checkout/paymentDraft.test.ts src/pages/Checkout.tips.test.tsx src/features/queue/checkoutMath.test.ts src/features/tickets/refund.test.tsx src/features/printing/ReceiptDocument.test.tsx
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/features/checkout/paymentDraft.test.ts (4 tests) 2ms
+ ✓ src/features/queue/checkoutMath.test.ts (27 tests) 4ms
+ ✓ src/features/checkout/paymentRetry.test.tsx (5 tests) 26ms
+ ✓ src/features/printing/ReceiptDocument.test.tsx (5 tests) 50ms
+ ✓ src/features/tickets/refund.test.tsx (5 tests) 84ms
+ ✓ src/features/checkout/GroupCheckout.test.tsx (4 tests) 315ms
+ ✓ src/pages/Checkout.tips.test.tsx (18 tests) 681ms
+
+ Test Files  7 passed (7)
+      Tests  68 passed (68)
+   Start at  10:43:09
+   Duration  3.22s (transform 766ms, setup 3.65s, collect 3.39s, tests 1.16s, environment 3.74s, prepare 386ms)
+

@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "tsx watch --env-file=../../.env src/main.ts",
     "dev:raw": "tsx watch src/main.ts",
+    "dev:snapshots": "DB_POOL_MAX=2 PORT=3001 tsx watch src/voice/snapshotMain.ts",
     "tidy": "tsx --env-file=../../.env src/tidy.ts",
     "marketing-domain": "tsx --env-file=../../.env src/ops/marketingDomainCli.ts",
     "legacy-package-to-bundle": "tsx --env-file=../../.env src/ops/legacyPackageToBundleCli.ts",

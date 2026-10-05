@@ -1,0 +1,13 @@
+{
+  "firstReviewHashFailure": "Canonical review serialization was not SHA256; fixed before promotion.",
+  "sqlInitialSyntaxFailure": "Wrapped the CASE subtraction before stage rebuild; no promoted migration edit.",
+  "apiLocaleFixtureFailure": "Notice used the enrolled customer locale; assertion now uses that locale.",
+  "providerStaticFixtureIds": "Static fake refund IDs reused retained command receipts; IDs now belong to the individual fixture member.",
+  "missingAuthEnvironment": "Full API command omitted .env.local; rerun included local Auth configuration and passed.",
+  "webRepeatedAlert": "Stale-review and invalid-amount alerts shared text; added a distinct six-language amount hint.",
+  "earlySettlementVerification": "The first real annual verification preceded SDK refund balance reconciliation; did not mark it passed.",
+  "earlyLanguageScreenshots": "Rapid locale changes preceded catalog translation fetch completion; retained initial captures and verified settled language checks.",
+  "portalWaitCommand": "CLI URL wait echoed a temporary test portal URL; never copied to artifacts. Subsequent browser reports contain only safe page state.",
+  "foreignSecurityVerifierUuid": "Read-only helper initially omitted one UUID group; corrected and both real verifiers passed.",
+  "canceledReconciliationPendingGap": "Review found that a local refund not yet submitted to Stripe could prematurely end reconciliation; outstanding DB refunds and rearming are now covered by API tests."
+}

@@ -1,0 +1,31 @@
+{
+  "at": "2026-10-01T03:13:51.209Z",
+  "liveMode": false,
+  "orderId": "a13f28a4-e2f6-451c-b977-363b421a6fbe",
+  "ticketId": "dae935fc-7c7c-438c-bc1a-72650c94a5d0",
+  "refundId": "6788c960-69ac-4392-b028-e73319ce6202",
+  "service": {
+    "status": "closed",
+    "subtotal_cents": 3000,
+    "total_cents": 3000,
+    "gift_tender_cents": 3000,
+    "new_cash_cents": 0,
+    "redeemed_face_cents": 3000,
+    "redemption_rows": 1,
+    "commission_base_cents": 3000
+  },
+  "refundRequestedCents": 5600,
+  "refundStatus": "succeeded",
+  "refundRequestResult": "pending",
+  "replayedCommands": [
+    "catalog.saveService",
+    "ticket.open",
+    "ticket.startItem",
+    "ticket.finishItem",
+    "ticket.pay",
+    "commerce.requestRefund"
+  ],
+  "reconciled": true,
+  "originalPurchaseVerified": true,
+  "goalComplete": false
+}

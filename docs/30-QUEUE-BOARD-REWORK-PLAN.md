@@ -1,5 +1,8 @@
 # 运营看板（Queue）重构与缺陷修复计划
 
+> **2026-09-27 账号清理更新：** 当前环境账号和 seed 命令以[环境账号清单](qa/TEST_ACCOUNTS.md)为准。下文旧账号、演示店及旧密码仅适用于历史记录或隔离测试 fixture，不能作为现行 local/staging/prod 登录配置；原 `ops` 管理员保留。
+
+
 状态：规格已定稿，**P0 实现与验收进行中，尚未完成整份计划**。执行方：接手的 AI。最新交接状态见第 9 节。
 范围：`apps/web/src/pages/Queue.tsx` 及其 `features/queue/*`、`apps/api` 侧对应命令与查询。
 基线 commit：`a5c94f8`。工作区当前有 copilot 相关未提交改动，**与本任务无关，不要动、不要提交、不要 revert**。

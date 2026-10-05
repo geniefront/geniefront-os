@@ -1,0 +1,7 @@
+tickets_appointment_id_appointments_id_fk|FOREIGN KEY (appointment_id) REFERENCES appointments(id)
+tickets_customer_id_customers_id_fk|FOREIGN KEY (customer_id) REFERENCES customers(id)
+tickets_group_id_ticket_groups_id_fk|FOREIGN KEY (group_id) REFERENCES ticket_groups(id)
+tickets_location_id_locations_id_fk|FOREIGN KEY (location_id) REFERENCES locations(id)
+tickets_org_id_organizations_id_fk|FOREIGN KEY (org_id) REFERENCES organizations(id)
+tickets_refunded_by_fkey|FOREIGN KEY (refunded_by) REFERENCES memberships(id)
+PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit

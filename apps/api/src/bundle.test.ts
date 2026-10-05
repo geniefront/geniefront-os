@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { withTenant, closeDb } from '@gf/db';
 import { buildContext } from './actor';
-import { dispatch } from './bus';
+import { dispatchWithCommerceSale as dispatch } from './test/commerceSaleDispatch';
 import { quoteBundle } from './queries/bundle';
 import { scanLegacyPackageCandidates } from './queries/bundleMigration';
 import './handlers/setup';

@@ -1,0 +1,76 @@
+{
+  "at": "2026-10-01T08:28:19.719Z",
+  "browserPartialCancellationVerified": true,
+  "scenario": "customer",
+  "actualApi": true,
+  "appointmentId": "aa0dcf8b-c4a0-42ee-8c76-2f0b436ef846",
+  "holdId": "0367c4f1-830b-4e7a-923c-a8b806cbb09f",
+  "facts": {
+    "status": "booked",
+    "party_size": 1,
+    "deposit_status": "paid",
+    "amount_cents": 2000,
+    "service_total_cents": 17000,
+    "policy_snapshot": {
+      "method": "fixed",
+      "consent": {
+        "at": "2026-10-01 08:09:18.348379+00",
+        "locale": "en",
+        "method": "staff_confirmation",
+        "accepted": true
+      },
+      "version": "appointment-deposit-v2:8724b7d293eb44af3dbb7b0f821d7c3156771e1a3a089dc53b2055a285cf4d1c",
+      "percentBps": null,
+      "holdMinutes": 15,
+      "guestAllocation": {
+        "guests": [
+          {
+            "guestIndex": 0,
+            "amountCents": 1176,
+            "serviceTotalCents": 10000
+          },
+          {
+            "guestIndex": 1,
+            "amountCents": 824,
+            "serviceTotalCents": 7000
+          }
+        ],
+        "method": "service_price"
+      },
+      "fixedAmountCents": 2000,
+      "cancelCutoffHours": 4,
+      "retainAfterCutoff": false,
+      "cancellationPolicyNotice": "QA unused guest deposits are refundable before the original cancellation deadline."
+    },
+    "reserved_cents": 0,
+    "balance": 824,
+    "active_service_cents": 7000,
+    "cancellation_rows": 1,
+    "actor_source": "customer",
+    "customer_has_no_employee_actor": true,
+    "collection_rows": 1
+  },
+  "refunds": [
+    {
+      "status": "succeeded",
+      "amount_cents": 1176,
+      "deposit_guest_allocation": [
+        {
+          "guestIndex": 0,
+          "amountCents": 1176
+        }
+      ],
+      "external_reference": "Customer guest 1 QA cash return $11.76 browser receipt"
+    }
+  ],
+  "customerSummary": {
+    "activeServiceCents": 7000,
+    "originalServiceCents": 17000,
+    "availableDepositCents": 824,
+    "remainingServiceCents": 6176
+  },
+  "cashEvidence": "Staff-recorded QA collection and cash return",
+  "stripeVerified": false,
+  "serviceConsumedInThisBrowserStory": false,
+  "goalComplete": false
+}

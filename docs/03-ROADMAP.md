@@ -601,3 +601,6 @@ Dashboard 那五个算不出的指标 · 订单历史接口 · Stripe payout 对
 17. **审计留动作不留金额**：ticket / payment 的金额字段不写入 `audit_log` 的 before/after。
 18. **断网时页面不遮罩、不关闭**：切只读看板 + 顶部横幅 + 写操作置灰。**永不做离线写入队列。**
 19. **每期结束必须能被一家真店从早用到晚**，否则不算完成。
+# 2026-09-30 专项范围更新
+
+用户授权新增顾客在线收款、预约定金、礼品卡与次卡售卖，以及月／年自动续费的顾客会员。下文历史“纯记录制”决策保留为原阶段背景；本专项按 [customer commerce goal plan](plans/2026-09-30-customer-commerce-goal-plan.md) 实施，并由 [执行记录](plans/2026-09-30-customer-commerce-implementation-log.md) 标识真实进度。平台向店主收取的 SaaS／AI 费用仍独立处理，默认不发布生产。

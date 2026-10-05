@@ -1,0 +1,86 @@
+{
+  "at": "2026-10-03T01:38:16.967Z",
+  "sourceDatabase": "gf_commerce_ci",
+  "copyDatabase": "gf_commerce_adjustment_upgrade_ci",
+  "sourceNotReset": true,
+  "actualExecutorReplayPassed": true,
+  "before": {
+    "migrations": 186,
+    "tables": {
+      "commerce_payments": {
+        "count": 18,
+        "hash": "d1066234850cf1f2995ad8a42ef5048f"
+      },
+      "commerce_orders": {
+        "count": 18,
+        "hash": "5c416c5bd775cfdb7a7840f4829ec4fe"
+      },
+      "commerce_refunds": {
+        "count": 11,
+        "hash": "e819654e608b5efee0f548d3b14d31a5"
+      },
+      "commerce_deposit_ledger": {
+        "count": 16,
+        "hash": "8d9f31e8f9210e38329817d44b8216e7"
+      },
+      "commerce_appointment_holds": {
+        "count": 9,
+        "hash": "7fd1f04eeace27d5362bf01a271c57e9"
+      },
+      "payments": {
+        "count": 112,
+        "hash": "a1e7d88eaf37da99a1621dca2f8c132b"
+      },
+      "ticket_refunds": {
+        "count": 16,
+        "hash": "0eeaeb12a39d46f8bc6b187962903ef3"
+      }
+    }
+  },
+  "after": {
+    "migrations": 187,
+    "tables": {
+      "commerce_payments": {
+        "count": 18,
+        "hash": "d1066234850cf1f2995ad8a42ef5048f"
+      },
+      "commerce_orders": {
+        "count": 18,
+        "hash": "5c416c5bd775cfdb7a7840f4829ec4fe"
+      },
+      "commerce_refunds": {
+        "count": 11,
+        "hash": "e819654e608b5efee0f548d3b14d31a5"
+      },
+      "commerce_deposit_ledger": {
+        "count": 16,
+        "hash": "8d9f31e8f9210e38329817d44b8216e7"
+      },
+      "commerce_appointment_holds": {
+        "count": 9,
+        "hash": "7fd1f04eeace27d5362bf01a271c57e9"
+      },
+      "payments": {
+        "count": 112,
+        "hash": "a1e7d88eaf37da99a1621dca2f8c132b"
+      },
+      "ticket_refunds": {
+        "count": 16,
+        "hash": "0eeaeb12a39d46f8bc6b187962903ef3"
+      }
+    }
+  },
+  "projection": {
+    "initial_orders": 7,
+    "requests": 7,
+    "requests_match_original_contract": true,
+    "fabricated_requotes": 0,
+    "service_sources_match_original_payment": true,
+    "protected_new_tables": 2,
+    "quotes_append_only": true,
+    "requests_private": true
+  },
+  "actualNativePaymentsPreserved": 18,
+  "migrationPromotedToPreservedDatabase": false,
+  "productionPublished": false
+}

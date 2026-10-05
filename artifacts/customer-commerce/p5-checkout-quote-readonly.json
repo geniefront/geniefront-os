@@ -1,0 +1,59 @@
+{
+  "at": "2026-10-02T13:05:59.127Z",
+  "scenario": "quote",
+  "ticketId": "1b3576c5-0f6e-455b-b81d-a7523212ba1a",
+  "actualOriginalSandboxPurchaseReused": true,
+  "financialFactsUnchanged": true,
+  "newStripePayment": false,
+  "before": [
+    {
+      "remaining_sessions": 1,
+      "available_units": "{[0,1)}",
+      "ledger": 6,
+      "payments": 0,
+      "adjustments": 0
+    }
+  ],
+  "after": [
+    {
+      "remaining_sessions": 1,
+      "available_units": "{[0,1)}",
+      "ledger": 6,
+      "payments": 0,
+      "adjustments": 0
+    }
+  ],
+  "quote": {
+    "version": 1,
+    "ticketId": "1b3576c5-0f6e-455b-b81d-a7523212ba1a",
+    "paymentStage": "combined",
+    "subtotalCents": 30000,
+    "discountCents": 0,
+    "packageCoveredCents": 10000,
+    "membershipCoveredCents": 0,
+    "taxCents": 0,
+    "taxCalculationMode": "exclusive",
+    "taxRatePercent": 0,
+    "surchargeCents": 0,
+    "tipCents": 1000,
+    "depositCents": 0,
+    "amountDueCents": 21000,
+    "totalCents": 31000,
+    "items": [
+      {
+        "ticketItemId": "cfe647c5-e731-4e77-911b-b9d2aef7ed36",
+        "totalCents": 10000,
+        "discountCents": 0,
+        "coverage": "package"
+      },
+      {
+        "ticketItemId": "786bb509-b387-4364-a5ba-3b8323d8f0e9",
+        "totalCents": 20000,
+        "discountCents": 0,
+        "coverage": "money"
+      }
+    ],
+    "quoteHash": "130a2e1ec718a58148acdd69e3f35eeaf8e1798e96b9258c11e306764b94ec54"
+  },
+  "productionChanged": false
+}

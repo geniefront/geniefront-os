@@ -1,0 +1,21 @@
+{
+  "at": "2026-10-02T16:51:30.236776+00:00",
+  "loss": {
+    "injected": true,
+    "originalStatus": 200
+  },
+  "recovery": {
+    "requests": 6,
+    "posts": 0,
+    "sameProtectedToken": true,
+    "status": 200,
+    "invoiceCount": 3,
+    "contractsPresent": true
+  },
+  "width": 390,
+  "height": 844,
+  "overflow": false,
+  "queryErrorStillVisible": false,
+  "errors": [],
+  "productionPublished": false
+}

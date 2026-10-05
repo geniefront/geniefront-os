@@ -1,0 +1,13 @@
+$ vitest run --passWithNoTests src/features/customers/mergeRetry.test.tsx src/features/checkout/paymentRetry.test.tsx src/features/checkout/GroupCheckout.test.tsx
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/features/customers/mergeRetry.test.tsx (3 tests) 15ms
+ ✓ src/features/checkout/paymentRetry.test.tsx (5 tests) 23ms
+ ✓ src/features/checkout/GroupCheckout.test.tsx (4 tests) 300ms
+
+ Test Files  3 passed (3)
+      Tests  12 passed (12)
+   Start at  11:59:55
+   Duration  1.92s (transform 437ms, setup 1.20s, collect 1.14s, tests 339ms, environment 1.26s, prepare 101ms)
+

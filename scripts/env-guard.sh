@@ -140,7 +140,8 @@ case "$TARGET" in
     done
     delivery=$(get COMMUNICATION_DELIVERY_MODE)
     [[ "$delivery" != "capture" ]] || bad "production 的 COMMUNICATION_DELIVERY_MODE 不能是 capture"
-    [[ "$supabase_url" == https://*.supabase.co ]] || bad "production 必须使用托管 Supabase"
+    [[ "$supabase_url" == https://*.supabase.co || "$supabase_url" == https://supabase.geniefront.com ]] \
+      || bad "production 必须使用托管 Supabase 或 https://supabase.geniefront.com"
     [[ "$stripe_secret" == sk_live_* && "$stripe_public" == pk_live_* ]] \
       || bad "production 必须使用 Stripe live keys"
     [[ "$app_url" == https://api.geniefront.com ]] || bad "production APP_URL 必须是 https://api.geniefront.com"

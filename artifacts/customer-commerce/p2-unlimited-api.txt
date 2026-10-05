@@ -1,0 +1,25 @@
+$ vitest run src/commerce.test.ts src/billing.test.ts src/money.test.ts src/workstations_backend.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+{"level":30,"time":1790982886717,"pid":67054,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","req":{"id":"req-1","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","stripe-signature":"t=1790982886,v1=22b1d81c3562fed509e4ad07ce42d9386ed65331569c20b7a3b06994d42ce586","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790982886719,"pid":67054,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","res":{"statusCode":200},"responseTime":0.7793339999998352,"msg":"request completed"}
+{"level":30,"time":1790982886719,"pid":67054,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","req":{"id":"req-2","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790982886719,"pid":67054,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790982886719,"pid":67054,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","res":{"statusCode":401},"responseTime":0.29716700000017227,"msg":"request completed"}
+{"level":30,"time":1790982886719,"pid":67054,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","req":{"id":"req-3","method":"POST","url":"/v1/commerce/accounts/refresh","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"57"}},"msg":"incoming request"}
+{"level":30,"time":1790982886720,"pid":67054,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790982886720,"pid":67054,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","res":{"statusCode":401},"responseTime":0.1309160000000702,"msg":"request completed"}
+ ✓ src/commerce.test.ts (54 tests) 6991ms
+   ✓ accepts signed thin events through the complete server auth stack and keeps account administration protected 482ms
+   ✓ reconciles prepaid cash sales and original purchase refunds without counting service use as new cash 326ms
+   ✓ handles an unlimited entitlement across its actual expiry boundary and caps repeated manual refunds without reviving access 2148ms
+ ✓ src/billing.test.ts (46 tests) 765ms
+ ✓ src/money.test.ts (22 tests) 1867ms
+ ✓ src/workstations_backend.test.ts (15 tests) 227ms
+
+ Test Files  4 passed (4)
+      Tests  137 passed (137)
+   Start at  19:14:43
+   Duration  16.50s (transform 1.02s, setup 5.11s, collect 1.40s, tests 9.85s, environment 0ms, prepare 37ms)
+

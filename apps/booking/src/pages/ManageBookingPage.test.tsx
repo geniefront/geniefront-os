@@ -9,6 +9,7 @@ import { ManageBookingPage } from './ManageBookingPage';
 const getHostedShop = vi.fn();
 const loadManagedBooking = vi.fn();
 const cancelManagedBooking = vi.fn();
+const cancelManagedGuests = vi.fn();
 const rescheduleManagedBooking = vi.fn();
 const getManagedAvailability = vi.fn();
 
@@ -19,6 +20,7 @@ vi.mock('../lib/api', async () => {
     getHostedShop: (...args: unknown[]) => getHostedShop(...args),
     loadManagedBooking: (...args: unknown[]) => loadManagedBooking(...args),
     cancelManagedBooking: (...args: unknown[]) => cancelManagedBooking(...args),
+    cancelManagedGuests: (...args: unknown[]) => cancelManagedGuests(...args),
     rescheduleManagedBooking: (...args: unknown[]) => rescheduleManagedBooking(...args),
     getManagedAvailability: (...args: unknown[]) => getManagedAvailability(...args),
   };
@@ -94,6 +96,7 @@ beforeEach(() => {
   getHostedShop.mockReset().mockResolvedValue(shop);
   loadManagedBooking.mockReset().mockResolvedValue(boot());
   cancelManagedBooking.mockReset();
+  cancelManagedGuests.mockReset();
   rescheduleManagedBooking.mockReset();
   getManagedAvailability.mockReset().mockResolvedValue({
     date: '2026-09-20', timezone: 'America/New_York', durationMin: 45,
@@ -240,4 +243,73 @@ describe('ManageBookingPage', () => {
     expect(screen.getByText('+1 212 555 0100')).toBeInTheDocument();
     expect(screen.queryByText('mt_secret')).not.toBeInTheDocument();
   });
+  it.each([new ApiError('NETWORK',0),new ApiError('UPSTREAM_UNAVAILABLE',503)])('offers a protected retry after temporary loading failure %s',async(error)=>{
+    const user=userEvent.setup();loadManagedBooking.mockRejectedValueOnce(error).mockResolvedValue(boot());
+    renderManage();await screen.findByText('Your appointment could not be loaded');
+    expect(screen.queryByText(/This appointment link is not available/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Cancel'})).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button',{name:'Try again'}));await screen.findByText('Gel Manicure');
+    expect(loadManagedBooking).toHaveBeenLastCalledWith('lotus-nails','mt_secret','en');
+    expect(screen.queryByText('mt_secret')).not.toBeInTheDocument();
+  });
+});
+
+const guestBooking=()=>boot({guestCancellation:{enabled:true,reason:null,currency:'USD'},guests:[
+  {guestIndex:0,status:'active',serviceTotalCents:10000,refundableDepositCents:1176},
+  {guestIndex:1,status:'active',serviceTotalCents:7000,refundableDepositCents:824},
+],items:[
+  {serviceId:'a',guestIndex:0,name:'Guest A service',addonIds:[],addonNames:[],startsAt:slot,endsAt:slot,durationMin:30,priceCents:10000,specialistName:null},
+  {serviceId:'b',guestIndex:1,name:'Guest B service',addonIds:[],addonNames:[],startsAt:slot,endsAt:slot,durationMin:30,priceCents:7000,specialistName:null},
+]});
+it('submits only the selected guest and exact refund quote, retaining its request ID after an interrupted response',async()=>{
+  loadManagedBooking.mockResolvedValue(guestBooking());
+  cancelManagedGuests.mockRejectedValueOnce(new ApiError('NETWORK',0)).mockResolvedValue({status:'booked',remainingGuests:1});
+  const user=userEvent.setup();renderManage();await screen.findByText(/Guest A service/);
+  await user.type(screen.getByTestId('last4'),'1234');await user.click(screen.getByRole('button',{name:'Continue to edit'}));
+  await user.click(screen.getByRole('button',{name:'Cancel selected guests'}));
+  await user.click(screen.getByRole('checkbox',{name:/Guest 1/}));
+  await user.type(screen.getByRole('textbox',{name:'Reason for cancellation'}),'One guest cannot attend');
+  expect(screen.getByText('Deposit reserved for refund: $11.76')).toBeInTheDocument();
+  await user.click(screen.getByRole('button',{name:'Cancel selected guests'}));
+  await screen.findByRole('alert');await user.click(screen.getByRole('button',{name:'Retry saved request'}));
+  await waitFor(()=>expect(cancelManagedGuests).toHaveBeenCalledTimes(2));
+  expect(cancelManagedGuests.mock.calls[0]).toEqual(cancelManagedGuests.mock.calls[1]);
+  expect(cancelManagedGuests.mock.calls[0]).toEqual(['b1',expect.objectContaining({guestIndices:[0],reason:'One guest cannot attend',
+    expectedRefundCents:1176,last4:'1234',manageToken:'mt_secret',requestId:expect.any(String)}),'pk_test']);
+  expect(cancelManagedBooking).not.toHaveBeenCalled();
+});
+it('requires all participants of a shared service before customer cancellation',async()=>{
+  const b=guestBooking();b.booking.items=[{...b.booking.items[0]!,guestIndices:[0,1],priceCents:17000}];
+  loadManagedBooking.mockResolvedValue(b);const user=userEvent.setup();renderManage();await screen.findByText(/Guest A service/);
+  await user.type(screen.getByTestId('last4'),'1234');await user.click(screen.getByRole('button',{name:'Continue to edit'}));
+  await user.click(screen.getByRole('button',{name:'Cancel selected guests'}));
+  await user.click(screen.getByRole('checkbox',{name:/Guest 1/}));await user.type(screen.getByRole('textbox',{name:'Reason for cancellation'}),'Shared booking cancelled');
+  expect(screen.getByRole('button',{name:'Cancel selected guests'})).toBeDisabled();
+  expect(screen.getByText('A shared service requires all its participating guests to be selected together.')).toBeInTheDocument();
+  await user.click(screen.getByRole('checkbox',{name:/Guest 2/}));expect(screen.getByRole('button',{name:'Cancel selected guests'})).toBeEnabled();
+  expect(cancelManagedGuests).not.toHaveBeenCalled();
+});
+
+
+it('requires the reduced pending quote to be accepted, then keeps the original cancellation across a lost success and reload',async()=>{
+ const initial=guestBooking();initial.booking.bookingId='70000000-0000-4000-8000-000000000001';initial.booking.priceCents=17000;
+ initial.booking.guests=initial.booking.guests!.map(g=>({...g,refundableDepositCents:0}));
+ initial.booking.deposit={status:'pending',amountCents:3400,availableCents:0,currency:'USD',expiresAt:'2030-01-01T12:00:00Z',checkoutUrl:null,policy:{cancelCutoffHours:4,notice:'',retainAfterCutoff:false}};
+ const quote={quoteHash:'b'.repeat(64),currency:'USD',serviceTotalCents:7000,requiredCents:1400,availableCents:0,requestCents:1400,excessCents:0,
+  previousServiceTotalCents:17000,hasConfirmedBooking:false,expiresAt:initial.booking.deposit.expiresAt,purpose:'replacement'};
+ loadManagedBooking.mockResolvedValue(initial);cancelManagedGuests.mockRejectedValueOnce(new ApiError('VALIDATION_FAILED',400,{reason:'deposit_quote_reconfirmation_required',notApplied:true,depositQuote:quote}))
+  .mockRejectedValueOnce(new ApiError('NETWORK',0)).mockResolvedValue({status:'booked',remainingGuests:1,replayed:true});
+ const user=userEvent.setup(),view=renderManage();await screen.findByText(/Guest A service/);
+ await user.type(screen.getByTestId('last4'),'1234');await user.click(screen.getByRole('button',{name:'Continue to edit'}));await user.click(screen.getByRole('button',{name:'Cancel selected guests'}));
+ await user.click(screen.getByRole('checkbox',{name:/Guest 1/}));await user.type(screen.getByRole('textbox',{name:'Reason for cancellation'}),'One unpaid guest cancels');
+ await user.click(screen.getByRole('button',{name:'Cancel selected guests'}));await screen.findByRole('heading',{name:'Review updated deposit'});
+ expect(screen.getByRole('button',{name:'Cancel selected guests'})).toBeDisabled();
+ await user.click(screen.getByRole('checkbox',{name:/I agree to the updated service price/}));await user.click(screen.getByRole('button',{name:'Cancel selected guests'}));
+ await screen.findByRole('button',{name:'Retry saved request'});await screen.findByRole('alert');const approved=cancelManagedGuests.mock.calls[1]![1];
+ view.unmount();const updated={...initial,booking:{...initial.booking,priceCents:7000,guests:initial.booking.guests!.map(g=>g.guestIndex===0?{...g,status:'cancelled' as const}:g)}};
+ loadManagedBooking.mockResolvedValue(updated);renderManage();await screen.findByText(/Guest A service/);
+ await user.type(screen.getByTestId('last4'),'1234');await user.click(screen.getByRole('button',{name:'Continue to edit'}));await user.click(screen.getByRole('button',{name:'Cancel selected guests'}));
+ await screen.findByRole('button',{name:'Retry saved request'});expect(screen.getByRole('textbox',{name:'Reason for cancellation'})).toBeDisabled();
+ await user.click(screen.getByRole('button',{name:'Retry saved request'}));await waitFor(()=>expect(cancelManagedGuests).toHaveBeenCalledTimes(3));
+ expect(cancelManagedGuests.mock.calls[2]![1]).toEqual(approved);expect(approved.depositAdjustment).toEqual({accepted:true,quoteHash:quote.quoteHash});
 });

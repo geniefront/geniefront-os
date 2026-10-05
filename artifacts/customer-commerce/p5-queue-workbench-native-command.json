@@ -1,0 +1,9 @@
+{
+  "amountCents": 21000,
+  "expectedQuoteHash": "e88259fdaea004ca094901e1e8a5b78b15ee7a690c1f4559ba359892aa206bfb",
+  "httpStatus": 201,
+  "inlineDialogAtSubmit": true,
+  "pathAtSubmit": "/queue",
+  "ticketId": "f679aa63-a950-4cb3-b850-6ed29a6ece54",
+  "tipCents": 1000
+}

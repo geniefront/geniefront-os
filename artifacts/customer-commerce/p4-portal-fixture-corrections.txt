@@ -1,0 +1,12 @@
+$ vitest run src/customerMemberships.test.ts src/appointmentDeposits.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ✓ src/appointmentDeposits.test.ts (29 tests) 1706ms
+ ✓ src/customerMemberships.test.ts (14 tests) 946ms
+
+ Test Files  2 passed (2)
+      Tests  43 passed (43)
+   Start at  18:17:07
+   Duration  6.39s (transform 467ms, setup 2.68s, collect 941ms, tests 2.65s, environment 0ms, prepare 29ms)
+

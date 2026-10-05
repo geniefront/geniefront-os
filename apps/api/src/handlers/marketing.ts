@@ -5,12 +5,14 @@ import { canonicalCustomer, customerAssetIds } from '../customerIdentity';
 
 import {
   packageSaveTemplate, packageIssue, packageRedeem,
-  marketingIssuePackage, marketingRedeemPackage,
+  marketingIssuePackage, marketingRedeemPackage,packageRestore,
   couponSaveTemplate, marketingSaveCouponTemplate,
   couponVoid, marketingVoidCoupon,
   loyaltySaveRules, loyaltyAdjustPoints, marketingAdjustLoyaltyPoints,
   AppError, ERROR_CODES, asInt } from '@gf/contracts';
 import { jsonb } from '@gf/db';
+import {formatPackageUnitRanges,parsePackageUnitRanges,restorePackageUnits,packageRangeCount} from '@gf/payroll';
+import {allocatePackageUse,availablePackageUnits} from './packageUnits';
 import { registerHandler } from '../bus';
 
 // ─────────────────────────────────────────────────────────── 套餐次卡 (Packages)
@@ -20,6 +22,9 @@ registerHandler(packageSaveTemplate, async ({ input, ctx, tx, audit }) => {
     ? { en: input.name, 'zh-Hans': input.name }
     : input.name;
   const serviceIds = [...new Set(input.serviceIds)];
+  if(input.sessions===0&&(!input.validDays||serviceIds.length===0)) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'unlimited_requires_term_and_services'}});
+  }
 
   if (serviceIds.length > 0) {
     const validServices = await tx<{ id: string }[]>`
@@ -35,7 +40,7 @@ registerHandler(packageSaveTemplate, async ({ input, ctx, tx, audit }) => {
   if (input.templateId) {
     const [tpl] = await tx<{ id: string }[]>`
       select id from package_templates
-      where id = ${input.templateId} and org_id = ${ctx.orgId}`;
+      where id = ${input.templateId} and org_id = ${ctx.orgId} and location_id=${ctx.locationId}`;
     if (!tpl) {
       throw new AppError(ERROR_CODES.NOT_FOUND, {
         details: { entity: 'package_template', id: input.templateId },
@@ -55,6 +60,7 @@ registerHandler(packageSaveTemplate, async ({ input, ctx, tx, audit }) => {
         valid_days = ${input.validDays ?? null},
         scope = ${input.scope},
         online_sale = ${input.onlineSale},
+        coverage_mode=${input.coverageMode??null},commission_basis=${input.commissionBasis??null},
         active = ${input.active},
         sort = ${input.sort},
         updated_at = now()
@@ -77,11 +83,11 @@ registerHandler(packageSaveTemplate, async ({ input, ctx, tx, audit }) => {
   const [created] = await tx<{ id: string }[]>`
     insert into package_templates (
       org_id, location_id, name, price_cents, sessions, service_ids,
-      valid_days, scope, online_sale, active, sort
+      valid_days, scope, online_sale, active, sort,coverage_mode,commission_basis
     ) values (
       ${ctx.orgId}, ${ctx.locationId}, ${jsonb(nameJson)}::jsonb, ${input.priceCents},
       ${input.sessions}, ${serviceIds}::uuid[], ${input.validDays ?? null},
-      ${input.scope}, ${input.onlineSale}, ${input.active}, ${input.sort}
+      ${input.scope}, ${input.onlineSale}, ${input.active}, ${input.sort},${input.coverageMode??null},${input.commissionBasis??null}
     )
     returning id`;
 
@@ -157,67 +163,52 @@ const resolvePackageCustomer = async (
   return row!.id;
 };
 
-const handlePackageIssue = async ({ input, ctx, tx, audit }: any) => {
-  const [tpl] = await tx<{ id: string; name: unknown; price_cents: number; sessions: number; valid_days: number | null }[]>`
-    select id, name, price_cents, sessions, valid_days from package_templates
-    where id = ${input.templateId} and org_id = ${ctx.orgId} and active = true`;
-  if (!tpl) {
-    throw new AppError(ERROR_CODES.NOT_FOUND, {
-      details: { entity: 'package_template', id: input.templateId },
-    });
-  }
-
-  const customerId = input.customerId
-    ? await assertCustomer(tx, ctx, input.customerId)
-    : await resolvePackageCustomer(tx, ctx, input.customer);
-
-  const totalSessions = input.customSessions ?? tpl.sessions;
-  const validDays = input.validDays ?? tpl.valid_days;
-  const expiresAt = validDays ? new Date(Date.now() + validDays * 86400 * 1000).toISOString() : null;
-  const priceCents = input.soldPriceCentsOverride ?? input.priceCentsSnapshot ?? tpl.price_cents;
-
-  const [pkg] = await tx<{ id: string }[]>`
-    insert into customer_packages (
-      org_id, location_id, template_id, customer_id, remaining_sessions,
-      total_sessions, status, expires_at, sold_ticket_id
-    ) values (
-      ${ctx.orgId}, ${ctx.locationId}, ${tpl.id}, ${customerId},
-      ${totalSessions}, ${totalSessions}, 'active', ${expiresAt}, ${input.ticketId ?? null}
-    )
-    returning id`;
-
-  // 记入客人资产账本（kind = package）
-  await tx`
-    insert into customer_credit_ledger (
-      org_id, location_id, kind, subject_id, customer_id, entry,
-      amount_cents, balance_after_cents, ticket_id, actor_membership_id
-    ) values (
-      ${ctx.orgId}, ${ctx.locationId}, 'package', ${pkg!.id}, ${customerId},
-      'issue', ${priceCents}, ${priceCents}, ${input.ticketId ?? null}, ${ctx.membershipId}
-    )`;
-
-  audit({
-    entityType: 'customer_package',
-    entityId: pkg!.id,
-    before: {},
-    after: {
-      templateId: tpl.id,
-      customerId,
-      totalSessions,
-      priceCents,
-    },
-  });
-
-  return {
-    packageId: pkg!.id,
-    customerId,
-    totalSessions,
-    remainingSessions: totalSessions,
-  };
+const handlePackageIssue = async (args: any) => {
+  const {input,ctx,tx}=args;
+  if(input.ticketId)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'use_commerce_purchase'}});
+  const [existing]=await tx<{customer_id:string}[]>`select customer_id from commerce_orders where location_id=${ctx.locationId} and idem_key=${input.businessKey}`;
+  const customerId=existing?.customer_id??(input.customerId?await assertCustomer(tx,ctx,input.customerId):await resolvePackageCustomer(tx,ctx,input.customer));
+  const hasOverrides=input.soldPriceCentsOverride!==undefined||input.priceCentsSnapshot!==undefined||input.customSessions!==undefined||input.validDays!==undefined;
+  const {commercePurchaseInput}=await import('@gf/contracts');
+  const {createOrderInTransaction}=await import('./commerce');
+  const order=await createOrderInTransaction({...args,input:commercePurchaseInput.parse({...input,kind:'package',customerId,customer:undefined,
+    ...(hasOverrides?{packageOverrides:{priceCents:input.soldPriceCentsOverride??input.priceCentsSnapshot,sessions:input.customSessions,validDays:input.validDays}}:{})})},input);
+  const [pkg]=await tx<{id:string;total_sessions:number;remaining_sessions:number}[]>`
+    select id,total_sessions,remaining_sessions from customer_packages where id=${order.assetId}`;
+  if(!pkg)throw new AppError(ERROR_CODES.INTERNAL);
+  return {packageId:pkg.id,customerId,totalSessions:pkg.total_sessions,remainingSessions:pkg.remaining_sessions};
 };
 
 registerHandler(packageIssue, handlePackageIssue);
 registerHandler(marketingIssuePackage, handlePackageIssue);
+registerHandler(packageRestore,async({input,ctx,tx,audit})=>{
+  const [original]=await tx<{id:string;package_id:string;quantity:number;value_cents:number;unit_ranges:string|null;ticket_id:string|null}[]>`
+    select * from customer_package_ledger where id=${input.redemptionId} and entry='redeem'`;
+  if(!original)throw new AppError(ERROR_CODES.NOT_FOUND,{details:{entity:'package_redemption'}});
+  const [pkg]=await tx<{id:string;total_sessions:number;remaining_sessions:number;reserved_sessions:number;available_units:string;
+    status:string;expires_at:string|null;refund_frozen:boolean;commerce_frozen:boolean;purchase_snapshot:{unitAllocationVersion?:number}|null;customer_id:string}[]>`
+    select * from customer_packages where id=${original.package_id} for update`;
+  if(!pkg)throw new AppError(ERROR_CODES.NOT_FOUND);
+  const [restored]=await tx<{id:string}[]>`select id from customer_package_ledger where package_id=${pkg.id} and reference=${`restore:${original.id}`}`;
+  if(restored){audit({entityType:'customer_package',entityId:pkg.id,after:{restorationReplayed:true}});return {packageId:pkg.id,restoredSessions:-original.quantity,remainingSessions:pkg.remaining_sessions};}
+  if(pkg.status==='void'||pkg.status==='expired'||pkg.refund_frozen||pkg.commerce_frozen||(pkg.expires_at&&new Date(pkg.expires_at)<new Date()))
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'package_unavailable'}});
+  if(original.ticket_id){const [ticket]=await tx<{status:string;service_settled_at:string|null}[]>`select status,service_settled_at from tickets where id=${original.ticket_id}`;
+    if(!ticket||ticket.service_settled_at||['closed','refunded'].includes(ticket.status))throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'use_ticket_refund_for_service'}});}
+  if(original.unit_ranges===null)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'historical_redemption_requires_review'}});
+  const units=-original.quantity,returned=parsePackageUnitRanges(original.unit_ranges,pkg.total_sessions);
+  if(units<=0||(pkg.total_sessions>0&&packageRangeCount(returned)!==units))throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'package_redemption_inconsistent'}});
+  const available=pkg.total_sessions>0?restorePackageUnits(availablePackageUnits(pkg),returned):[];
+  const next=pkg.total_sessions>0?pkg.remaining_sessions+units:pkg.remaining_sessions;
+  if(pkg.total_sessions>0&&next>pkg.total_sessions)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'package_restore_exceeds_purchase'}});
+  await tx`insert into customer_package_ledger(org_id,location_id,package_id,entry,quantity,value_cents,ticket_id,reference,reversal_of_id,unit_ranges)
+    values(${ctx.orgId},${ctx.locationId},${pkg.id},'restore',${units},${-original.value_cents},${original.ticket_id},${`restore:${original.id}`},${original.id},${original.unit_ranges}::int4multirange)`;
+  await tx`insert into customer_credit_ledger(org_id,location_id,kind,subject_id,customer_id,entry,amount_cents,balance_after_cents,ticket_id,reason,actor_membership_id,meta)
+    values(${ctx.orgId},${ctx.locationId},'package',${pkg.id},${pkg.customer_id},'refund',${units},${next},${original.ticket_id},${input.reason},${ctx.membershipId},${jsonb({redemptionId:original.id,unit:'sessions'})}::jsonb)`;
+  await tx`update customer_packages set remaining_sessions=${next},available_units=${formatPackageUnitRanges(available)}::int4multirange,status='active',updated_at=now() where id=${pkg.id}`;
+  audit({entityType:'customer_package',entityId:pkg.id,after:{restoredSessions:units,redemptionId:original.id,reason:input.reason}});
+  return {packageId:pkg.id,restoredSessions:units,remainingSessions:next};
+});
 
 const handlePackageRedeem = async ({ input, ctx, tx, audit }: any) => {
   const targetPkgId = input.customerPackageId || input.packageId;
@@ -225,10 +216,15 @@ const handlePackageRedeem = async ({ input, ctx, tx, audit }: any) => {
 
   const [pkg] = await tx<{
     id: string; customer_id: string; remaining_sessions: number;
-    total_sessions: number; status: string; expires_at: string | null; service_ids: string[];
+    total_sessions: number; status: string; expires_at: string | null; service_ids: string[];reserved_sessions:number;refund_frozen:boolean;commerce_frozen:boolean;
+    location_id:string;scope:string;sold_price_cents:number;available_units:string;purchase_snapshot:{unitAllocationVersion?:number}|null;
   }[]>`
     select cp.id, cp.customer_id, cp.remaining_sessions, cp.total_sessions, cp.status,
-           cp.expires_at::text, coalesce(pt.service_ids, '{}')::text[] as service_ids
+           cp.expires_at::text,
+           case when cp.purchase_snapshot is not null then array(select jsonb_array_elements_text(cp.purchase_snapshot->'serviceIds'))
+                else coalesce(pt.service_ids,'{}')::text[] end as service_ids,
+           cp.reserved_sessions,cp.refund_frozen,cp.commerce_frozen,cp.available_units,cp.purchase_snapshot,cp.location_id,coalesce(cp.purchase_snapshot->>'scope',pt.scope,'location') as scope,
+           coalesce((cp.purchase_snapshot->>'amountCents')::int,0) as sold_price_cents
     from customer_packages cp
     left join package_templates pt on pt.id = cp.template_id
     where cp.id = ${targetPkgId} and cp.org_id = ${ctx.orgId} for update of cp`;
@@ -243,6 +239,7 @@ const handlePackageRedeem = async ({ input, ctx, tx, audit }: any) => {
       details: { reason: 'package_not_active', status: pkg.status },
     });
   }
+  if((pkg.scope!=='org'&&pkg.location_id!==ctx.locationId)||pkg.refund_frozen||pkg.commerce_frozen)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'package_unavailable'}});
 
   if (pkg.expires_at && new Date(pkg.expires_at) < new Date()) {
     await tx`update customer_packages set status = 'expired' where id = ${pkg.id}`;
@@ -251,7 +248,7 @@ const handlePackageRedeem = async ({ input, ctx, tx, audit }: any) => {
     });
   }
 
-  if (input.customerId && input.customerId !== pkg.customer_id) {
+  if (input.customerId && await canonicalCustomer(tx,input.customerId) !== await canonicalCustomer(tx,pkg.customer_id)) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
       details: { reason: 'package_customer_mismatch' },
     });
@@ -262,7 +259,7 @@ const handlePackageRedeem = async ({ input, ctx, tx, audit }: any) => {
       select customer_id from tickets
       where id = ${input.ticketId} and location_id = ${ctx.locationId}`;
     if (!ticket) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
-    if (ticket.customer_id !== pkg.customer_id) {
+    if (!ticket.customer_id || await canonicalCustomer(tx,ticket.customer_id) !== await canonicalCustomer(tx,pkg.customer_id)) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: 'package_ticket_customer_mismatch' },
       });
@@ -281,7 +278,7 @@ const handlePackageRedeem = async ({ input, ctx, tx, audit }: any) => {
     if (pkg.service_ids.length > 0) {
       const itemCounts = await tx<{ service_id: string; count: number }[]>`
         select service_id, count(*)::int as count from ticket_items
-        where ticket_id = ${input.ticketId} and service_id = any(${pkg.service_ids})
+        where ticket_id = ${input.ticketId} and service_id = any(${pkg.service_ids}) and bundle_instance_id is null
         group by service_id`;
       const countByService = new Map(itemCounts.map(
         (row: { service_id: string; count: number }) => [row.service_id, row.count],
@@ -300,7 +297,7 @@ const handlePackageRedeem = async ({ input, ctx, tx, audit }: any) => {
   // 0 代表无限次套餐
   let nextRemaining = pkg.remaining_sessions;
   if (pkg.total_sessions > 0) {
-    if (pkg.remaining_sessions < redeemUnits) {
+    if (pkg.remaining_sessions-pkg.reserved_sessions < redeemUnits) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: {
           reason: 'insufficient_sessions',
@@ -313,15 +310,18 @@ const handlePackageRedeem = async ({ input, ctx, tx, audit }: any) => {
   }
 
   const nextStatus = (pkg.total_sessions > 0 && nextRemaining <= 0) ? 'depleted' : 'active';
+  const allocation=allocatePackageUse(pkg,pkg.sold_price_cents,redeemUnits);
 
   await tx`
     update customer_packages set
       remaining_sessions = ${nextRemaining},
-      status = ${nextStatus},
+      status = ${nextStatus},available_units=${formatPackageUnitRanges(allocation.remaining)}::int4multirange,
       updated_at = now()
     where id = ${pkg.id}`;
 
   const customerId = input.customerId || pkg.customer_id;
+  await tx`insert into customer_package_ledger(org_id,location_id,package_id,entry,quantity,value_cents,ticket_id,reference,unit_ranges)
+    values(${ctx.orgId},${ctx.locationId},${pkg.id},'redeem',${-redeemUnits},${-allocation.valueCents},${input.ticketId??null},${input.ticketId?`ticket:${input.ticketId}`:crypto.randomUUID()},${formatPackageUnitRanges(allocation.taken)}::int4multirange)`;
 
   // 账本记核销
   await tx`

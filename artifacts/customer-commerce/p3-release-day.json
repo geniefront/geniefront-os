@@ -1,0 +1,23 @@
+{
+  "at": "2026-10-02T16:27:30.607Z",
+  "readonly": true,
+  "independentTimezoneCutoffSqlMatches": true,
+  "days": [
+    {
+      "day": "2026-10-01",
+      "retainedNetCents": 800,
+      "prepaidOnlineRefundedCents": 101100
+    },
+    {
+      "day": "2026-10-02",
+      "retainedNetCents": -800,
+      "prepaidOnlineRefundedCents": 800
+    }
+  ],
+  "notice": {
+    "status": "captured",
+    "kind": "platform_notice"
+  },
+  "originalDecisionUnchanged": true,
+  "newStripePayment": false
+}

@@ -73,6 +73,8 @@ export interface CustomerDetail {
   source: string | null;
   /** 已合并的旧档案会指向合并后的目标 id。 */
   mergedIntoId: string | null;
+  canonicalCustomerId?:string;
+  identityAliases?:Array<{id:string;displayName:string}>;
 
   preferences: {
     preferredStaffIds: string[];

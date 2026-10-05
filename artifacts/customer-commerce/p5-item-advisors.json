@@ -1,0 +1,632 @@
+{
+  "at": "2026-10-02T12:47:31.262861+00:00",
+  "database": "gf_commerce_stage_ci",
+  "cliExitCode": 0,
+  "errorCount": 0,
+  "warningCount": 33,
+  "newItemGraphFindings": [],
+  "scope": "Existing warnings retained; zero findings on the six new tables and their guards. Initial SSL-only connection failed; explicit local sslmode=disable succeeded.",
+  "findings": [
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `commerce_internal.membership_range_value` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "membership_range_value",
+        "type": "function",
+        "schema": "commerce_internal"
+      },
+      "cache_key": "function_search_path_mutable_commerce_internal_membership_range_value_62b003e130f46f4e9e0dea7392d5f6bc"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_refund_guest_contract_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_refund_guest_contract_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_refund_guest_contract_guard_f80f5509441ee140d30e02833fd4fa03"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_ticket_price_adjustment_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_ticket_price_adjustment_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_ticket_price_adjustment_guard_c686bb033be08b9378404c7d93d0f46a"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_guest_cancellation_append_only` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_guest_cancellation_append_only",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_guest_cancellation_append_only_98ec3e4cffa88f8d6362a6d53ebf8fba"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_license_redemption_append_only` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_license_redemption_append_only",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_license_redemption_append_only_fb074b17f72ddc862649a27811e21ba2"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_commerce_payout_transaction_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_commerce_payout_transaction_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_commerce_payout_transaction_guard_c138acd805cf96f2d2c6963c1773d233"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_membership_invoice_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_membership_invoice_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_membership_invoice_guard_bff26fb794aecb411b2fa612499c32ac"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_deposit_hold_contract_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_deposit_hold_contract_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_deposit_hold_contract_guard_ef8cdf1df3156739194042700b246d72"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_deposit_appointment_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_deposit_appointment_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_deposit_appointment_guard_04fde52f19b131be3d331d479961e684"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_deposit_retention_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_deposit_retention_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_deposit_retention_guard_b34c01d373734f22801761e186215b84"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_commerce_payout_context_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_commerce_payout_context_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_commerce_payout_context_guard_24529e099b0c1bdc8b1e550f0d734cda"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_ticket_source_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_ticket_source_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_ticket_source_guard_c89961f4aadca3e11f2a2de6bd4f4a1e"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_membership_termination_link_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_membership_termination_link_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_membership_termination_link_guard_c4687093a7fdb50ca9eda297120e5379"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_membership_stop_fact_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_membership_stop_fact_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_membership_stop_fact_guard_ffebc86b321ad93255b1da15c4d3de54"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_commerce_payout_batch_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_commerce_payout_batch_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_commerce_payout_batch_guard_a0ca8be100ae4279f9b83726e7560f96"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_ticket_refund_sources_complete` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_ticket_refund_sources_complete",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_ticket_refund_sources_complete_f53e90034c0a203a36888ca1df0c15b2"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_ticket_source_refund_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_ticket_source_refund_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_ticket_source_refund_guard_89bed07c494ff7b5c4a6f66ce299caf7"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_membership_purchase_refund_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_membership_purchase_refund_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_membership_purchase_refund_guard_fcdf8f9d061d0a0d814f3904e6f5351b"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_deposit_ledger_append_only` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_deposit_ledger_append_only",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_deposit_ledger_append_only_b6733393f463f399774bd47ad7a78910"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_ticket_source_receipt_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_ticket_source_receipt_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_ticket_source_receipt_guard_3382d871cd05bc1e01fc85580cff9b29"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.health_anonymize_content` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "health_anonymize_content",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_health_anonymize_content_6803f4a7f173c5bffcb385d4ed2e4fcc"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_valid_deposit_refund_allocation` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_valid_deposit_refund_allocation",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_valid_deposit_refund_allocation_5b304c8a406b521099c283c47c3b5e83"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_membership_service_refund_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_membership_service_refund_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_membership_service_refund_guard_b2deb528931c883c8896a0139beaf7c1"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_refund_decline_immutable` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_refund_decline_immutable",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_refund_decline_immutable_ef9d218b2e3c3e728edf31d85f056708"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_guest_refund_context_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_guest_refund_context_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_guest_refund_context_guard_f96b708f13045dd49f5531e15119bda6"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_paid_membership_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_paid_membership_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_paid_membership_guard_8e302de04df0470bf87a98fc83a1bfdf"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_membership_termination_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_membership_termination_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_membership_termination_guard_481154ae271430abf8764654ee5b94cc"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_membership_cycle_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_membership_cycle_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_membership_cycle_guard_0f3bbcf80cee0c1a4f56d7435844840f"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_membership_unit_fact_guard` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_membership_unit_fact_guard",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_membership_unit_fact_guard_287819f9390e5f0251eddd7b86ca8b65"
+    },
+    {
+      "name": "extension_in_public",
+      "title": "Extension in Public",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects extensions installed in the `public` schema.",
+      "detail": "Extension `btree_gist` is installed in the public schema. Move it to another schema.",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0014_extension_in_public",
+      "metadata": {
+        "name": "btree_gist",
+        "type": "extension",
+        "schema": "public"
+      },
+      "cache_key": "extension_in_public_btree_gist"
+    },
+    {
+      "name": "rls_policy_always_true",
+      "title": "RLS Policy Always True",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects RLS policies that use overly permissive expressions like `USING (true)` or `WITH CHECK (true)` for UPDATE, DELETE, or INSERT operations. SELECT policies with `USING (true)` are intentionally excluded as this pattern is often used deliberately for public read access.",
+      "detail": "Table `public.email_suppressions` has an RLS policy `platform_wide` for `ALL` that allows unrestricted access (both USING and WITH CHECK are always true). This effectively bypasses row-level security for -.",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0024_permissive_rls_policy",
+      "metadata": {
+        "name": "email_suppressions",
+        "qual": "true",
+        "type": "table",
+        "roles": [
+          "-"
+        ],
+        "schema": "public",
+        "command": "ALL",
+        "with_check": "true",
+        "policy_name": "platform_wide",
+        "permissive_using": true,
+        "permissive_with_check": true
+      },
+      "cache_key": "rls_policy_always_true_public_email_suppressions_platform_wide"
+    },
+    {
+      "name": "rls_policy_always_true",
+      "title": "RLS Policy Always True",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects RLS policies that use overly permissive expressions like `USING (true)` or `WITH CHECK (true)` for UPDATE, DELETE, or INSERT operations. SELECT policies with `USING (true)` are intentionally excluded as this pattern is often used deliberately for public read access.",
+      "detail": "Table `public.sms_consent` has an RLS policy `platform_wide` for `ALL` that allows unrestricted access (both USING and WITH CHECK are always true). This effectively bypasses row-level security for -.",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0024_permissive_rls_policy",
+      "metadata": {
+        "name": "sms_consent",
+        "qual": "true",
+        "type": "table",
+        "roles": [
+          "-"
+        ],
+        "schema": "public",
+        "command": "ALL",
+        "with_check": "true",
+        "policy_name": "platform_wide",
+        "permissive_using": true,
+        "permissive_with_check": true
+      },
+      "cache_key": "rls_policy_always_true_public_sms_consent_platform_wide"
+    },
+    {
+      "name": "rls_policy_always_true",
+      "title": "RLS Policy Always True",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects RLS policies that use overly permissive expressions like `USING (true)` or `WITH CHECK (true)` for UPDATE, DELETE, or INSERT operations. SELECT policies with `USING (true)` are intentionally excluded as this pattern is often used deliberately for public read access.",
+      "detail": "Table `public.sms_inbound` has an RLS policy `inbound_insert_platform` for `INSERT` that allows unrestricted access (WITH CHECK clause is always true). This effectively bypasses row-level security for -.",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0024_permissive_rls_policy",
+      "metadata": {
+        "name": "sms_inbound",
+        "qual": null,
+        "type": "table",
+        "roles": [
+          "-"
+        ],
+        "schema": "public",
+        "command": "INSERT",
+        "with_check": "true",
+        "policy_name": "inbound_insert_platform",
+        "permissive_using": false,
+        "permissive_with_check": true
+      },
+      "cache_key": "rls_policy_always_true_public_sms_inbound_inbound_insert_platform"
+    }
+  ]
+}

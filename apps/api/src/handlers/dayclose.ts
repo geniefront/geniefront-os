@@ -10,7 +10,7 @@
 import type postgres from 'postgres';
 import {
   RecordCashMovement, SaveCashCount, PayCashTips, FinalizeDay, ReopenDay, MarkGapDay,
-  AppError, ERROR_CODES, pickText, type CommandContext,
+  AppError, ERROR_CODES, pickText, type CommandContext,type CommerceDaySummary,
 } from '@gf/contracts';
 import {
   countCash, reconcileCash, reconcileCard, planTipPayouts,
@@ -20,6 +20,7 @@ import {
 import { businessDateOf, businessDayStart } from '@gf/scheduling';
 import { jsonb, ts } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
+import {loadCommerceDay} from '../queries/commerceDay';
 
 /** 当前营业日。命令都允许显式传日期（补录昨天的账是常事） */
 export async function resolveDate(
@@ -60,9 +61,17 @@ function assertNotClosed(status: string, date: string): void {
   }
 }
 
+/** Serialize manual prepayment money with closing, including a day that has no row yet. */
+export async function lockOpenDay(tx:postgres.TransactionSql,ctx:CommandContext):Promise<string>{
+ const date=await resolveDate(tx,ctx.locationId),day=await ensureDayClose(tx,ctx,date);assertNotClosed(day.status,date);return date;
+}
+
 // ────────────────────────────────────────────────────────────── 当日钱的快照
 
 export interface DayMoney {
+  commerce:CommerceDaySummary;
+  serviceCashReceivedCents:number;serviceCardReceivedCents:number;
+  feeRefundCents:number;netFeeCents:number;
   cashTakeCents: number;     // 现金收款（含小费）
   cashTenderedCents: number;
   cashChangeCents: number;
@@ -93,6 +102,9 @@ export interface DayMoney {
 export async function loadDayMoney(
   tx: postgres.TransactionSql, locationId: string, date: string,
 ): Promise<DayMoney> {
+  const commerce=await loadCommerceDay(tx,locationId,date);
+  const [location]=await tx<{currency:string}[]>`select lower(currency) as currency from locations where id=${locationId}`;
+  const prepaid=commerce.currencies.find(c=>c.currency===location!.currency);
   const [pay] = await tx<{
     cash: number; tendered: number; change: number; card: number; gift: number; credit: number;
   }[]>`
@@ -109,12 +121,12 @@ export async function loadDayMoney(
     from payments p
     join tickets t on t.id = p.ticket_id
     where p.location_id = ${locationId}
-      and t.business_date = ${date} and t.status in ('closed','refunded')`;
+      and t.business_date = ${date} and t.status<>'voided'`;
 
   const [refund] = await tx<{
-    service: number; tax: number; cash: number; card: number; gift: number; credit: number;
+    service: number; tax: number; fee:number; cash: number; card: number; gift: number; credit: number;
   }[]>`
-    select coalesce(sum(tr.service_cents), 0)::int as service,
+    select coalesce(sum(tr.service_cents), 0)::int as service,coalesce(sum(tr.fee_cents),0)::int as fee,
            coalesce(sum(tr.tax_cents), 0)::int as tax,
            coalesce(sum(tr.cash_cents), 0)::int as cash,
            coalesce(sum(tr.card_cents), 0)::int as card,
@@ -124,14 +136,10 @@ export async function loadDayMoney(
     join tickets t on t.id = tr.ticket_id
     where tr.location_id = ${locationId} and tr.business_date = ${date}`;
 
-  const [tips] = await tx<{ cash: number; card: number }[]>`
-    select
-      coalesce(sum(ta.amount_cents) filter (where ta.source = 'cash'), 0)::int as cash,
-      coalesce(sum(ta.amount_cents) filter (where ta.source = 'card'), 0)::int as card
-    from tip_allocations ta
-    join tickets t on t.id = ta.ticket_id
-    where ta.location_id = ${locationId} and t.business_date = ${date}
-      and t.status = 'closed' and ta.reversed_at is null`;
+  const [tips] = await tx<{cash:number;card:number}[]>`
+    select coalesce(sum(amount_cents) filter(where kind='tip_cash'),0)::int as cash,
+     coalesce(sum(amount_cents) filter(where kind='tip_card'),0)::int as card from earnings
+    where location_id=${locationId} and business_date=${date} and reversed_at is null`;
 
   const [tk] = await tx<{
     gross: number; discount: number; net: number; tax: number; surcharge: number;
@@ -163,24 +171,26 @@ export async function loadDayMoney(
   const gross = tk?.gross ?? 0;
   const discount = tk?.discount ?? 0;
   return {
-    cashTakeCents: pay?.cash ?? 0,
+    commerce,serviceCashReceivedCents:pay?.cash??0,serviceCardReceivedCents:pay?.card??0,
+    cashTakeCents: (pay?.cash??0)+(prepaid?.offlineCashReceivedCents??0),
     cashTenderedCents: pay?.tendered ?? 0,
     cashChangeCents: pay?.change ?? 0,
-    cashRefundCents: refund?.cash ?? 0,
-    cardTakeCents: (pay?.card ?? 0) - (refund?.card ?? 0),
-    cardGrossCents: pay?.card ?? 0,
-    cardRefundCents: refund?.card ?? 0,
+    cashRefundCents: (refund?.cash??0)+(prepaid?.offlineCashRefundedCents??0),
+    cardTakeCents: (pay?.card??0)+(prepaid?.offlineCardReceivedCents??0)-(refund?.card??0)-(prepaid?.offlineCardRefundedCents??0),
+    cardGrossCents: (pay?.card??0)+(prepaid?.offlineCardReceivedCents??0),
+    cardRefundCents: (refund?.card??0)+(prepaid?.offlineCardRefundedCents??0),
     giftCardPaidCents: (pay?.gift ?? 0) - (refund?.gift ?? 0),
     customerCreditPaidCents: (pay?.credit ?? 0) - (refund?.credit ?? 0),
     grossCents: gross,
     discountCents: discount,
     netCents: (tk?.net ?? 0) - (refund?.service ?? 0),
     taxCents: (tk?.tax ?? 0) - (refund?.tax ?? 0),
+    feeRefundCents:refund?.fee??0,netFeeCents:(tk?.surcharge??0)+(tk?.service_charge??0)-(refund?.fee??0),
     surchargeCents: tk?.surcharge ?? 0,
     serviceChargeCents: tk?.service_charge ?? 0,
     tipCashCents: tips?.cash ?? 0,
     tipCardCents: tips?.card ?? 0,
-    movementsCents: mv?.movements ?? 0,
+    movementsCents: (mv?.movements??0)-(prepaid?.offlineCashRefundedCents??0),
     tipPaidOutCents: mv?.tip_out ?? 0,
     openTicketCount: tk?.open_count ?? 0,
   };
@@ -330,15 +340,9 @@ async function loadCashTipOwed(
     membership_id: string; name: unknown; today: number; already: number; carry_in: number;
   }[]>`
     with today_tips as (
-      select ta.membership_id, sum(ta.amount_cents)::int as amount
-      from tip_allocations ta
-      join tickets t on t.id = ta.ticket_id
-      where ta.location_id = ${ctx.locationId}
-        and t.business_date = ${date}
-        and t.status = 'closed'
-        and ta.source = 'cash'
-        and ta.reversed_at is null
-      group by ta.membership_id
+      select membership_id,sum(amount_cents)::int as amount from earnings
+      where location_id=${ctx.locationId} and business_date=${date} and kind='tip_cash' and reversed_at is null
+      group by membership_id
     ),
     paid as (
       select membership_id, sum(paid_cents)::int as paid
@@ -553,6 +557,7 @@ registerHandler(FinalizeDay, async ({ input, ctx, tx, audit }: HandlerArgs<
   const closedAt = new Date().toISOString();
   const snapshot = {
     businessDate: date,
+    money,
     generation,
     closedAt,
     closedBy: ctx.membershipId,
@@ -711,6 +716,9 @@ registerHandler(MarkGapDay, async ({ input, ctx, tx, audit }: HandlerArgs<
       },
     });
   }
+
+  const commerce=await loadCommerceDay(tx,ctx.locationId,input.businessDate);
+  if(commerce.currencies.some(c=>c.sales.some(s=>s.paymentCount||s.refundCount)||c.redemptions.some(r=>r.appliedCents||r.returnedCents)))throw new AppError(ERROR_CODES.DAY_HAS_REAL_RECORDS,{details:{businessDate:input.businessDate,reason:'prepayment_records_exist'}});
 
   const dc = await ensureDayClose(tx, ctx, input.businessDate);
   assertNotClosed(dc.status, input.businessDate);

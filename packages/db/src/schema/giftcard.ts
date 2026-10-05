@@ -73,6 +73,12 @@ export const giftCards = pgTable('gift_cards', {
    * 不用每次扫全表。对不上时以账本为准（同 `billing_accounts`）。
    */
   balanceCents: integer('balance_cents').notNull(),
+  purchaseOrderId: uuid('purchase_order_id').unique(),
+  purchaseSnapshot: jsonb('purchase_snapshot'),
+  reservedCents: integer('reserved_cents').notNull().default(0),
+  commerceFrozen: boolean('commerce_frozen').notNull().default(false),
+  credentialDisabled: boolean('credential_disabled').notNull().default(false),
+  credentialVersion: integer('credential_version').notNull().default(1),
   scope: text('scope').notNull().default('location'),
   purchaserCustomerId: uuid('purchaser_customer_id').references(() => customers.id),
   holderCustomerId: uuid('holder_customer_id').references(() => customers.id),
@@ -117,6 +123,10 @@ export const customerCreditLedger = pgTable('customer_credit_ledger', {
   entry: text('entry').notNull(),
   /** ⚠️ 有符号：issue 为正，redeem 为负。求和 = 当前余额 */
   amountCents: integer('amount_cents').notNull(),
+  unit: text('unit').generatedAlwaysAs(sql`case when kind = 'points' then 'points'
+    when kind = 'package' and entry = 'issue' then 'cents'
+    when kind = 'package' and entry in ('redeem','refund') then 'sessions'
+    when kind = 'package' then 'unknown' else 'cents' end`),
   balanceAfterCents: integer('balance_after_cents').notNull(),
   ticketId: uuid('ticket_id').references(() => tickets.id),
   /** 冲销指向被冲的那一行 */

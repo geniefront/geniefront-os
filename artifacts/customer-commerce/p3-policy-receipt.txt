@@ -1,0 +1,11 @@
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/pages/Checkout.tips.test.tsx (4 tests) 281ms
+ ✓ src/features/printing/ReceiptDocument.test.tsx (3 tests) 41ms
+
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+   Start at  00:51:31
+   Duration  3.57s (transform 615ms, setup 603ms, collect 1.72s, tests 322ms, environment 709ms, prepare 52ms)
+

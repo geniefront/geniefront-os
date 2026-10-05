@@ -1,0 +1,26 @@
+$ vitest run src/customerMemberships.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ✓ src/customerMemberships.test.ts (54 tests) 17281ms
+   ✓ freezes an annual membership, verifies immediate cancellation, stops eleven future grants and refunds the selected original invoice once 1911ms
+   ✓ preserves only the reviewed current paid period and protects its value from purchase refunds 1776ms
+   ✓ recovers an external cancellation after a transactional write failure without canceling again or refunding early 591ms
+   ✓ requires an unchanged manager review and keeps member termination decisions private and immutable 442ms
+   ✓ keeps cancellation and stopped benefits after a provider refund failure, reserving a fresh original-invoice attempt within its cap 507ms
+   ✓ does not reactivate a stopped membership when an originally covered service is returned after termination 301ms
+   ✓ keeps protected invoice access after termination and recovers a missed refund webhook through SDK reconciliation 317ms
+   ✓ combines one covered unit, a different member-priced line and a manual discount on the other line, then returns only the original paid allocations 304ms
+   ✓ rejects stale or fabricated member prices, double coverage and an unauthorized benefit without leaving price facts or consuming rights 367ms
+   ✓ calculates both configured tax modes after the purchased member price and refunds stored amounts after the tax policy changes 395ms
+   ✓ keeps per-unit paid values and commission snapshots after catalog changes and restores the exact units 354ms
+   ✓ keeps the original expiry when a fully returned service restores a membership unit after its period has ended 3028ms
+   ✓ conserves membership, package, discount, deposit, gift, credit, cash, tax, fee and tips through three original-source returns 514ms
+   ✓ conserves all six payment sources across a quoted three-ticket group and each original service return 662ms
+   ✓ merges an explicitly selected identity without rewriting paid records, duplicating subscriptions or granting a shared-phone stranger its assets 943ms
+
+ Test Files  1 passed (1)
+      Tests  54 passed (54)
+   Start at  17:57:45
+   Duration  25.49s (transform 2.01s, setup 4.41s, collect 3.69s, tests 17.28s, environment 0ms, prepare 23ms)
+

@@ -44,7 +44,7 @@ describe('多语言字典完整性', () => {
     const CJK = /[一-鿿㐀-䶿]/;
     const leaked: string[] = [];
     for (const { code } of UI_LANGUAGES) {
-      if (code === 'zh-Hans') continue;
+      if (code === 'zh-Hans' || code === 'zh-Hant') continue;
       for (const key of ALL_TRANSLATION_KEYS) {
         if (CJK.test(translations[code][key])) leaked.push(`${code}/${String(key)}`);
       }

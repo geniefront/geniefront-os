@@ -1,0 +1,3 @@
+/tmp/commerce-queue-workbench-build.txt
+(!) Some chunks are larger than 700 kB after minification. Consider:
+✓ built in 6.72s

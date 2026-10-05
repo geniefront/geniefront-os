@@ -19,6 +19,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   AppError, ERROR_CODES, pickText, normalizePhoneE164,
   type CommandContext, type Permission,
+  VoiceBookingInput,SubmitVoiceBooking,
 } from '@gf/contracts';
 import {
   withTenant, tenantForPhoneNumber,
@@ -35,6 +36,8 @@ import { classify } from '../sms/keywords';
 import { flushSms } from '../sms/flush';
 import { flushEmails } from '../email/flush';
 import { generateManageToken } from '../public/bookingToken';
+import {voiceDepositQuote,currentVoiceBooking} from '../voice/deposit';
+import '../handlers/voiceBooking';
 import '../handlers/phone';
 import '../handlers/billing';
 
@@ -596,6 +599,7 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
       : num(body['duration_min']) ?? 45;
 
     const partySize = clampInt(num(body['party_size']) ?? 1, 1, 20);
+    const depositQuote=matched.length?await withTenant(systemContext(t),tx=>voiceDepositQuote(tx,t.locationId,matched.reduce((n,m)=>n+m.priceCents,0)*partySize)):null;
     const genderPreference = normGender(str(body['gender_preference']));
     const opts = { genderPreference, partySize };
 
@@ -645,6 +649,7 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
       /** ⭐ 建单时把这个原样传回 `book_appointment`，两边的时长必须是同一个 */
       durationMin,
       partySize,
+      ...(depositQuote?{deposit:depositQuote}:{}),
       /** 匹配上的项目。AI 复述给客人听的应该是这里的名字，不是它自己听到的 */
       services: matched.map((m) => ({
         serviceId: m.id, name: m.name, durationMin: m.durationMin,
@@ -1113,6 +1118,14 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
     const totalMin = matched.reduce((n, m) => n + m.durationMin, 0)
       || num(body['duration_min']) || 45;
     const partySize = clampInt(num(body['party_size']) ?? 1, 1, 20);
+    const depositQuote=await withTenant(ctx,tx=>voiceDepositQuote(tx,ctx.locationId,matched.reduce((n,m)=>n+m.priceCents,0)*partySize));
+    const consent=VoiceBookingInput.shape.depositConsent.safeParse(body['depositConsent']);
+    if(depositQuote&&(!consent.success||!consent.data))return {
+      ok:false,error:'deposit_confirmation_required',deposit:depositQuote,
+      say:`This appointment requires a ${new Intl.NumberFormat('en-US',{style:'currency',currency:depositQuote.currency}).format(depositQuote.amountCents/100)} deposit. `
+        +'We hold the time for 15 minutes, and payment confirms the appointment.',
+      guidance:'Explain the returned deposit and cancellation policy and obtain explicit agreement. Then send depositConsent with accepted:true and the returned policyVersion, serviceTotalCents and amountCents. Ask for an email for payment instructions, or offer frontdesk assistance. Do not say the appointment is confirmed.',
+    };
     const staffId = await matchStaff(t, str(body['staff_heard']));
 
     /*
@@ -1172,6 +1185,28 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
     });
 
     try {
+      if(depositQuote){
+        const selection=staffIds.flatMap((membershipId,guestIndex)=>mains.map((m,index)=>({guestIndex,serviceId:m.id,
+          addonIds:index===0?addons.map(a=>a.id):[],staffId:membershipId})));
+        const result=await dispatch('voice.submitBooking',VoiceBookingInput.parse({serviceId:mains[0]!.id,
+          date:businessDateOf(new Date(startsAt!),t.timezone,'00:00'),startsAt:startsAt!,partySize,items:selection,
+          quotedTotalCents:depositQuote.serviceTotalCents,providerCallId:callId??undefined,customerName:callerName!,phoneE164:fromE164!,
+          email:str(body['email'])??undefined,notes:str(body['health_notes'])??str(body['notes'])??undefined,
+          depositConsent:consent.success?consent.data:undefined}),ctx,
+          {idempotencyKey:callId?`telnyx-deposit-book-${callId}`:crypto.randomUUID(),systemOrigin:'telnyx_voice'});
+        const current=await withTenant(ctx,tx=>currentVoiceBooking(tx,ctx,SubmitVoiceBooking.output.parse(result.result).appointmentId));
+        void flushEmails(ctx,req.log);void flushSms(ctx,req.log);
+        return {ok:true,shop:shopOf(t),...current,replayed:result.replayed,durationMin:totalMin,
+          say:current.deposit?.additionalPayment?
+            'Your existing appointment remains confirmed. There is a separate additional deposit request. Please use the payment instructions or contact the front desk; your card will not be charged automatically.':current.bookingConfirmed?'Your appointment is confirmed.':current.status==='pending_deposit'?
+            `The time is held, awaiting your deposit. Please pay before ${new Intl.DateTimeFormat('en-US',{timeZone:t.timezone,hour:'numeric',minute:'2-digit'}).format(new Date(current.deposit!.expiresAt))}. `
+              +(current.deposit!.paymentAction==='email_link'?
+                (current.deposit!.emailDelivery==='sent'?'Use the emailed instructions to pay and confirm your appointment.':
+                  'Payment instructions are queued. Your appointment is not confirmed yet; the front desk can help with payment.'):
+                'The front desk can help you arrange payment. Your appointment is not confirmed yet.'):
+            'The appointment is not confirmed. Please contact the front desk for assistance.',
+          guidance:'Follow bookingConfirmed and status. A pending deposit is a temporary hold, not a confirmation. Never read internal IDs or payment URLs aloud.'};
+      }
       const out = await dispatch<{
         appointmentId: string; businessDate: string; itemIds: string[];
       }>(
@@ -1222,6 +1257,9 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
        * 前台或网站把它订走了）。这时**不能重试**，要回去重新报时间。
        */
       const code = e instanceof AppError ? e.code : 'UNKNOWN';
+      if(e instanceof AppError&&['deposit_quote_changed','deposit_confirmation_required'].includes(String(e.details?.reason)))return {
+        ok:false,error:code,deposit:e.details?.deposit,say:'The deposit quote or policy changed. Let me confirm the updated details with you.',
+        guidance:'Refresh the deposit quote and obtain agreement to its exact amount and cancellation policy before trying again.'};
       const taken = code === 'RESOURCE_CONFLICT' || code === 'OUTSIDE_BUSINESS_HOURS'
         || code === 'STAFF_OVER_CAPACITY' || code === 'LOCATION_OVER_CAPACITY';
       return {

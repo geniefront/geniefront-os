@@ -1,4 +1,3 @@
-import {startVoiceSnapshots} from './voice/snapshotWorker';
 import { startDirectSipRouting } from './voice/directSip';
 /**
  * 生产入口。
@@ -10,6 +9,8 @@ import { startDirectSipRouting } from './voice/directSip';
  */
 
 import { startEmailService } from './email/service';
+import { startEventLoopMonitoring } from './ops/eventLoop';
+import { startCommerceWorker } from './commerce/worker';
 import { buildServer } from './server';
 import { startVoiceProcessing } from './voice/worker';
 import { startCallReconciler } from './telnyx/schedule';
@@ -41,13 +42,14 @@ try {
 }
 
 const app = buildServer();
+startEventLoopMonitoring(app, 'api');
 
 // 通话对账（sql/0037）。默认关，`TELNYX_RECONCILE_MINUTES=15` 打开。
 // ⚠️ 只在真正的入口起 —— 测试里 buildServer() 会被建很多次，
 // 每次都挂一个定时器的话，一跑测试就是几十个后台任务在抢同一批会话
 startCallReconciler(app);
 startVoiceProcessing(app);
-startVoiceSnapshots(app);
+startCommerceWorker(app);
 startDirectSipRouting(app);
 
 // 幂等表保留期清理（AUD-09）。同上：只在真正的入口挂定时器。

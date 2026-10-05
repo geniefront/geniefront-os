@@ -53,6 +53,7 @@ export const QA_NOW = process.env.QA_NOW ?? '2026-08-30T16:00:00.000Z';
 export const WEB_URL = 'http://127.0.0.1:5177';
 export const PLATFORM_URL = 'http://127.0.0.1:5179';
 export const MARKETING_URL = 'http://127.0.0.1:5180';
+export const BOOKING_URL = 'http://127.0.0.1:5176';
 export const API_URL = 'http://127.0.0.1:3000';
 
 const testDatabaseUrl = localUrl('TEST_DATABASE_URL', 'app_user');
@@ -73,6 +74,8 @@ export const qaEnvironment: Record<string, string> = {
   APP_BASE_URL: WEB_URL,
   APP_URL: WEB_URL,
   MARKETING_BASE_URL: MARKETING_URL,
+  BOOKING_BASE_URL: BOOKING_URL,
+  BOOKING_PAGE_ORIGIN: BOOKING_URL,
   VITE_API_BASE: API_URL,
   PORT: '3000',
   APP_JWT_SECRET: required('APP_JWT_SECRET'),

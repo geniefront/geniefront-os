@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "production": {
+    "seedEnabled": false,
+    "protectedLogin": "zhiziappointments@gmail.com",
+    "protectedOrganizationId": "92203dc9-8c2d-4bdb-9e30-55893b52a8a5",
+    "protectedLocationId": "1c708a61-b467-4062-af96-2cd6392e20e5",
+    "preservedOperator": "ops@geniefront.test"
+  },
+  "local": {
+    "supabaseUrl": "http://127.0.0.1:55321",
+    "databaseHost": "127.0.0.1",
+    "databasePort": "55322",
+    "owner": "qa-local-owner@example.test",
+    "frontDesk": "qa-local-desk@example.test",
+    "tech": "qa-local-tech@example.test",
+    "setup": "qa-local-setup@example.test",
+    "operator": "ops@maildrop.cc"
+  },
+  "staging": {
+    "supabaseUrl": "https://yfqybhuvzluvrapodahw.supabase.co",
+    "databaseHost": "aws-0-us-east-1.pooler.supabase.com",
+    "databasePort": "6543",
+    "databaseUser": "postgres.yfqybhuvzluvrapodahw",
+    "owner": "qa-staging-owner@example.test",
+    "frontDesk": "qa-staging-desk@example.test",
+    "tech": "qa-staging-tech@example.test",
+    "setup": "qa-staging-setup@example.test",
+    "operator": "ops@geniefront.test"
+  }
+}

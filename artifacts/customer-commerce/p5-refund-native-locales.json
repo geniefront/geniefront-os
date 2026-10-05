@@ -1,0 +1,48 @@
+{
+  "at": "2026-10-02T10:37:53.512Z",
+  "nativeBackofficeLocales": [
+    {
+      "locale": "en",
+      "amountCents": 3000,
+      "originalGiftDestination": true,
+      "buttonsInsideDialog": true,
+      "overflow": false,
+      "prepaidConversionsDisabled": true
+    },
+    {
+      "locale": "zh-Hans",
+      "amountCents": 3000,
+      "originalGiftDestination": true,
+      "buttonsInsideDialog": true,
+      "overflow": false,
+      "prepaidConversionsDisabled": true
+    },
+    {
+      "locale": "ko",
+      "amountCents": 3000,
+      "originalGiftDestination": true,
+      "buttonsInsideDialog": true,
+      "overflow": false,
+      "prepaidConversionsDisabled": true
+    },
+    {
+      "locale": "es",
+      "amountCents": 3000,
+      "originalGiftDestination": true,
+      "buttonsInsideDialog": true,
+      "overflow": false,
+      "prepaidConversionsDisabled": true
+    },
+    {
+      "locale": "vi",
+      "amountCents": 3000,
+      "originalGiftDestination": true,
+      "buttonsInsideDialog": true,
+      "overflow": false,
+      "prepaidConversionsDisabled": true
+    }
+  ],
+  "traditionalChineseCopyPresent": true,
+  "traditionalChineseBackofficeSelectable": false,
+  "financialSubmissionPerformed": false
+}

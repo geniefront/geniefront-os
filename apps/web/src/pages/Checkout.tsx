@@ -8,12 +8,15 @@ import {
   Clock, AlertCircle, Info, Calculator, FileCheck, CheckCircle
 } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
+import {GroupCheckoutEntry} from '@/features/checkout/GroupCheckout';
+import {depositText,membershipText,checkoutQuoteText,groupCheckoutText} from '@gf/contracts';
+import {ApiError} from '@/lib/api';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { Search } from 'lucide-react';
 import {
-  useOpenTickets, useCloseTicket, useVoidTicket, verifyGiftCard,
-  dollarsToCents, centsToDollars,
+  useOpenTickets, useCloseTicket, useVoidTicket, useCheckoutQuote, verifyGiftCard,
+  dollarsToCents, centsToDollars,type CheckoutQuoteInput,type CheckoutQuote,
 } from '@/features/checkout/api';
 import { useValidationMessage } from '@/lib/validationMessage';
 import { parseMoney, parsePercent } from '@/lib/validation';
@@ -21,7 +24,7 @@ import { allocateTips, splitItemRevenueAcrossStaff } from '@/features/queue/chec
 import { emptyLine, chargedCents, toPaymentLine, cashChange, patchPayment, distributeTip, type DraftLine } from '@/features/checkout/paymentDraft';
 import { PAYMENT_METHODS } from '@/features/checkout/types';
 import { paymentStageFor } from '@/features/checkout/types';
-import type { OpenTicket, PaymentMethod } from '@/features/checkout/types';
+import type { OpenTicket, PaymentMethod,CloseResult } from '@/features/checkout/types';
 import { BundleCheckoutSummary } from '@/features/bundles/BundleCheckoutSummary';
 import { useSchedule, UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
 import { Card } from '@/components/ui/Card';
@@ -37,7 +40,7 @@ import { PageLoading, PageError } from '@/components/ui/QueryState';
 import { cn, formatI18n, formatPhoneInput } from '@/lib/utils';
 import type { TranslationKey } from '@/i18n';
 
-const METHOD_LABELS: Record<PaymentMethod, TranslationKey> = {
+const METHOD_LABELS: Record<Exclude<PaymentMethod,'customer_credit'>, TranslationKey> = {
   cash: 'payCash',
   card: 'payCard',
   gift_card: 'payGift',
@@ -48,6 +51,7 @@ const METHOD_ICONS: Record<PaymentMethod, typeof CreditCard> = {
   cash: Banknote,
   card: CreditCard,
   gift_card: Gift,
+  customer_credit:Wallet,
   external: Wallet,
 };
 
@@ -60,7 +64,16 @@ const DEFAULT_CARD_SURCHARGE_RATE = 0.03;
 /**
  * 收银结账台（高信息密度 · 完工单筛选 · 多技师小费拆分 · 职级提成 · 税费与手续费）。
  */
-function CheckoutContent() {
+export interface CheckoutWorkbenchProps {
+  ticketId?:string;
+  embedded?:boolean;
+  onSettled?:(result:CloseResult)=>void|Promise<void>;
+  onPendingChange?:(pending:boolean)=>void;
+  onSelection?:(input:CheckoutQuoteInput,quote:CheckoutQuote)=>void;
+  initialSelection?:CheckoutQuoteInput;
+}
+/** Standalone and queue checkout share every benefit, tender, quote and recovery control. */
+export function CheckoutWorkbench({ticketId:fixedTicketId,embedded=false,onSettled,onPendingChange,onSelection,initialSelection}:CheckoutWorkbenchProps={}) {
   const navigate = useNavigate();
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
 
@@ -68,13 +81,15 @@ function CheckoutContent() {
   const invalid = useValidationMessage();
   const { t, language } = useLanguage();
   const [searchParams] = useSearchParams();
-  const urlTicketId = searchParams.get('ticketId');
+  const urlTicketId = fixedTicketId??searchParams.get('ticketId');
 
   const { staff, services } = useSchedule();
   const { data, isLoading, error, refetch } = useOpenTickets();
   const close = useCloseTicket();
+  useEffect(()=>{onPendingChange?.(close.isPending);},[close.isPending,onPendingChange]);
   const voidTicketMut = useVoidTicket();
   const canDiscount = useCanWrite('ticket.discount');
+  const canApplyDeposit=useCanWrite('commerce.sell');
 
   // 1. 工单状态筛选（有服务中单时默认停在服务中，而不是空的已完工）
   const [statusFilter, setStatusFilter] = useState<'ready_to_pay' | 'in_service' | 'open' | 'all'>('ready_to_pay');
@@ -89,6 +104,11 @@ function CheckoutContent() {
   /** 一次结账意图内复用同一个幂等键，重试不会重复扣款。 */
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [selectedPackageId, setSelectedPackageId] = useState('');
+  const [selectedMembershipCycle,setSelectedMembershipCycle]=useState('');
+  const [membershipItemIds,setMembershipItemIds]=useState<string[]>([]);
+  const [membershipDiscountCycle,setMembershipDiscountCycle]=useState('');
+  const [membershipDiscountItemIds,setMembershipDiscountItemIds]=useState<string[]>([]);
+  const [applyDeposit,setApplyDeposit]=useState(false);
 
   // 税费开关与自定义Amount
   const [taxRatePercent, setTaxRatePercent] = useState('0');
@@ -154,44 +174,64 @@ function CheckoutContent() {
   }, [allTickets, statusFilter, ticketSearch]);
 
   const selected: OpenTicket | null = useMemo(
-    () => allTickets.find((x) => x.ticketId === selectedId) ?? filteredTickets[0] ?? null,
-    [allTickets, selectedId, filteredTickets],
+    () => fixedTicketId?allTickets.find(x=>x.ticketId===fixedTicketId)??null:allTickets.find((x) => x.ticketId === selectedId) ?? filteredTickets[0] ?? null,
+    [allTickets, selectedId, filteredTickets,fixedTicketId],
   );
   const paymentStage = selected ? paymentStageFor(selected) : null;
+  const initializedSelection=useRef(false);
+  useEffect(()=>{if(!initialSelection||!selected||initializedSelection.current)return;initializedSelection.current=true;
+    setDiscountInput(centsToDollars(initialSelection.discountCents??0));setSelectedPackageId(initialSelection.packageRedemptions?.[0]?.customerPackageId??'');
+    setSelectedMembershipCycle(initialSelection.membershipRedemptions?.[0]?.cycleId??'');setMembershipItemIds(initialSelection.membershipRedemptions?.[0]?.ticketItemIds??[]);
+    setMembershipDiscountCycle(initialSelection.membershipDiscount?.cycleId??'');setMembershipDiscountItemIds(initialSelection.membershipDiscount?.items.map(i=>i.ticketItemId)??[]);
+    if(initialSelection.tipSplits?.length){setTipMode('custom_per_staff');setCustomStaffTipsState(Object.fromEntries(initialSelection.tipSplits.map(s=>[s.staffMembershipId,centsToDollars(s.amountCents)])));}
+    setApplyDeposit(!!initialSelection.depositApplication);const tip=initialSelection.tipCents??0;setTotalTipInputState(centsToDollars(tip));
+    setLines([...(initialSelection.storedValuePayments??[]).map(p=>({...emptyLine(p.method as PaymentMethod),baseCents:p.amountCents,...(p.giftCardId?{giftCardId:p.giftCardId,giftCardVerified:true}:{}),...(p.giftCardCode?{giftCardCode:p.giftCardCode,giftCardVerified:true}:{})})),{...emptyLine('card'),tipCents:tip}]);
+  },[selected,initialSelection]);
+
   const uniqueTicketItems = useMemo(() => {
     const byId = new Map<string, OpenTicket['items'][number]>();
     for (const item of selected?.items ?? []) byId.set(item.ticketItemId, item);
     return [...byId.values()];
   }, [selected]);
   const packageCoverageMode = data?.checkoutSettings?.packageCoverageMode ?? 'bundle';
+  const membershipCycle=selected?.availableMemberships?.find(c=>c.cycleId===selectedMembershipCycle);
+  const membershipItems=uniqueTicketItems.filter(i=>!i.bundleInstanceId&&i.serviceId&&membershipCycle?.serviceIds.includes(i.serviceId)&&i.totalCents>0);
+  const selectedMembershipItems=membershipItems.filter(i=>membershipItemIds.includes(i.ticketItemId));
+  const membershipCoveredCents=paymentStage==='tip'?0:selectedMembershipItems.reduce((sum,i)=>sum+i.totalCents,0);
+  const packageTicketItems=uniqueTicketItems.filter(i=>!selectedMembershipItems.some(m=>m.ticketItemId===i.ticketItemId));
   const eligiblePackages = useMemo(() => (selected?.availablePackages ?? []).filter((pkg) => {
-    if (pkg.serviceIds.length === 0) return uniqueTicketItems.length > 0;
-    if (packageCoverageMode === 'bundle') {
-      return pkg.serviceIds.every((serviceId) => uniqueTicketItems.some((item) => item.serviceId === serviceId));
+    if (pkg.serviceIds.length === 0) return packageTicketItems.some(i=>!i.bundleInstanceId);
+    if ((pkg.coverageMode??packageCoverageMode) === 'bundle') {
+      return pkg.serviceIds.every((serviceId) => packageTicketItems.some((item) => !item.bundleInstanceId&&item.serviceId === serviceId));
     }
-    return uniqueTicketItems.some((item) => Boolean(item.serviceId && pkg.serviceIds.includes(item.serviceId)));
-  }), [selected, uniqueTicketItems, packageCoverageMode]);
+    return packageTicketItems.some((item) => !item.bundleInstanceId&&Boolean(item.serviceId && pkg.serviceIds.includes(item.serviceId)));
+  }), [selected, packageTicketItems, packageCoverageMode]);
   const selectedPackage = eligiblePackages.find((pkg) => pkg.customerPackageId === selectedPackageId) ?? null;
-  const packageCoveredCents = useMemo(() => {
-    if (!selectedPackage || paymentStage === 'tip') return 0;
-    if (packageCoverageMode === 'bundle' && selectedPackage.serviceIds.length > 0) {
-      return selectedPackage.serviceIds.reduce((sum, serviceId) => {
-        const item = uniqueTicketItems.find((candidate) => candidate.serviceId === serviceId);
-        return sum + (item?.totalCents ?? 0);
-      }, 0);
+  const packageCoveredItems = useMemo(() => {
+    if (!selectedPackage || paymentStage === 'tip') return [];
+    if ((selectedPackage.coverageMode??packageCoverageMode) === 'bundle' && selectedPackage.serviceIds.length > 0) {
+      return selectedPackage.serviceIds.map(serviceId => packageTicketItems.find(item => !item.bundleInstanceId && item.serviceId === serviceId))
+        .filter((item):item is OpenTicket['items'][number]=>!!item);
     }
-    const item = uniqueTicketItems.find((candidate) =>
-      selectedPackage.serviceIds.length === 0
-        || Boolean(candidate.serviceId && selectedPackage.serviceIds.includes(candidate.serviceId)));
-    return item?.totalCents ?? 0;
-  }, [selectedPackage, uniqueTicketItems, packageCoverageMode, paymentStage]);
+    const item=packageTicketItems.find(item=>!item.bundleInstanceId&&(selectedPackage.serviceIds.length===0
+      ||Boolean(item.serviceId&&selectedPackage.serviceIds.includes(item.serviceId))));
+    return item?[item]:[];
+  },[selectedPackage,packageTicketItems,packageCoverageMode,paymentStage]);
+  const packageCoveredCents=packageCoveredItems.reduce((sum,item)=>sum+item.totalCents,0);
+  const priceCoveredIds=new Set([...selectedMembershipItems,...packageCoveredItems].map(i=>i.ticketItemId));
+  const membershipDiscountOffer=selected?.availableMembershipDiscounts?.find(o=>o.cycleId===membershipDiscountCycle);
+  const discountOfferItems=paymentStage==='tip'?[]:(membershipDiscountOffer?.items??[]).filter(i=>!priceCoveredIds.has(i.ticketItemId));
+  const selectedDiscountItems=discountOfferItems.filter(i=>membershipDiscountItemIds.includes(i.ticketItemId));
+  const membershipPriceDiscountCents=canApplyDeposit?selectedDiscountItems.reduce((sum,i)=>sum+i.expectedDiscountCents,0):0;
+  const manualDiscountCapacity=uniqueTicketItems.filter(i=>!priceCoveredIds.has(i.ticketItemId)&&!selectedDiscountItems.some(d=>d.ticketItemId===i.ticketItemId))
+    .reduce((sum,i)=>sum+i.totalCents,0);
 
   // 监听 URL 中的 ticketId 自动选中
   useEffect(() => {
     if (urlTicketId && allTickets.length > 0) {
       const matched = allTickets.find((tk) => tk.ticketId === urlTicketId);
       if (matched && selectedId !== urlTicketId) {
-        selectTicket(matched);
+        if(initialSelection&&initializedSelection.current)setSelectedId(matched.ticketId);else selectTicket(matched);
       }
     } else if (!selectedId && filteredTickets.length > 0) {
       selectTicket(filteredTickets[0]);
@@ -203,6 +243,8 @@ function CheckoutContent() {
     if (!selected || paymentStage !== 'tip') return;
     setDiscountInput('');
     setSelectedPackageId('');
+    setSelectedMembershipCycle('');setMembershipItemIds([]);setMembershipDiscountCycle('');setMembershipDiscountItemIds([]);
+    setApplyDeposit(false);
     setLines([{
       method: 'card',
       baseCents: 0,
@@ -281,9 +323,12 @@ function CheckoutContent() {
   const hasSalesTax = parseFloat(taxRatePercent || '0') > 0;
 
   // 折扣与基础应付
-  const discountCents = canDiscount && paymentStage !== 'tip' ? Math.max(0, dollarsToCents(discountInput)) : 0;
+  const manualDiscountCents = canDiscount && paymentStage !== 'tip' ? Math.max(0, dollarsToCents(discountInput)) : 0;
+  const discountCents=manualDiscountCents+membershipPriceDiscountCents;
+  const invalidPriceSelection=manualDiscountCents>manualDiscountCapacity||Boolean(membershipDiscountCycle&&!membershipDiscountOffer);
   const baseSubtotalCents = selected?.subtotalCents ?? 0;
-  const afterDiscountCents = Math.max(0, baseSubtotalCents - discountCents - packageCoveredCents);
+  const afterDiscountCents = Math.max(0, baseSubtotalCents - discountCents - packageCoveredCents-membershipCoveredCents);
+  const suggestedTipBaseCents=Math.max(0,baseSubtotalCents-(paymentStage==='tip'?(selected?.discountCents??0):discountCents));
 
   /*
    * 税费按门店设置算。开关只反映「本店是否开征」，不能把已开征的税关掉。
@@ -302,17 +347,20 @@ function CheckoutContent() {
     : 0;
   /** 服务部分的应收（不含小费与附加费）。内含税时税已在其中。 */
   const serviceDueCents = taxInclusive ? afterDiscountCents : afterDiscountCents + taxCents;
+  const depositAppliedCents=applyDeposit&&canApplyDeposit&&paymentStage!=='tip'?Math.min(serviceDueCents,selected?.availableDeposit?.availableCents??0):0;
 
   // 支付行是小费总额的事实来源。总额/按人录入会重分配支付行；
   // 修改支付渠道小费则回到按总额分账，保证三处金额一致。
   const totalTipCents = paymentStage === 'service' ? 0 : lines.reduce((sum, line) => sum + line.tipCents, 0);
 
   function setTotalTipInput(value: string) {
+    if(dollarsToCents(value)>0&&lines.length>=MAX_PAYMENT_LINES&&lines.every(l=>['gift_card','customer_credit'].includes(l.method))){toast.danger(groupCheckoutText(language,'tipChannel'));return;}
     setTotalTipInputState(value);
     setLines(prev => distributeTip(prev, paymentStage === 'service' ? 0 : Math.max(0, dollarsToCents(value))));
   }
 
   function setCustomStaffTips(value: Record<string, string>) {
+    if(Object.values(value).some(v=>dollarsToCents(v)>0)&&lines.length>=MAX_PAYMENT_LINES&&lines.every(l=>['gift_card','customer_credit'].includes(l.method))){toast.danger(groupCheckoutText(language,'tipChannel'));return;}
     setCustomStaffTipsState(value);
     const total = staffAssignments.reduce((sum, staff) => sum + Math.max(0, dollarsToCents(value[staff.membershipId] || '0')), 0);
     setTotalTipInputState(centsToDollars(total));
@@ -375,12 +423,25 @@ function CheckoutContent() {
    * 而排队页的同一段算法（`features/queue/checkoutMath.ts`）本来就是不含小费的，
    * 于是同一家店在两个界面结账会收到不同的附加费。
    */
-  const cardSurchargeCents = enableCardSurcharge && hasCardPayment && paymentStage !== 'tip'
-    ? Math.round(serviceDueCents * (parseFloat(cardSurchargePercent || '0') / 100))
+  const cardSurchargeCents = !onSelection && enableCardSurcharge && hasCardPayment && paymentStage !== 'tip'
+    ? Math.round(Math.max(0,serviceDueCents-depositAppliedCents) * (parseFloat(cardSurchargePercent || '0') / 100))
     : 0;
 
   // 应收总额（含税、加项、手续费、折扣后）
-  const totalDueCents = paymentStage === 'tip' ? 0 : serviceDueCents + cardSurchargeCents;
+  const invalidStoredSelection=lines.some(l=>l.method==='gift_card'&&l.baseCents>0&&!l.giftCardVerified);
+  const quoteInput=selected&&paymentStage&&!invalidPriceSelection&&!invalidStoredSelection?{
+    ticketId:selected.ticketId,paymentStage,discountCents:manualDiscountCents,surchargeCents:cardSurchargeCents,tipCents:totalTipCents,
+    ...(data?.checkoutSettings?.allowTipSplitOverride===false?{}:{tipSplits:staffTipAllocations.map(a=>({staffMembershipId:a.membershipId,staffName:a.staffName,amountCents:a.allocatedTipCents,percentageBp:a.percent*100}))}),
+    storedValuePayments:lines.filter(l=>(l.method==='customer_credit'||l.method==='gift_card'&&l.giftCardVerified)&&l.baseCents>0).map(toPaymentLine),
+    ...(selectedPackage?{packageRedemptions:[{customerPackageId:selectedPackage.customerPackageId,units:1}]}:{}),
+    ...(membershipCycle&&selectedMembershipItems.length?{membershipRedemptions:[{cycleId:membershipCycle.cycleId,ticketItemIds:selectedMembershipItems.map(i=>i.ticketItemId)}]}:{}),
+    ...(membershipDiscountOffer&&selectedDiscountItems.length?{membershipDiscount:{membershipId:membershipDiscountOffer.membershipId,cycleId:membershipDiscountOffer.cycleId,planVersionId:membershipDiscountOffer.planVersionId,items:selectedDiscountItems}}:{}),
+    ...(depositAppliedCents>0&&selected.availableDeposit?{depositApplication:{holdId:selected.availableDeposit.holdId,amountCents:depositAppliedCents}}:{}),
+  }:null;
+  const checkoutQuote=useCheckoutQuote(quoteInput);
+  const confirmedQuote=checkoutQuote.data;
+  const quoteReady=!!confirmedQuote&&!checkoutQuote.isFetching&&!checkoutQuote.error;
+  const totalDueCents=confirmedQuote?confirmedQuote.amountDueCents-confirmedQuote.tipCents:0;
 
   const paidBaseCents = lines.reduce((sum, l) => sum + l.baseCents, 0);
   const paidTipCents = lines.reduce((sum, l) => sum + l.tipCents, 0);
@@ -388,9 +449,11 @@ function CheckoutContent() {
   const remainingCents = totalDueCents - paidBaseCents;
 
   function selectTicket(ticket: OpenTicket) {
+    setApplyDeposit(false);
     setSelectedId(ticket.ticketId);
     setDiscountInput('');
     setSelectedPackageId('');
+    setSelectedMembershipCycle('');setMembershipItemIds([]);setMembershipDiscountCycle('');setMembershipDiscountItemIds([]);
     setTotalTipInput('0.00');
     setCustomStaffTips({});
     /* 内含税门店的标价已含税，预填金额不能再加一层 */
@@ -421,10 +484,10 @@ function CheckoutContent() {
 
   // 当总应收变动且仅有单笔支付行时，自动平账同步基准Amount
   useEffect(() => {
-    if (lines.length === 1 && lines[0].baseCents !== totalDueCents) {
+    if (quoteReady && lines.length === 1 && !['gift_card','customer_credit'].includes(lines[0].method) && lines[0].baseCents !== totalDueCents) {
       setLines((prev) => prev.map((l, i) => (i === 0 ? patchPayment(l, { baseCents: totalDueCents, keepChange: false }) : l)));
     }
-  }, [totalDueCents, lines.length]);
+  }, [totalDueCents, lines.length,quoteReady]);
 
   async function handleVerifyGiftCard(index: number, code: string) {
     if (!code.trim()) return;
@@ -479,11 +542,13 @@ function CheckoutContent() {
 
 
   async function settle() {
-    if (!selected) return;
+    if (!selected||!quoteReady||!confirmedQuote||close.hasPendingSettlement) return;
+    if(onSelection){onSelection(quoteInput!,confirmedQuote);return;}
     if (!paymentStage) {
       toast.danger(t('checkout.stageUnavailable'));
       return;
     }
+    if(invalidPriceSelection){toast.danger(membershipText(language,'discountConflict'));return;}
     if (remainingCents !== 0) {
       toast.danger(t('checkout.paymentShort', { p0: centsToDollars(remainingCents) }));
       return;
@@ -516,9 +581,11 @@ function CheckoutContent() {
         : lines.map(toPaymentLine);
       const result = await close.mutateAsync({
         ticketId: selected.ticketId,
+        expectedQuoteHash:confirmedQuote.quoteHash,
         payments,
         paymentStage,
-        discountCents,
+        discountCents:manualDiscountCents,
+        ...(membershipDiscountOffer&&selectedDiscountItems.length?{membershipDiscount:{membershipId:membershipDiscountOffer.membershipId,cycleId:membershipDiscountOffer.cycleId,planVersionId:membershipDiscountOffer.planVersionId,items:selectedDiscountItems}}:{}),
         taxCents,
         taxRateBp: taxRateParsed.value,
         taxCalculationMode: data?.checkoutSettings?.taxCalculationMode || 'exclusive',
@@ -532,6 +599,8 @@ function CheckoutContent() {
           percentageBp: a.percent * 100,
         })),
         packageRedemptions: selectedPackage ? [{ customerPackageId: selectedPackage.customerPackageId, units: 1 }] : undefined,
+        ...(membershipCycle&&selectedMembershipItems.length?{membershipRedemptions:[{cycleId:membershipCycle.cycleId,ticketItemIds:selectedMembershipItems.map(i=>i.ticketItemId)}]}:{}),
+        ...(depositAppliedCents>0&&selected.availableDeposit?{depositApplication:{holdId:selected.availableDeposit.holdId,amountCents:depositAppliedCents}}:{}),
         idempotencyKey,
       });
       const allocationText = result.allocations
@@ -546,10 +615,15 @@ function CheckoutContent() {
        * 小票的短信与邮件已于 2026-09-01 整体取消，只保留打印（店主定）。
        */
       setLastReceiptId(result.ticketId);
-      if (data?.checkoutSettings?.autoPrintReceipt !== false) navigate(`/print/receipt/${result.ticketId}`);
+      if(embedded)await onSettled?.(result);
+      else if (data?.checkoutSettings?.autoPrintReceipt !== false) navigate(`/print/receipt/${result.ticketId}`);
       if (paymentStage === 'service') setIdempotencyKey(crypto.randomUUID());
       else setSelectedId(null);
     } catch (err) {
+      if(err instanceof ApiError&&err.details.reason==='checkout_quote_changed'){
+        setIdempotencyKey(crypto.randomUUID());void checkoutQuote.refetch();
+        toast.danger(checkoutQuoteText(language,'changed'));return;
+      }
       toast.danger(t('saveFailed'), {
         description: err instanceof Error ? err.message : undefined,
       });
@@ -565,12 +639,22 @@ function CheckoutContent() {
   }
 
   return (
-    <div className="min-h-full lg:h-full flex flex-col lg:flex-row gap-4 lg:overflow-hidden">
+    <div className={cn("min-h-full flex flex-col gap-4",!embedded&&"lg:h-full")}>
+      {!embedded&&!onSelection&&<GroupCheckoutButton/>}
+      {close.pendingPayment&&<div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 shrink-0">
+        <p>{checkoutQuoteText(language,'unknown')}</p>
+        <GuardedButton permission="ticket.write" isPending={close.isPending} onClick={async()=>{
+          try{const result=await close.mutateAsync(close.pendingPayment!);setLastReceiptId(result.ticketId);if(embedded)await onSettled?.(result);else navigate(`/print/receipt/${result.ticketId}`);}
+          catch(err){toast.danger(errorMessage(err));}
+        }}>{checkoutQuoteText(language,'retrySaved')}</GuardedButton>
+      </div>}
+      <div className={cn("min-h-0 flex-1 flex flex-col gap-4",!embedded&&"lg:flex-row lg:overflow-hidden")}>
+      {onSelection&&<p role="status" className="rounded-lg bg-teal-50 p-3 text-sm">{groupCheckoutText(language,'selectionHint')}</p>}
       {lastReceiptId && <div className="rounded-xl border border-teal-200 bg-white p-3 shrink-0" role="status">
         <Button onClick={() => navigate(`/print/receipt/${lastReceiptId}`)}>Print last receipt</Button>
       </div>}
       {/* 左栏：工单列表（带状态快速筛选） */}
-      <Card className="w-full lg:w-80 max-h-[24rem] lg:max-h-none shrink-0 flex flex-col overflow-hidden">
+      {!embedded&&<Card className="w-full lg:w-80 max-h-[24rem] lg:max-h-none shrink-0 flex flex-col overflow-hidden">
         {/* 顶部标题与状态统计 */}
         <div className="p-3 border-b border-slate-100 bg-slate-50 space-y-2">
           <div className="flex items-center justify-between">
@@ -721,12 +805,12 @@ function CheckoutContent() {
             </div>
           )}
         </div>
-      </Card>
+      </Card>}
 
       {/* 右栏：全维度结账核算明细 */}
       {!selected ? (
         <Card className="flex-1 grid place-items-center">
-          <EmptyState icon={<Receipt />} title={t('selectTicket')} />
+          <EmptyState icon={<Receipt />} title={t(embedded?'checkout.stageUnavailable':'selectTicket')} />
         </Card>
       ) : (
         <Card className="flex-1 flex flex-col overflow-hidden">
@@ -769,7 +853,7 @@ function CheckoutContent() {
               variant="outline"
               size="sm"
               className="border-red-200 text-red-600 hover:bg-red-50 gap-1.5 h-8 text-xs font-bold shrink-0"
-              onClick={() => setVoidModalOpen(true)}
+              isDisabled={!!onSelection} onClick={() => setVoidModalOpen(true)}
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>{t('voidTicketAction') || t('checkout.voidTicket')}</span>
@@ -777,7 +861,7 @@ function CheckoutContent() {
           </div>
 
           {/* 可滚动的高密度结账内容 */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar bg-slate-50/40">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-4 custom-scrollbar bg-slate-50/40">
             <div className={cn(
               'rounded-xl border px-4 py-3 text-xs font-medium',
               paymentStage ? 'border-teal-200 bg-teal-50 text-teal-900' : 'border-amber-200 bg-amber-50 text-amber-900',
@@ -796,7 +880,7 @@ function CheckoutContent() {
 
             {/* 1. 项目、加项、包厢、多技师分工明细卡片 */}
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
                   <Scissors className="w-4 h-4 text-teal-600" />
                   <span>{t('checkout.lineItemsTitle')}</span>
@@ -848,13 +932,18 @@ function CheckoutContent() {
               </div>
             </div>
 
+            {paymentStage!=='tip'&&selected.availableDeposit&&<label className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm">
+              <input type="checkbox" checked={applyDeposit} disabled={!canApplyDeposit} onChange={e=>{setApplyDeposit(e.target.checked);setIdempotencyKey(crypto.randomUUID());}}/>
+              <span>{depositText(language,'apply')} · {selected.availableDeposit.currency.toUpperCase()} {centsToDollars(selected.availableDeposit.availableCents)}</span>
+              {applyDeposit&&<strong className="ml-auto">−{centsToDollars(depositAppliedCents)}</strong>}
+            </label>}
             {paymentStage !== 'tip' && eligiblePackages.length > 0 && (
               <div className="bg-white p-4 rounded-2xl border border-emerald-200 shadow-sm space-y-3">
                 <div className="flex items-center gap-2">
                   <Gift className="w-4 h-4 text-emerald-600" />
                   <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">{t('checkout.packageRedemption')}</h3>
                 </div>
-                <select value={selectedPackageId} onChange={(e) => setSelectedPackageId(e.target.value)}
+                <select aria-label={t('checkout.packageRedemption')} value={selectedPackageId} onChange={(e) => setSelectedPackageId(e.target.value)}
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium">
                   <option value="">{t('checkout.packageDoNotUse')}</option>
                   {eligiblePackages.map((pkg) => (
@@ -871,6 +960,39 @@ function CheckoutContent() {
                 )}
               </div>
             )}
+            {paymentStage!=='tip'&&(selected.availableMemberships?.length??0)>0&&<div className="bg-white p-4 rounded-2xl border border-emerald-200 space-y-3">
+              <h3 className="font-bold">{membershipText(language,'title')} · {membershipText(language,'covered')}</h3>
+              <select aria-label={membershipText(language,'benefits')} value={selectedMembershipCycle} disabled={!canApplyDeposit}
+                onChange={e=>{setSelectedMembershipCycle(e.target.value);setMembershipItemIds([]);setIdempotencyKey(crypto.randomUUID());}} className="w-full rounded-lg border p-2">
+                <option value="">{membershipText(language,'doNotUse')}</option>
+                {selected.availableMemberships?.map(c=><option key={c.cycleId} value={c.cycleId}>{c.name} · {membershipText(language,'available')}: {c.availableQuantity}</option>)}
+              </select>
+              {membershipCycle&&<p className="text-sm text-slate-500">{membershipText(language,'expires')}: {new Intl.DateTimeFormat(language,{dateStyle:'medium',timeZone:membershipCycle.timezone}).format(new Date(membershipCycle.expiresAt))}</p>}
+              {membershipItems.map(i=><label key={i.ticketItemId} className="flex gap-2 items-center">
+                <input type="checkbox" checked={membershipItemIds.includes(i.ticketItemId)} disabled={!canApplyDeposit||(!membershipItemIds.includes(i.ticketItemId)&&selectedMembershipItems.length>=membershipCycle!.availableQuantity)}
+                  onChange={e=>{setMembershipItemIds(ids=>e.target.checked?[...ids,i.ticketItemId]:ids.filter(id=>id!==i.ticketItemId));setIdempotencyKey(crypto.randomUUID());}}/>
+                <span>{formatI18n(i.name,language)}</span><strong className="ml-auto">{centsToDollars(i.totalCents)}</strong>
+              </label>)}
+              {membershipCoveredCents>0&&<p>{membershipText(language,'covered')}: −{centsToDollars(membershipCoveredCents)}</p>}
+            </div>}
+
+            {paymentStage!=='tip'&&(selected.availableMembershipDiscounts?.length??0)>0&&<div className="bg-white p-4 rounded-2xl border border-teal-200 space-y-3">
+              <h3 className="font-bold">{membershipText(language,'applyDiscount')}</h3>
+              <select aria-label={membershipText(language,'applyDiscount')} value={membershipDiscountCycle} disabled={!canApplyDeposit}
+                className="w-full rounded-lg border p-2" onChange={e=>{const offer=selected.availableMembershipDiscounts?.find(o=>o.cycleId===e.target.value);
+                  setMembershipDiscountCycle(e.target.value);setMembershipDiscountItemIds(offer?.items.map(i=>i.ticketItemId)??[]);setIdempotencyKey(crypto.randomUUID());}}>
+                <option value="">{membershipText(language,'noDiscount')}</option>
+                {selected.availableMembershipDiscounts?.map(o=><option key={o.cycleId} value={o.cycleId}>{o.name} · {o.discountBps/100}%</option>)}
+              </select>
+              {membershipDiscountOffer&&<p className="text-sm text-slate-500">{membershipText(language,'expires')}: {new Intl.DateTimeFormat(language,{dateStyle:'medium',timeZone:membershipDiscountOffer.timezone}).format(new Date(membershipDiscountOffer.expiresAt))}</p>}
+              {discountOfferItems.map(i=><label key={i.ticketItemId} className="flex items-center gap-2">
+                <input type="checkbox" disabled={!canApplyDeposit} checked={membershipDiscountItemIds.includes(i.ticketItemId)}
+                  onChange={e=>{setMembershipDiscountItemIds(ids=>e.target.checked?[...ids,i.ticketItemId]:ids.filter(id=>id!==i.ticketItemId));setIdempotencyKey(crypto.randomUUID());}}/>
+                <span>{formatI18n(uniqueTicketItems.find(x=>x.ticketItemId===i.ticketItemId)?.name??'',language)}</span>
+                <strong className="ml-auto">−{centsToDollars(i.expectedDiscountCents)}</strong>
+              </label>)}
+              <p className="text-sm text-slate-600">{membershipText(language,'discountChoiceHint')}</p>
+            </div>}
 
             {/* 2. 多技师小费分配与分成计算器 */}
             {paymentStage !== 'service' && (
@@ -909,10 +1031,10 @@ function CheckoutContent() {
               {tipMode === 'total_split' ? (
                 <div className="space-y-2.5">
                   {/* 快捷小费比例按钮 */}
-                  <div className="grid grid-cols-5 gap-1.5 text-xs">
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 text-xs">
                     {[0, ...(data?.checkoutSettings?.suggestedTipPercentages ?? [15, 18, 20, 25])].map((percent) => {
                       const btn = { label: percent === 0 ? t('checkout.noTip') : `${percent}%`, rate: percent / 100 };
-                      const tipAmt = centsToDollars(Math.round(afterDiscountCents * btn.rate));
+                      const tipAmt = centsToDollars(Math.round(suggestedTipBaseCents * btn.rate));
                       const isSelected = totalTipInput === tipAmt;
                       return (
                         <button
@@ -933,7 +1055,7 @@ function CheckoutContent() {
                     })}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     <div>
                       <label className="block text-[11px] font-bold text-slate-600 mb-1">{t('checkout.tipCustomTotal')}</label>
                       <Input
@@ -986,7 +1108,7 @@ function CheckoutContent() {
                   <span>{t('checkout.splitSummary')}</span>
                   <span className="font-mono text-teal-700">{t('checkout.tipTotal')}{centsToDollars(totalTipCents)}</span>
                 </span>
-                <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                   {staffTipAllocations.map((st) => {
                     return (
                       <div key={st.membershipId} className="p-2 bg-white rounded-lg border border-teal-200/80 space-y-0.5">
@@ -1014,7 +1136,7 @@ function CheckoutContent() {
 
             {/* 3. 税费与信用卡手续费配置 */}
             {paymentStage !== 'tip' && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Sales Tax */}
               <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm space-y-2 text-xs">
                 <div className="flex items-center justify-between">
@@ -1041,7 +1163,7 @@ function CheckoutContent() {
                     <input
                       type="checkbox"
                       checked={enableCardSurcharge}
-                      onChange={(e) => setEnableCardSurcharge(e.target.checked)}
+                      onChange={(e) => setEnableCardSurcharge(e.target.checked)} disabled={!!onSelection}
                       className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500/20"
                     />
                     <span>{t('checkout.cardSurchargeToggle')}</span>
@@ -1094,12 +1216,16 @@ function CheckoutContent() {
                   <Input
                     inputMode="decimal"
                     value={discountInput}
-                    onChange={(e) => setDiscountInput(e.target.value)}
+                    onChange={(e) => {setDiscountInput(e.target.value);setIdempotencyKey(crypto.randomUUID());}}
                     className="h-7 w-24 text-right font-mono text-xs"
                     placeholder="0.00"
                   />
                 </div>
               )}
+
+              {membershipPriceDiscountCents>0&&<div className="flex justify-between text-teal-700"><span>{membershipText(language,'applyDiscount')}</span><strong>−{centsToDollars(membershipPriceDiscountCents)}</strong></div>}
+              {canDiscount&&membershipDiscountOffer&&<p className="text-xs text-slate-500">{membershipText(language,'manualRemaining')}: ${centsToDollars(manualDiscountCapacity)}</p>}
+              {invalidPriceSelection&&<p role="alert" className="text-xs text-rose-700">{membershipText(language,'discountConflict')}</p>}
 
               {packageCoveredCents > 0 && (
                 <div className="flex justify-between text-emerald-700">
@@ -1150,15 +1276,19 @@ function CheckoutContent() {
                       <Icon className="w-4 h-4 text-slate-400 shrink-0" />
                       <select
                         value={line.method}
-                        onChange={(e) => patchLine(index, {
-                          ...emptyLine(e.target.value as PaymentMethod),
-                          baseCents: line.baseCents,
-                          tipCents: line.tipCents,
-                        })}
+                        onChange={(e) => {
+                          const method=e.target.value as PaymentMethod,isStored=['gift_card','customer_credit'].includes(method);
+                          let next=lines.map((l,i)=>i===index?{...emptyLine(method),baseCents:l.baseCents,tipCents:isStored?0:l.tipCents}:l);
+                          if(isStored&&line.tipCents>0){let target=next.findIndex(l=>!['gift_card','customer_credit'].includes(l.method));
+                            if(target<0){if(next.length>=MAX_PAYMENT_LINES){toast.danger(groupCheckoutText(language,'tipChannel'));return;}target=next.length;next=[...next,emptyLine('card')];}
+                            next=next.map((l,i)=>i===target?{...l,tipCents:l.tipCents+line.tipCents}:l);
+                          }
+                          acceptChannelTips(next);
+                        }}
                         className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                       >
-                        {PAYMENT_METHODS.filter((m) => paymentStage !== 'tip' || m !== 'gift_card').map((m) => (
-                          <option key={m} value={m}>{t(METHOD_LABELS[m])}</option>
+                        {PAYMENT_METHODS.filter((m) => paymentStage !== 'tip' || !['gift_card','customer_credit'].includes(m)).map((m) => (
+                          <option key={m} value={m} disabled={['gift_card','customer_credit'].includes(m)&&(!canApplyDeposit||m==='customer_credit'&&!selected.customerId)}>{m==='customer_credit'?groupCheckoutText(language,'credit'):t(METHOD_LABELS[m])}</option>
                         ))}
                       </select>
                       {lines.length > 1 && (
@@ -1174,7 +1304,7 @@ function CheckoutContent() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-[11px] font-bold text-slate-500 mb-1">
                           {t('baseAmount') || t('checkout.servicePayAmount')}
@@ -1202,11 +1332,12 @@ function CheckoutContent() {
                           }}
                           placeholder="0.00"
                           className="font-mono text-xs font-bold text-teal-700"
-                          disabled={paymentStage === 'service'}
+                          disabled={paymentStage === 'service'||['gift_card','customer_credit'].includes(line.method)}
                         />
                       </div>
                     </div>
 
+                    {line.method==='customer_credit'&&<p className="text-xs">{groupCheckoutText(language,'available')}: ${centsToDollars(selected.availableStoreCreditCents??0)}</p>}
                     {chargedCents(line) > 0 && (
                       <div className="flex justify-between items-baseline text-xs pt-1 border-t border-slate-100">
                         <span className="text-slate-500">
@@ -1336,9 +1467,13 @@ function CheckoutContent() {
             </div>
           </div>
 
+          {quoteInput&&<div className="px-6 py-2 text-sm" role={checkoutQuote.error?'alert':'status'}>
+            {checkoutQuote.error?<><p>{checkoutQuoteText(language,'error')}</p><Button onClick={()=>void checkoutQuote.refetch()}>{checkoutQuoteText(language,'retry')}</Button></>:
+              !quoteReady?checkoutQuoteText(language,'loading'):<p>{checkoutQuoteText(language,'title')}: <strong>${centsToDollars(confirmedQuote!.amountDueCents)}</strong></p>}
+          </div>}
           {/* 结账底部对账栏 */}
           <div className="border-t border-slate-200 bg-white px-6 py-4 sm:pr-20 space-y-2.5 shrink-0">
-            <div className="flex justify-between text-xs text-slate-600">
+            <div className="flex flex-wrap gap-2 justify-between text-xs text-slate-600">
               <span>{t('checkout.netServiceCollected')} <strong className="font-mono text-slate-800">${centsToDollars(paidBaseCents)}</strong></span>
               <span>{t('checkout.tipTotal')}<strong className="font-mono text-teal-700">{centsToDollars(totalTipCents)}</strong></span>
               <span>{t('checkout.terminalTotal')} <strong className="font-mono text-slate-900 font-black">${centsToDollars(chargedTotalCents)}</strong></span>
@@ -1360,15 +1495,15 @@ function CheckoutContent() {
               permission="ticket.write"
               size="lg"
               isPending={close.isPending}
-              isDisabled={remainingCents !== 0 || !paymentStage}
-              className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold h-12 text-sm rounded-xl shadow-lg"
+              isDisabled={(!onSelection&&remainingCents !== 0) || !paymentStage||invalidPriceSelection||!quoteReady||!!close.hasPendingSettlement}
+              className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold min-h-12 h-auto whitespace-normal py-3 text-sm rounded-xl shadow-lg"
               onClick={() => void settle()}
             >
-              {paymentStage === 'service'
+              {onSelection?groupCheckoutText(language,'save'):paymentStage === 'service'
                 ? t('checkout.collectServicePayment')
                 : paymentStage === 'tip'
                   ? t('checkout.collectTipOrNoTip')
-                  : t('checkout.confirmCheckout')} (${centsToDollars(chargedTotalCents)})
+                  : t('checkout.confirmCheckout')} (${centsToDollars(onSelection&&confirmedQuote?confirmedQuote.amountDueCents:chargedTotalCents)})
             </GuardedButton>
           </div>
         </Card>
@@ -1427,6 +1562,7 @@ function CheckoutContent() {
         </Modal>
       )}
 
+      </div>
     </div>
   );
 }
@@ -1434,7 +1570,11 @@ function CheckoutContent() {
 export function Checkout() {
   return (
     <ErrorBoundary fallbackTitleKey="checkout">
-      <CheckoutContent />
+      <CheckoutWorkbench />
     </ErrorBoundary>
   );
+}
+
+export function GroupCheckoutButton(){
+ return <GroupCheckoutEntry renderSelection={(ticketId,initialSelection,onSelection)=><CheckoutWorkbench key={ticketId} ticketId={ticketId} embedded {...(initialSelection?{initialSelection}:{})} onSelection={onSelection}/>}/>;
 }

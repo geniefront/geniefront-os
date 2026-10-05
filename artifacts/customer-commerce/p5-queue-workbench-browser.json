@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-02T13:42:59.588087+00:00",
+  "session": "commerce-queue-workbench",
+  "errors": [],
+  "desktopEnglishPreviewVerified": true,
+  "mobileChineseConfirmationVerified": true,
+  "mobileViewport": [
+    390,
+    844
+  ],
+  "mobileTipGridColumns": 3,
+  "mobileHorizontalOverflow": false,
+  "initialMobileCrowdingRetainedInHistoricalScreenshots": true
+}

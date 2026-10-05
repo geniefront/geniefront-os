@@ -1,0 +1,106 @@
+{
+  "scope": "P4 actual connected-account portal lifecycle",
+  "at": "2026-10-01T16:04:03.093Z",
+  "stage": "canceled",
+  "productionPublished": false,
+  "realEmailSent": false,
+  "membershipId": "0ef40a69-adf7-4425-a928-72ae89bc470e",
+  "accountId": "acct_1ULVaEJDnwwxW56m",
+  "stripe": {
+    "subscriptionId": "sub_1ULkq4JDnwwxW56mHU9Z4JaK",
+    "status": "active",
+    "cancelAtPeriodEnd": true,
+    "providerCancelAtPeriodEnd": false,
+    "scheduledCancelAt": 1793542798,
+    "periodEnd": 1793542798,
+    "priceCents": 9900,
+    "livemode": false,
+    "effectivePaymentMethod": {
+      "brand": "visa",
+      "last4": "4242"
+    }
+  },
+  "db": {
+    "provider_status": "active",
+    "cancel_at_period_end": true,
+    "scheduled_cancel_at": "2026-11-01 14:19:58+00",
+    "provider_cancel_at_period_end": false,
+    "stripe_subscription_id": "sub_1ULkq4JDnwwxW56mHU9Z4JaK",
+    "stripe_customer_id": "cus_VMTmCJNfec1Bb5",
+    "current_period_end": "2026-11-01 14:19:58+00"
+  },
+  "counts": {
+    "paid_invoices": 1,
+    "ledger_rows": 1,
+    "cash_cents": 9900,
+    "signed_updates": 5,
+    "portal_authorizations": 3
+  },
+  "notices": [
+    {
+      "entity_type": "customer_membership_cancellationNotice",
+      "n": 2,
+      "status": "captured"
+    },
+    {
+      "entity_type": "customer_membership_payment",
+      "n": 1,
+      "status": "captured"
+    },
+    {
+      "entity_type": "customer_membership_renewalRestored",
+      "n": 1,
+      "status": "captured"
+    }
+  ],
+  "configs": [
+    {
+      "id": "bpc_1ULllTJDnwwxW56mEGardlZe",
+      "livemode": false,
+      "isDefault": true,
+      "features": {
+        "customer_update": {
+          "allowed_updates": [],
+          "enabled": false
+        },
+        "invoice_history": {
+          "enabled": true
+        },
+        "payment_method_update": {
+          "enabled": true,
+          "payment_method_configuration": null
+        },
+        "subscription_cancel": {
+          "cancellation_reason": {
+            "enabled": true,
+            "feedback_options": [],
+            "options": [
+              "too_expensive",
+              "unused",
+              "other"
+            ]
+          },
+          "enabled": true,
+          "mode": "at_period_end",
+          "proration_behavior": "none"
+        },
+        "subscription_pause": {
+          "enabled": false
+        },
+        "subscription_update": {
+          "billing_cycle_anchor": "unchanged",
+          "default_allowed_updates": [],
+          "enabled": false,
+          "proration_behavior": "none",
+          "schedule_at_period_end": {
+            "conditions": []
+          },
+          "trial_update_behavior": "end_trial"
+        }
+      },
+      "loginPageEnabled": false
+    }
+  ],
+  "renewalChargeVerified": false,
+  "portalSessionUrlSaved": false
+}

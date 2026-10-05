@@ -1,0 +1,12 @@
+$ vitest run --passWithNoTests src/components/MembershipPlanChange.test.tsx src/pages/MembershipsPage.test.tsx
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/booking
+
+ ✓ src/components/MembershipPlanChange.test.tsx (3 tests) 199ms
+ ✓ src/pages/MembershipsPage.test.tsx (11 tests) 491ms
+
+ Test Files  2 passed (2)
+      Tests  14 passed (14)
+   Start at  13:18:39
+   Duration  1.76s (transform 279ms, setup 170ms, collect 1.40s, tests 690ms, environment 518ms, prepare 79ms)
+

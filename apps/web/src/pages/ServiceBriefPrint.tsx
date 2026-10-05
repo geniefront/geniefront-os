@@ -134,6 +134,7 @@ export function ServiceBriefPrint() {
   const { language: uiLanguage } = useLanguage();
   const { status, membershipId } = useSession();
   const [printLanguage, setPrintLanguage] = useState<Language>(uiLanguage);
+  const summaryLanguage = printLanguage === 'zh-Hant' ? 'zh-Hans' : printLanguage;
   const [format, setFormat] = useState<PrintPaper>('letter');
   /* 这一页不套后台布局，没有侧边栏可点；独立窗口下缺了返回控件就是死路。 */
   const goBack = useGoBack('/queue');
@@ -403,11 +404,11 @@ export function ServiceBriefPrint() {
           {brief.health.summaries?.map((entry) => <div key={entry.submissionId} className="sbp-summary">
             <h3 className="sbp-sec">{entry.templateTitle[printLanguage] ?? entry.templateTitle.en} · {tp('queue.quAiHealthSummary')}</h3>
             {entry.summary ? <>
-              <p className="sbp-flag">{entry.summary.headline[printLanguage] ?? entry.summary.headline.en}</p>
-              <ul className="sbp-advice">{(entry.summary.keyAlerts[printLanguage] ?? entry.summary.keyAlerts.en).map((line) => <li key={line}>{line}</li>)}</ul>
-              <p>{tp('queue.quSummaryAvoid')}: {(entry.summary.avoidAreasList[printLanguage] ?? entry.summary.avoidAreasList.en).join(' · ') || tp('print.avoidNone')}</p>
-              <p>{entry.summary.focusNotes[printLanguage] ?? entry.summary.focusNotes.en}</p>
-              <p>{entry.summary.technicianAdvice[printLanguage] ?? entry.summary.technicianAdvice.en}</p>
+              <p className="sbp-flag">{entry.summary.headline[summaryLanguage] ?? entry.summary.headline.en}</p>
+              <ul className="sbp-advice">{(entry.summary.keyAlerts[summaryLanguage] ?? entry.summary.keyAlerts.en).map((line) => <li key={line}>{line}</li>)}</ul>
+              <p>{tp('queue.quSummaryAvoid')}: {(entry.summary.avoidAreasList[summaryLanguage] ?? entry.summary.avoidAreasList.en).join(' · ') || tp('print.avoidNone')}</p>
+              <p>{entry.summary.focusNotes[summaryLanguage] ?? entry.summary.focusNotes.en}</p>
+              <p>{entry.summary.technicianAdvice[summaryLanguage] ?? entry.summary.technicianAdvice.en}</p>
             </> : <p className="sbp-dim">{tp('queue.quAiSummaryFailed')}</p>}
           </div>)}
           {!brief.health.canViewForm && <p className="sbp-dim">{tp('print.healthNoPermission')}</p>}

@@ -1,0 +1,69 @@
+{
+  "at": "2026-10-02T13:42:59.588087+00:00",
+  "scope": "Queue inline checkout reuses the existing standalone workbench; canonical group request fingerprint protection",
+  "phaseComplete": false,
+  "goalComplete": false,
+  "productionPublished": false,
+  "migration": 179,
+  "checks": {
+    "webFiles": 7,
+    "webTests": 61,
+    "apiMoneyFiles": 1,
+    "apiMoneyTests": 19,
+    "typecheckPackages": 16,
+    "guards": true,
+    "webBuild": true,
+    "diffCheck": true,
+    "browserErrors": 0
+  },
+  "implementation": {
+    "singleWorkbenchForStandaloneAndQueue": true,
+    "queueDuplicateTenderAndTipCalculatorRemoved": true,
+    "pinnedTicketNeverFallsBackToAnotherCustomer": true,
+    "sharedPendingPaymentNotificationAcrossHookInstances": true,
+    "newGroupPaymentsCanonicalFingerprint": true,
+    "sameGroupRequestReplaysOnce": true,
+    "changedGroupRequestSameKeyRejected": true
+  },
+  "native": {
+    "ticketId": "f679aa63-a950-4cb3-b850-6ed29a6ece54",
+    "submissionPath": "/queue",
+    "dialogAtSubmission": true,
+    "languageAtPayment": "zh-Hans",
+    "viewportAtPayment": [
+      390,
+      844
+    ],
+    "paymentHttpStatus": 201,
+    "expectedQuoteHashMatchedSuccessfulAudit": true,
+    "originalStripePurchaseReused": true,
+    "originalPurchaseCents": 50000,
+    "originalPurchaseRefundCents": 45000,
+    "packageCoverageCents": 10000,
+    "newOfflineQaCashCents": 21000,
+    "tipCents": 1000,
+    "originalFundedPlusCashCommissionBaseCents": 25000,
+    "wholeServiceReturnedThroughNativeTickets": true,
+    "finalCommissionBaseCents": 0,
+    "finalTipCents": 0,
+    "cashReturnCents": 21000,
+    "originalUnitRestoredOnce": true,
+    "finalAvailableUnits": "[0,1)",
+    "newStripePayment": false,
+    "preservedStripePayments": 14
+  },
+  "remaining": [
+    "Group quote and full group benefit/tender allocation and native UI",
+    "Server must replace remaining local candidate calculations and include all gift/store-credit source selections",
+    "Full cross-currency, all benefit/role/offline/lifecycle and day-close matrices",
+    "Historical group receipts without stored fingerprints retain their legacy recovery behavior; complete historical recovery audit pending",
+    "P1–P4 remaining cases and P6 all A01–A22 evidence gates"
+  ],
+  "externalBlockers": [
+    {
+      "scope": "successful sandbox payout and automatic batch",
+      "currentReadOnlyDiscovery": "Successful test bank not yet selected",
+      "checkedAt": "2026-10-02T13:43:56.126864+00:00"
+    }
+  ]
+}

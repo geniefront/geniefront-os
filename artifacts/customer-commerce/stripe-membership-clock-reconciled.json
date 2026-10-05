@@ -1,0 +1,147 @@
+{
+  "at": "2026-10-01T23:02:49.058Z",
+  "scope": "P4 actual original monthly subscription clock renewal and recovery",
+  "stage": "reconciled",
+  "stripeVerified": true,
+  "originalBrowserPurchaseReused": true,
+  "productionPublished": false,
+  "realEmailSent": false,
+  "clock": {
+    "id": "clock_1ULsl0JDnwwxW56msI7Dg7cW",
+    "status": "ready",
+    "frozenTime": 1796138400,
+    "autoDeletesAt": 1793486838
+  },
+  "stripe": {
+    "subscriptionId": "sub_1ULkq4JDnwwxW56mHU9Z4JaK",
+    "customerId": "cus_VMTmCJNfec1Bb5",
+    "accountId": "acct_1ULVaEJDnwwxW56m",
+    "status": "active",
+    "livemode": false,
+    "effectiveGoodPaymentMethod": true,
+    "invoices": [
+      {
+        "id": "in_1ULsmGJDnwwxW56mLKXCP5Al",
+        "status": "paid",
+        "paidCents": 9900,
+        "totalCents": 9900,
+        "attemptCount": 1,
+        "periodStart": 1796134798,
+        "periodEnd": 1798813198
+      },
+      {
+        "id": "in_1ULslKJDnwwxW56myZhhnCZM",
+        "status": "paid",
+        "paidCents": 9900,
+        "totalCents": 9900,
+        "attemptCount": 1,
+        "periodStart": 1793542798,
+        "periodEnd": 1796134798
+      },
+      {
+        "id": "in_1ULkq2JDnwwxW56mEGHi13gy",
+        "status": "paid",
+        "paidCents": 9900,
+        "totalCents": 9900,
+        "attemptCount": 0,
+        "periodStart": 1790864398,
+        "periodEnd": 1793542798
+      }
+    ],
+    "settlements": [
+      {
+        "invoiceId": "in_1ULkq2JDnwwxW56mEGHi13gy",
+        "paymentIntentId": "pi_3ULkq3JDnwwxW56m1NLLxLmB",
+        "status": "succeeded",
+        "grossCents": 9900,
+        "feeCents": 317,
+        "netCents": 9583,
+        "verified": true
+      },
+      {
+        "invoiceId": "in_1ULslKJDnwwxW56myZhhnCZM",
+        "paymentIntentId": "pi_3ULslYJDnwwxW56m1r0bqi6O",
+        "status": "succeeded",
+        "grossCents": 9900,
+        "feeCents": 317,
+        "netCents": 9583,
+        "verified": true
+      },
+      {
+        "invoiceId": "in_1ULsmGJDnwwxW56mLKXCP5Al",
+        "paymentIntentId": "pi_3ULsmTJDnwwxW56m1rrZ07yc",
+        "status": "succeeded",
+        "grossCents": 9900,
+        "feeCents": 317,
+        "netCents": 9583,
+        "verified": true
+      }
+    ]
+  },
+  "db": {
+    "provider_status": "active",
+    "cancel_at_period_end": false,
+    "terminated_at": null,
+    "invoices": 3,
+    "cash_cents": 29700,
+    "cycles": 3,
+    "planned_cycles": 2,
+    "ledger_rows": 1,
+    "available_current_quantity": 1,
+    "signed_paid_events": 3,
+    "signed_failed_events": 1
+  },
+  "cycleCoverage": [
+    {
+      "stripe_invoice_id": "in_1ULkq2JDnwwxW56mEGHi13gy",
+      "batch_count": 1,
+      "value_cents": 9900,
+      "quantity": 1,
+      "starts_at": "2026-10-01 14:19:58+00",
+      "ends_at": "2026-11-01 14:19:58+00"
+    },
+    {
+      "stripe_invoice_id": "in_1ULslKJDnwwxW56myZhhnCZM",
+      "batch_count": 1,
+      "value_cents": 9900,
+      "quantity": 1,
+      "starts_at": "2026-11-01 14:19:58+00",
+      "ends_at": "2026-12-01 14:19:58+00"
+    },
+    {
+      "stripe_invoice_id": "in_1ULsmGJDnwwxW56mLKXCP5Al",
+      "batch_count": 1,
+      "value_cents": 9900,
+      "quantity": 1,
+      "starts_at": "2026-12-01 14:19:58+00",
+      "ends_at": "2027-01-01 14:19:58+00"
+    }
+  ],
+  "notices": [
+    {
+      "entity_type": "customer_membership_cancellationNotice",
+      "n": 2,
+      "status": "captured"
+    },
+    {
+      "entity_type": "customer_membership_payment",
+      "n": 3,
+      "status": "captured"
+    },
+    {
+      "entity_type": "customer_membership_paymentFailedNotice",
+      "n": 1,
+      "status": "captured"
+    },
+    {
+      "entity_type": "customer_membership_renewalRestored",
+      "n": 2,
+      "status": "captured"
+    }
+  ],
+  "authenticatedReconciliationRuns": 2,
+  "applicationClockAdvanced": false,
+  "futureBenefitsIssued": false,
+  "lifecycleAcceptanceComplete": false,
+  "goalComplete": false
+}

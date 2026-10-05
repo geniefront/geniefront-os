@@ -189,6 +189,21 @@ else
   fi
 fi
 
+for origin in https://supabase.geniefront.com https://unapproved.example.com; do
+  candidate="${WORKDIR}/.env.production-self-hosted"
+  sed "s|^SUPABASE_URL=.*|SUPABASE_URL=${origin}|" "$prd" > "$candidate"
+  if run_guard production "$candidate" >"${WORKDIR}/self-hosted.out" 2>&1; then
+    [[ "$origin" == https://supabase.geniefront.com ]] \
+      && pass "production accepts the approved self-hosted Supabase" \
+      || bad "production accepted an unapproved Supabase origin"
+  else
+    [[ "$origin" == https://unapproved.example.com ]] \
+      && grep -q 'Supabase' "${WORKDIR}/self-hosted.out" \
+      && pass "production rejects unapproved Supabase origins" \
+      || bad "production rejected the approved self-hosted Supabase"
+  fi
+done
+
 if [[ $fail -ne 0 ]]; then
   echo "✗ env-guard / bootstrap staging-book regression"
   exit 1

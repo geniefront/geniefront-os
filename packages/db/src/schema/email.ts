@@ -11,6 +11,8 @@
 
 import { pgTable, uuid, text, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { organizations, locations } from './tenancy';
+import {giftCards} from './giftcard';
+import {commerceOrders} from './commerce';
 
 export const emailOutbox = pgTable('email_outbox', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -26,6 +28,9 @@ export const emailOutbox = pgTable('email_outbox', {
   /** 幂等键：同一件事只发一封。重复的确认信会让客人以为自己订了两次 */
   entityType: text('entity_type').notNull(),
   entityId: uuid('entity_id').notNull(),
+  commerceOrderId:uuid('commerce_order_id').references(()=>commerceOrders.id),
+  commerceGiftCardId:uuid('commerce_gift_card_id').references(()=>giftCards.id),
+  commerceCredentialVersion:integer('commerce_credential_version'),
   status: text('status').notNull().default('pending'),
   attempts: integer('attempts').notNull().default(0),
   lastError: text('last_error'),

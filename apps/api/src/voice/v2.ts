@@ -22,6 +22,7 @@ import { dispatch } from "../bus";
 import { flushSms } from "../sms/flush";
 import { flushEmails } from "../email/flush";
 import { callerFromSystemHeaders } from "./manage";
+import {currentVoiceBooking} from './deposit';
 
 type Auth = (
   req: FastifyRequest,
@@ -36,6 +37,7 @@ const day = z
 const search = z
   .object({
     date: day.optional(),
+    time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).optional(),
     serviceId: z.string().uuid().optional(),
     membershipId: z.string().uuid().optional(),
     partySize: z.coerce.number().int().min(1).max(10).optional(),
@@ -52,6 +54,7 @@ const submit = z
     notes: z.string().max(1000).optional(),
     priceConfirmed: z.boolean().optional(),
     confirmedTotalCents: z.number().int().nonnegative().optional(),
+    depositConsent:VoiceBookingInput.shape.depositConsent,
   })
   .strict();
 const groupSchema = z.object({
@@ -105,7 +108,7 @@ export function registerVoiceV2Routes(
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: {
         reason: "conflicting_selection_fields", guidance: "Use date and itemsJson, or simple serviceId/partySize fields, not both.",
       } });
-    if ((q.date || q.membershipId || q.partySize !== undefined) && !selections && !q.serviceId)
+    if ((q.date || q.time || q.membershipId || q.partySize !== undefined) && !selections && !q.serviceId)
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: "service_selection_required" },
       });
@@ -188,6 +191,7 @@ export function registerVoiceV2Routes(
       phoneE164: b.phoneE164,
       email: b.email,
       notes: b.notes,
+      ...(b.depositConsent?{depositConsent:b.depositConsent}:{}),
     };
     const key =
       "voice-v2-" +
@@ -208,6 +212,7 @@ export function registerVoiceV2Routes(
       idempotencyKey: key,
       systemOrigin: "xai_voice",
     });
+    const current=await withTenant(ctx,tx=>currentVoiceBooking(tx,ctx,SubmitVoiceBooking.output.parse(out.result).appointmentId));
     void flushSms(ctx, app.log).catch(() =>
       app.log.warn("Voice SMS flush will retry"),
     );
@@ -217,11 +222,15 @@ export function registerVoiceV2Routes(
     reply.header("Cache-Control", "no-store");
     return {
       ok: true,
-      ...SubmitVoiceBooking.output.parse(out.result),
+      ...current,
       replayed: out.replayed,
       startsAt,
       timezone: g.timezone,
       priceCents: g.quotedTotalCents,
+      guidance:current.deposit?.additionalPayment?
+        'The existing booking remains confirmed. Explain the separate additional deposit request and its current deadline or expired status. Do not say the additional deposit is paid or that the card will be charged automatically. Use email instructions or frontdesk assistance.':current.bookingConfirmed?'The appointment is confirmed.':current.status==='pending_deposit'?
+        'The time is held, awaiting the deposit. State the deposit and deadline. Payment confirms the booking; use email instructions or frontdesk assistance. Do not say the booking is confirmed.':
+        'The appointment is not confirmed. Explain the returned status and offer frontdesk assistance.',
     };
   });
 }

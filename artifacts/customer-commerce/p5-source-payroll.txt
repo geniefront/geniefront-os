@@ -1,0 +1,19 @@
+$ vitest run
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/payroll
+
+ ✓ src/settle.test.ts (16 tests) 5ms
+ ✓ src/bundle.test.ts (21 tests) 4ms
+ ✓ src/giftcard.test.ts (14 tests) 3ms
+ ✓ src/credits.test.ts (38 tests) 5ms
+ ✓ src/serviceSources.test.ts (5 tests) 10ms
+ ✓ src/tip.test.ts (19 tests) 4ms
+ ✓ src/pricing.test.ts (3 tests) 3ms
+ ✓ src/commerce.test.ts (15 tests) 4ms
+ ✓ src/commission.test.ts (23 tests) 8ms
+
+ Test Files  9 passed (9)
+      Tests  154 passed (154)
+   Start at  06:12:20
+   Duration  320ms (transform 336ms, setup 0ms, collect 568ms, tests 46ms, environment 1ms, prepare 530ms)
+

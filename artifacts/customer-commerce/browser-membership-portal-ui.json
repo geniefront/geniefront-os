@@ -1,0 +1,46 @@
+{
+  "at": "2026-10-01T22:37:08.356086+00:00",
+  "scope": "P4 protected membership portal and paid membership status UI",
+  "productionPublished": false,
+  "realEmailSent": false,
+  "scenarios": {
+    "protectedResourceScopedPortal": true,
+    "cancelAtPaidPeriodEnd": true,
+    "resumption": true,
+    "paidBenefitPreservedWhileCancellationScheduled": true,
+    "paymentMethodUpdate": true,
+    "nativeInvoiceView": true,
+    "desktopEnglish": true,
+    "mobileChinese": true,
+    "unchangedOriginalPriceAfterCatalogUpdate": true
+  },
+  "sessions": {
+    "commerce-member-monthly-portal-final": {
+      "finalViewport": [
+        390,
+        844
+      ],
+      "horizontalOverflow": false,
+      "browserErrors": 0,
+      "freshAfterVerifiedProcessTerminationAndRestart": true
+    }
+  },
+  "screenshots": [
+    "membership-portal-active-mobile-zh.png",
+    "membership-portal-cancel-review-zh.png",
+    "membership-portal-canceled-mobile-zh.png",
+    "membership-portal-resumed-mobile-zh.png",
+    "membership-canceled-paid-benefit-mobile-zh.png",
+    "membership-portal-payment-method-updated-mobile-zh.png",
+    "membership-invoice-view-mobile-zh.png",
+    "membership-portal-final-desktop-en.png",
+    "membership-managed-final-desktop-en.png",
+    "membership-managed-final-mobile-zh.png"
+  ],
+  "limitations": [
+    "This proves actual portal actions, not recurring charges, end-of-period termination, redemptions or refunds.",
+    "Invoice and receipt download controls were observed; PDF downloads were not exercised.",
+    "Zero browser errors applies to the fresh final owned profile only. Previous first-payment and P3 HMR evidence remains separate.",
+    "Existing preview/listener processes had disappeared; confirmed terminal/missing session and port state before restarting. Original payments were preserved, without database reset or repeat purchase."
+  ]
+}

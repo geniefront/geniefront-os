@@ -136,6 +136,21 @@ export function wallMinuteToInstant(businessDate: string, timezone: string, minu
   return new Date(guess);
 }
 
+/** Request/snapshot-local memoization, including date and timezone (DST safe).
+ * Store timestamps, not mutable Dates; callers always get their own Date. */
+export function createWallMinuteResolver(): typeof wallMinuteToInstant {
+  const instants = new Map<string, number>();
+  return (date, timezone, minutes) => {
+    const key = `${date}|${timezone}|${minutes}`;
+    let instant = instants.get(key);
+    if (instant === undefined) {
+      instant = wallMinuteToInstant(date, timezone, minutes).getTime();
+      instants.set(key, instant);
+    }
+    return new Date(instant);
+  };
+}
+
 /**
  * 实际工时（真实流逝分钟）—— 发工资用这个。
  *

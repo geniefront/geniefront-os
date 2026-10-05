@@ -1,0 +1,11 @@
+$ vitest run --passWithNoTests src/components/ui/Skeleton.test.tsx
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/components/ui/Skeleton.test.tsx (8 tests) 280ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  13:53:40
+   Duration  6.03s (transform 1.72s, setup 1.66s, collect 2.69s, tests 280ms, environment 809ms, prepare 87ms)
+

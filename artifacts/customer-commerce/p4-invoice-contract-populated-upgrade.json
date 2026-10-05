@@ -1,0 +1,39 @@
+{
+  "at": "2026-10-02T16:45:36.321Z",
+  "disposableClone": "gf_commerce_invoice_upgrade_ci",
+  "source": "gf_commerce_stage_ci",
+  "originalFinancialFieldsUnchanged": true,
+  "preservedSandboxTouched": false,
+  "before": {
+    "customer_membership_invoices": {
+      "count": 39,
+      "hash": "7e9cb8e7acc4969cb94f2efbb7787b8b"
+    },
+    "customer_membership_cycles": {
+      "count": 83,
+      "hash": "109c0c0541a8936038ad14cf6875eb39"
+    },
+    "customer_membership_ledger": {
+      "count": 94,
+      "hash": "d31f6f80d9ab38bbbe7c0b14a944a970"
+    },
+    "customer_paid_memberships": {
+      "count": 42,
+      "hash": "a8c4428432e84d5b839fee1de46fdc9f"
+    },
+    "commerce_orders": {
+      "count": 53,
+      "hash": "29c021e87cd122f57beba64772eb6bd4"
+    },
+    "commerce_payments": {
+      "count": 53,
+      "hash": "4a4dae099707cf678c1885664295afdc"
+    }
+  },
+  "proof": {
+    "invoices": 39,
+    "proven_original_contracts": 39,
+    "append_only_trigger": "O"
+  },
+  "migration": "sql/20261002163511_membership_invoice_contracts.sql"
+}

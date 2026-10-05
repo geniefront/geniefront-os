@@ -1,0 +1,76 @@
+{
+  "at": "2026-10-03T02:40:54.397Z",
+  "appointmentId": "177b39b4-aff4-46e8-ad60-7509a3664cc7",
+  "holdId": "063a5920-a28c-4344-84e3-dd2f83ffdf77",
+  "ticket": {
+    "id": "bcf74933-2a98-4105-83bb-003da2c3840b",
+    "status": "refunded",
+    "total_cents": 10000,
+    "refund_cents": 10000
+  },
+  "hold": {
+    "status": "refunded",
+    "reserved_cents": 0,
+    "commerce_frozen": false
+  },
+  "originalContractUnchanged": true,
+  "unrelated17PaymentsUnchanged": {
+    "count": 17,
+    "hash": "95cc7592a6001bccb099e12c8117ab2a"
+  },
+  "currentPayments": {
+    "count": 19,
+    "hash": "1e8a03fa966eab1c27950d57b6e277f2"
+  },
+  "sources": [
+    {
+      "paymentId": "b9580da7-0ff9-485b-b44a-57e8961254e4",
+      "purpose": "initial",
+      "status": "refunded",
+      "amountCents": 2000,
+      "balance": 0,
+      "collections": 1
+    },
+    {
+      "paymentId": "7be2657b-92f7-48cc-ac09-d362f8f213ed",
+      "purpose": "supplement",
+      "status": "refunded",
+      "amountCents": 1800,
+      "balance": 0,
+      "collections": 1
+    }
+  ],
+  "refunds": [
+    {
+      "refundId": "b819a1c0-1720-48f7-9875-9e9d5f63f9c4",
+      "paymentId": "b9580da7-0ff9-485b-b44a-57e8961254e4",
+      "amountCents": 1800,
+      "status": "succeeded",
+      "originalPaymentIntentVerified": true
+    },
+    {
+      "refundId": "5dba103a-68f2-4e8a-af26-a5c2751c154c",
+      "paymentId": "b9580da7-0ff9-485b-b44a-57e8961254e4",
+      "amountCents": 200,
+      "status": "succeeded",
+      "originalPaymentIntentVerified": true
+    },
+    {
+      "refundId": "f931b217-77a0-4637-8644-c6860dd28a8d",
+      "paymentId": "7be2657b-92f7-48cc-ac09-d362f8f213ed",
+      "amountCents": 1800,
+      "status": "succeeded",
+      "originalPaymentIntentVerified": true
+    }
+  ],
+  "earnings": {
+    "base": 0,
+    "amount": 0
+  },
+  "actualStripeTestRefundsVerified": true,
+  "nativeFrontDeskFlow": true,
+  "physicalCashTransferred": false,
+  "notificationDelivery": "capture",
+  "productionPublished": false,
+  "goalComplete": false
+}

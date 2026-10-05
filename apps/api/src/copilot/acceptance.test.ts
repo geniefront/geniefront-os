@@ -100,7 +100,7 @@ beforeAll(async () => {
   };
 
   const [service] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
-    select id from services where location_id = ${LOCATION_ID} and active order by id limit 1`);
+    select id from services where location_id = ${LOCATION_ID} and active and not is_addon and staff_count=1 order by id limit 1`);
   serviceId = service!.id;
 
   const [cust] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
@@ -175,7 +175,7 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
       revision: 1,
     });
 
-    expect(result.status).toBe('completed');
+    expect(result.status, JSON.stringify(result)).toBe('completed');
     expect(result.executedSteps).toHaveLength(1);
     expect(result.executedSteps[0]!.status).toBe('succeeded');
     const aptId = (result.executedSteps[0]!.result as any).appointmentId;
@@ -254,7 +254,7 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
       revision: 1,
     });
 
-    expect(result.status).toBe('completed');
+    expect(result.status, JSON.stringify(result)).toBe('completed');
     const batchRes = result.executedSteps[0]!.result as {
       batchId: string;
       results: Array<{ subKey: string; appointmentId: string }>;
@@ -319,7 +319,7 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
       revision: 1,
     });
 
-    expect(result.status).toBe('completed');
+    expect(result.status, JSON.stringify(result)).toBe('completed');
     const aptResult = result.executedSteps[0]!.result as { appointmentId: string; itemIds: string[] };
     expect(aptResult.itemIds).toHaveLength(3);
 
@@ -394,7 +394,7 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
       selectedStepIndices: [0, 1],
     });
 
-    expect(result.status).toBe('completed');
+    expect(result.status, JSON.stringify(result)).toBe('completed');
     expect(result.executedSteps[0]!.status).toBe('succeeded');
     expect(result.executedSteps[1]!.status).toBe('succeeded');
     expect(result.executedSteps[2]!.status).toBe('skipped');

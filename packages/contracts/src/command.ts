@@ -249,6 +249,12 @@ export interface CommandContext {
     expectedStartsAt: string;
     expectedRescheduleCount: number;
   };
+  /** Server-only proof from the protected manage route, rechecked after row locking. */
+  verifiedManagedBooking?: {
+    appointmentId: string;
+    manageTokenDigest: string;
+    verifiedPhoneDigest: string | null;
+  };
 }
 
 /**

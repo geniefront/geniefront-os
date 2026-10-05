@@ -1,0 +1,31 @@
+$ vitest run --passWithNoTests src/pages/ManageBookingPage.test.tsx src/components/AppointmentDeposit.test.tsx
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/booking
+
+stderr | src/pages/ManageBookingPage.test.tsx > ManageBookingPage > shows locked and mismatch last-four errors from the mutation
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+ ✓ src/components/AppointmentDeposit.test.tsx (12 tests) 224ms
+stderr | src/pages/ManageBookingPage.test.tsx > ManageBookingPage > becomes read-only and offers rebook after cancellation
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/ManageBookingPage.test.tsx > submits only the selected guest and exact refund quote, retaining its request ID after an interrupted response
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/ManageBookingPage.test.tsx > requires all participants of a shared service before customer cancellation
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/ManageBookingPage.test.tsx > requires the reduced pending quote to be accepted, then keeps the original cancellation across a lost success and reload
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/ManageBookingPage.test.tsx > requires the reduced pending quote to be accepted, then keeps the original cancellation across a lost success and reload
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+ ✓ src/pages/ManageBookingPage.test.tsx (14 tests) 2045ms
+   ✓ submits only the selected guest and exact refund quote, retaining its request ID after an interrupted response 336ms
+
+ Test Files  2 passed (2)
+      Tests  26 passed (26)
+   Start at  22:03:15
+   Duration  4.16s (transform 711ms, setup 328ms, collect 2.49s, tests 2.27s, environment 1.13s, prepare 242ms)
+

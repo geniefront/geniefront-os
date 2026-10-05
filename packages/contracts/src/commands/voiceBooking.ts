@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { defineCommand, phoneE164, uuid, cents } from "../command.js";
+import {depositConsent} from './commerce.js';
+
+export const VoiceDepositQuote=z.object({required:z.literal(true),policyVersion:z.string(),amountCents:cents.positive(),
+ serviceTotalCents:cents.nonnegative(),currency:z.string(),cancelCutoffHours:z.number().nonnegative(),retainAfterCutoff:z.boolean(),
+ policyNotice:z.string(),holdMinutes:z.literal(15)});
 
 export const VoiceBookingItems = z
   .array(
@@ -34,6 +39,7 @@ export const VoiceBookingInput = z
     phoneE164,
     email: z.string().email().max(200).optional(),
     notes: z.string().max(1000).optional(),
+    depositConsent:depositConsent.optional(),
   })
   .strict();
 export const SubmitVoiceBooking = defineCommand({
@@ -43,6 +49,11 @@ export const SubmitVoiceBooking = defineCommand({
   output: z.object({
     appointmentId: uuid,
     businessDate: z.string(),
+    status:z.enum(['confirmed','pending_deposit','expired','cancelled','review']),
+    bookingConfirmed:z.boolean(),
+    deposit:z.object({holdId:uuid,amountCents:cents.nonnegative(),currency:z.string(),expiresAt:z.string(),
+      additionalPayment:z.object({amountCents:cents.positive(),expiresAt:z.string(),state:z.enum(['open','expired']),paymentAction:z.enum(['email_link','frontdesk','none'])}).optional(),
+      paymentAction:z.enum(['email_link','frontdesk','none']),emailDelivery:z.enum(['queued','sent','captured','failed','unavailable'])}).optional(),
   }),
   permission: "appointment.write",
   reversible: false,

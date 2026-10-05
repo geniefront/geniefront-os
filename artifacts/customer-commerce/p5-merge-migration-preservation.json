@@ -1,0 +1,78 @@
+{
+  "at": "2026-10-02T15:59:48.170Z",
+  "migrationsBefore": 180,
+  "migrationsAfter": 181,
+  "allFinancialRowsUnchanged": true,
+  "facts": {
+    "commerce_payments": {
+      "count": 14,
+      "hash": "0e6bc4cceb3a1ab766cc1486efff59e4"
+    },
+    "commerce_refunds": {
+      "count": 8,
+      "hash": "9408ca2098d64afacc73f0cea7aee0ec"
+    },
+    "customer_credit_ledger": {
+      "count": 19,
+      "hash": "1e2cf3cad99e5bd44b1d3735fab55409"
+    },
+    "customer_package_ledger": {
+      "count": 14,
+      "hash": "c649f9b1de2d87fa736ef74c25eb4168"
+    },
+    "customer_membership_ledger": {
+      "count": 32,
+      "hash": "e555ff392015da3227e5a26ef9d3946b"
+    },
+    "ticket_refunds": {
+      "count": 14,
+      "hash": "880bc0f6370b3dacd259b886972fd5a3"
+    },
+    "payments": {
+      "count": 110,
+      "hash": "8a384f21adc9efb5139e13d85d5e8885"
+    },
+    "earnings": {
+      "count": 135,
+      "hash": "d52412f531941346d9cd8a6c8d6f9985"
+    },
+    "tip_allocations": {
+      "count": 68,
+      "hash": "4f346002e9443440e2cc302a9c2392e8"
+    },
+    "commerce_orders": {
+      "count": 14,
+      "hash": "940b820ba49d5b7f8acf5396bc5d5dd3"
+    },
+    "customer_paid_memberships": {
+      "count": 3,
+      "hash": "8491d5bbb3a940e8fe6b7feb1bec2a5a"
+    },
+    "customer_membership_invoices": {
+      "count": 6,
+      "hash": "85a03de61fffb91f2db29865ae352591"
+    },
+    "customer_membership_cycles": {
+      "count": 28,
+      "hash": "3a3282c005170bcb0f5ccc1d956b261c"
+    },
+    "customer_packages": {
+      "count": 2,
+      "hash": "ee7a4efac13dc7d85ad8656ed6301ca1"
+    },
+    "gift_cards": {
+      "count": 6,
+      "hash": "8fd6c1def4ece54a216a0cb2ad35cc4e"
+    },
+    "appointments": {
+      "count": 183,
+      "hash": "22e5859e777c9704f07d8ad40c6e5ab8"
+    },
+    "tickets": {
+      "count": 114,
+      "hash": "7ad0cf416595423c286bbca81db17fbd"
+    }
+  },
+  "reset": false,
+  "productionChanged": false
+}

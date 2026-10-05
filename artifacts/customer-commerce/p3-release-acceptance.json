@@ -1,0 +1,65 @@
+{
+  "at": "2026-10-02T16:31:31.593972+00:00",
+  "scope": "P3 explicit withdrawal of retained appointment deposits, original-source refund reservation and cross-day reporting",
+  "migration": 182,
+  "checks": {
+    "api": {
+      "files": 6,
+      "tests": 132,
+      "basis": "6 files/131 plus replacement retention suite 14 instead of 13"
+    },
+    "web": {
+      "files": 4,
+      "tests": 20
+    },
+    "contracts": {
+      "files": 19,
+      "tests": 97
+    },
+    "typecheckPackages": 16,
+    "finalApiTypes": true,
+    "guards": true,
+    "webBuild": true,
+    "diff": true,
+    "migrationEmptyUpgradeReplay": true,
+    "advisors": {
+      "errors": 0,
+      "environmentWarnings": 168,
+      "newReleaseFindings": 0
+    }
+  },
+  "native": {
+    "originalDepositCents": 2000,
+    "originalRetainedCents": 800,
+    "priorRefundCents": 1200,
+    "releaseCents": 800,
+    "cumulativeOriginalRefundCents": 2000,
+    "http201ResponseLossAndReload200Replay": true,
+    "releaseRows": 1,
+    "refundRowsForRelease": 1,
+    "signedRefundEvents": 2,
+    "stripeRefundSucceeded": true,
+    "stripeRefundFeeCents": 0,
+    "stripeRefundNetCents": -800,
+    "originalRetentionUnchanged": true,
+    "newStripePayment": false,
+    "originalPaymentCount": 14,
+    "expectedPaymentStatusChange": "paid -> refunded on this one original deposit payment; all other original payment fields preserved",
+    "currentPaymentFingerprint": "14:99c54d5375794365efd655bf0a22cfda",
+    "noticeDelivery": "captured",
+    "browserErrors": 0
+  },
+  "limits": [
+    "The failure/recovery and multi-guest exact-allocation cases use isolated DB test providers; the native case uses the original single-guest sandbox payment.",
+    "The full cross-store, currency, role, notification-delivery, offline and six-locale matrices remain under the complete goal.",
+    "The managed booking language selector currently exposes five languages; six translated release strings do not prove the entire six-language workflow.",
+    "Original partial-refund fixtures remain historical checkpoints and intentionally reject the newly fully refunded payment."
+  ],
+  "allAcceptancePassed": false,
+  "productionPublished": false,
+  "goalComplete": false,
+  "references": [
+    "https://docs.stripe.com/refunds",
+    "https://supabase.com/docs/guides/api/securing-your-api"
+  ]
+}

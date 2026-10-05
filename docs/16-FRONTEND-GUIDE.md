@@ -1,5 +1,8 @@
 # 16 · 前端系统开发指南与交接
 
+> **2026-09-27 账号清理更新：** 当前环境账号和 seed 命令以[环境账号清单](qa/TEST_ACCOUNTS.md)为准。下文旧账号、演示店及旧密码仅适用于历史记录或隔离测试 fixture，不能作为现行 local/staging/prod 登录配置；原 `ops` 管理员保留。
+
+
 > **前端开发规范与契约仍以本文为准。** 现行端点、路由和进度地图见 [`CURRENT-ARCHITECTURE.md`](CURRENT-ARCHITECTURE.md)；怎么测见 [`qa/TEST-PLAYBOOK.md`](qa/TEST-PLAYBOOK.md)。
 > 下文表格里 `apps/ipad` 已不是占位骨架（门口 Kiosk 可跑），`apps/ios` 仍是空壳。公开预约是独立应用 `apps/booking`，营销站是 `apps/marketing`。
 >
@@ -10,35 +13,18 @@
 ## 1. 快速启动与环境
 
 ```bash
-# 1) 启动后端（必须先起，提供 Fastify + Supabase 代理）
-pnpm --filter @gf/api dev              # http://127.0.0.1:3000
-
-# 2) 启动统一 Web 前端（开发端口 5177）
-pnpm --filter @gf/web dev              # http://localhost:5177
-
-# 3) 清理共享开发库残留并补回演示预约
-pnpm db:tidy
+pnpm dev:api:local
+pnpm dev:web:local
+pnpm db:seed local       # 首次创建最小手工 QA baseline；重复运行保留现有数据
 ```
 
-⚠️ **绝不要用 `pnpm db:seed` 顶替 `db:tidy`** —— 它会解绑真实 Telnyx 电话号码，导致门店电话 401。
+### 当前测试账号
 
-### 种子账号（密码统一 `GenieDev!2026`）
+local 使用 `qa-local-owner@example.test`、`qa-local-desk@example.test`、`qa-local-tech@example.test`、`qa-local-setup@example.test`；密码见 `.env.local` 的 `GF_BASELINE_PASSWORD`。staging 对应 `qa-staging-*`，使用独立密码。
 
-| 邮箱 | 角色 | 权限 / 门店 |
-|---|---|---|
-| `mia@maildrop.cc` | `front_desk` | 前台（24条权限）· Lotus Nails & Spa (`America/New_York`) |
-| `amy@maildrop.cc` | `manager` 兼 `tech` | 店长兼技师 · Lotus Nails & Spa |
-| `owner@maildrop.cc` | `owner` | 老板 · Golden Foot Spa |
+平台管理员保留原账号。完整清单、生产保护范围与隔离回归 seed 说明见 [TEST_ACCOUNTS.md](qa/TEST_ACCOUNTS.md)。
 
-### 可重复测试开店 Setup
-
-下面这条命令会创建一个新的空白测试门店，状态等价于“Stripe 测试付款成功、账号已认领、尚未完成 setup”：
-
-```bash
-pnpm setup:test:reset
-```
-
-随后使用 `setup@maildrop.cc` / `GenieSetup!2026` 登录，Web 会自动进入 `/setup`。每次想从头再测就重新运行命令；上一轮门店会被关闭而不是删除，因此不会伪造或抹掉付款与审计历史。可通过根目录 `.env` 的 `SETUP_TEST_EMAIL`、`SETUP_TEST_PASSWORD` 覆盖账号，邮箱必须使用 `@maildrop.cc`。
+开店向导使用 `qa-local-setup@example.test` / `qa-staging-setup@example.test`。baseline 重跑不会将完成开店的店重置回 setup；需要重复破坏性场景时，在隔离库使用 `qa:seed fresh_owner`。旧 `setup:test:reset` 仅允许独立本机/CI 测试库。
 
 ### 首次开店的路由门禁
 

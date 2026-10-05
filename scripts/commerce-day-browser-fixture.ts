@@ -1,0 +1,31 @@
+import {readFile,writeFile} from 'node:fs/promises';
+import type {CommerceDaySummary} from '../packages/contracts/src/index';
+import {assertRegressionTarget} from '../packages/db/src/qa/regressionSafety';
+for(const [target,source] of [['DATABASE_URL','TEST_DATABASE_URL'],['MIGRATION_DATABASE_URL','TEST_MIGRATION_DATABASE_URL']] as const){const u=new URL(process.env[source]??'');if(u.hostname!=='127.0.0.1'||u.port!=='58332')throw new Error('Dedicated preserved QA database required');u.pathname='/gf_commerce_ci';process.env[target]=u.href;}
+process.env.NODE_ENV='test';process.env.COMMUNICATION_DELIVERY_MODE='capture';assertRegressionTarget(process.env);
+if(process.env.COMMERCE_STRIPE_MODE!=='test'||!['localhost','127.0.0.1'].includes(new URL(process.env.SUPABASE_URL!).hostname))throw new Error('Existing local Auth and sandbox required');
+const {withTenant,closeDb}=await import('../packages/db/src/index'),tenant={orgId:'22222222-2222-4222-8222-222222222222',locationId:'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb',membershipId:null};
+try{
+ const auth=await fetch(`${process.env.SUPABASE_URL}/auth/v1/token?grant_type=password`,{method:'POST',headers:{apikey:process.env.SUPABASE_ANON_KEY!,'content-type':'application/json'},body:JSON.stringify({email:'qa-local-owner@example.test',password:process.env.GF_BASELINE_PASSWORD})});if(!auth.ok)throw new Error('Existing QA login required');const login=await auth.json() as {access_token:string;user:{id:string}};
+ const [owner]=await withTenant(tenant,tx=>tx<{id:string}[]>`select id from memberships where user_id=${login.user.id} and location_id=${tenant.locationId} and status='active'`);if(!owner)throw new Error('Existing QA owner required');
+ const [location]=await withTenant(tenant,tx=>tx<{day:string;currency:string}[]>`select (((now() at time zone timezone)-business_day_cutoff)::date)::text as day,lower(currency) as currency from locations where id=${tenant.locationId}`);
+ const day=process.argv[2]??location!.day;if(!/^\d{4}-\d{2}-\d{2}$/.test(day))throw new Error('Business date required');
+ const response=await fetch(`http://127.0.0.1:3087/v1/desk/dayclose?date=${day}`,{headers:{authorization:`Bearer ${login.access_token}`,'x-membership-id':owner.id}});if(!response.ok)throw new Error(`Native day-close endpoint failed ${response.status}`);
+ const data=await response.json() as {money:{commerce:CommerceDaySummary;cashTakeCents:number;cardTakeCents:number;movementsCents:number;tipCashCents:number;tipCardCents:number};hasPostCloseChanges:boolean;closedSnapshotAvailable:boolean};if(data.money.commerce?.version!==1)throw new Error('Current commerce summary required');
+ const rows=await withTenant(tenant,tx=>tx<{currency:string;kind:string;received:number;returned:number}[]>`select currency,kind,sum(received)::int as received,sum(returned)::int as returned from(
+  select p.currency,o.kind,p.amount_cents as received,0 as returned from commerce_payments p join commerce_orders o on o.id=p.order_id join locations l on l.id=p.location_id where p.location_id=${tenant.locationId} and (((p.paid_at at time zone l.timezone)-l.business_day_cutoff)::date)=${day}::date
+  union all select p.currency,o.kind,0,r.amount_cents from commerce_refunds r join commerce_payments p on p.id=r.payment_id join commerce_orders o on o.id=p.order_id join locations l on l.id=r.location_id where r.location_id=${tenant.locationId} and r.status='succeeded' and (((r.completed_at at time zone l.timezone)-l.business_day_cutoff)::date)=${day}::date
+ )facts group by currency,kind order by currency,kind`);
+ const actual=data.money.commerce.currencies.flatMap(c=>c.sales.map(s=>({currency:c.currency,kind:s.kind,received:s.receivedCents,returned:s.refundedCents}))).sort((a,b)=>a.currency.localeCompare(b.currency)||a.kind.localeCompare(b.kind));if(JSON.stringify(actual)!==JSON.stringify(rows.map(r=>({...r}))))throw new Error('Business-day receipt/return mismatch');
+ const [fingerprint]=await withTenant(tenant,tx=>tx<{n:number;hash:string}[]>`select count(*)::int as n,md5(string_agg(row_to_json(p)::text,'|' order by id)) as hash from commerce_payments p`);
+ const original=JSON.parse(await readFile('artifacts/customer-commerce/p5-group-final-preservation.json','utf8'));if(`${fingerprint!.n}:${fingerprint!.hash}`!==original.preservedPaymentFingerprint)throw new Error('Original payments changed');
+ if(process.argv[3]==='range'){
+  const headers={authorization:`Bearer ${login.access_token}`,'x-membership-id':owner.id},from='2026-09-30';
+  const response=await fetch(`http://127.0.0.1:3087/v1/desk/reports?from=${from}&to=${day}`,{headers});if(!response.ok)throw new Error('Range report unavailable');const range=await response.json() as {commerce:CommerceDaySummary};
+  const csvResponse=await fetch(`http://127.0.0.1:3087/v1/desk/reports?from=${from}&to=${day}&format=csv`,{headers});if(!csvResponse.ok)throw new Error('Range CSV unavailable');const csv=await csvResponse.text();
+  for(const currency of range.commerce.currencies)for(const sale of currency.sales){if(!csv.includes([currency.currency,sale.kind,(sale.receivedCents/100).toFixed(2),(sale.refundedCents/100).toFixed(2)].join(',')))throw new Error('Range CSV differs from report');}
+  if(range.commerce.throughDate!==day||range.commerce.businessDate!==from||!csv.includes('Payout transfer (not new receipts)'))throw new Error('Range date or transfer distinction missing');
+  await writeFile('artifacts/customer-commerce/p5-day-native-range.csv',csv);await writeFile('artifacts/customer-commerce/p5-day-native-range.json',JSON.stringify({at:new Date().toISOString(),readonly:true,reportHttp:response.status,csvHttp:csvResponse.status,csvMatchesStructuredSummary:true,productionChanged:false,commerce:range.commerce},null,2)+'\n');
+ }
+ const report={at:new Date().toISOString(),businessDate:day,httpStatus:response.status,originalPaymentCount:fingerprint!.n,originalPaymentsUnchanged:true,independentCalendarSqlMatches:true,readonly:true,productionChanged:false,...data};await writeFile(`artifacts/customer-commerce/p5-day-native-${day}.json`,JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify({verified:true,businessDate:day,currencies:actual,originalPaymentCount:fingerprint!.n,readonly:true}));
+}finally{await closeDb();}

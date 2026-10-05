@@ -1,0 +1,20 @@
+{
+  "at": "2026-10-02T04:24:05.850Z",
+  "readOnly": true,
+  "productionChanged": false,
+  "externalTestBankCount": 1,
+  "defaultTestBankCount": 1,
+  "available": [
+    {
+      "amount": 0,
+      "currency": "usd"
+    }
+  ],
+  "pending": [
+    {
+      "amount": 178797,
+      "currency": "usd"
+    }
+  ],
+  "payouts": []
+}

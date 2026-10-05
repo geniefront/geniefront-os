@@ -1,4 +1,4 @@
-import type { HealthAiSummary } from '@gf/contracts';
+import type { HealthAiSummary,DepositAdjustmentQuote } from '@gf/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
@@ -18,6 +18,7 @@ export interface AppointmentItemDetail {
   status?: string;
   /** 组合套餐来源（U10）。普通预约项为 null。 */
   bundleInstanceId?: string | null;
+  guestIndices?:number[];
 }
 
 /** 本条预约里的组合套餐实例（U10）。只读展示，金额取下单时快照。 */
@@ -49,6 +50,16 @@ export interface AppointmentTicketFacts {
 }
 
 export interface AppointmentDetail {
+  guests?:Array<{guestIndex:number;status:'active'|'cancelled';serviceTotalCents:number;refundableDepositCents?:number|null;refundStatus?:string|null}>;
+  guestCancellation?:{enabled:boolean;reason:string|null;currency:string};
+  deposit?: {holdId:string;status:string;financialStatus:string;amountCents:number;availableCents:number;currency:string;
+    expiresAt:string;waivable:boolean;waivedAt:string|null;waiverReason:string|null;
+    recordable?:boolean;onlineCheckoutAvailable?:boolean;checkoutUrl?:string|null;emailAvailable?:boolean;
+    paymentRequest?:{orderId:string;purpose:'initial'|'replacement'|'supplement';state:string;expiresAt:string;amountCents:number;channel:'online'|'offline';checkoutUrl:string|null;payable:boolean}|null;
+    adjustmentQuote?:DepositAdjustmentQuote;
+    retainedCents?:number;retentionQuote?:{enabled:boolean;reason:string|null;policyVersion:string|null;guests:Array<{guestIndex:number;availableCents:number}>;
+      policy?:{cancelCutoffHours:number;notice:string}};
+    retentions?:Array<{id:string;amountCents:number;remainingCents:number;reason:string;createdAt:string;releases:Array<{id:string;amountCents:number;reason:string;createdAt:string;refundId:string;refundStatus:string}>}>};
   isVoiceBooking?:boolean;
   appointmentId: string;
   status: string;
@@ -74,6 +85,7 @@ export function useAppointmentDetailQuery(appointmentId: string | null) {
     queryKey: ['desk', 'appointment-detail', appointmentId, membershipId],
     queryFn: () => apiGet<AppointmentDetail>(`/v1/desk/appointments/${appointmentId}`),
     enabled: status === 'ready' && Boolean(appointmentId),
+    refetchInterval: query => (['pending','refund_pending'].includes(query.state.data?.deposit?.status??'')||query.state.data?.deposit?.paymentRequest?.state==='open')?5_000:false,
   });
 }
 

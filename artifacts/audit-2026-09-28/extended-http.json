@@ -1,0 +1,105 @@
+{
+  "permissions": [
+    "appointment.read",
+    "customer.read",
+    "payroll.view_own",
+    "rotation.read",
+    "schedule.read",
+    "ticket.read",
+    "ticket.write",
+    "timeclock.punch_self"
+  ],
+  "prices": [
+    {
+      "price": "catalog",
+      "status": 201,
+      "subtotal": 4500
+    },
+    {
+      "price": 0,
+      "status": 201,
+      "subtotal": 0
+    },
+    {
+      "price": -100,
+      "status": 201,
+      "subtotal": -100
+    },
+    {
+      "price": 4500,
+      "status": 201,
+      "subtotal": 4500
+    },
+    {
+      "price": 4600,
+      "status": 201,
+      "subtotal": 4600
+    }
+  ],
+  "addItem": {
+    "status": 201,
+    "result": {
+      "ticketItemId": "bcd87597-ed73-4768-b183-4647a8c99751",
+      "subtotalCents": 4500
+    },
+    "replayed": false,
+    "undoToken": "297d45d3-2395-466a-b742-31673b81a1df"
+  },
+  "idempotency": {
+    "firstStatus": 201,
+    "samePayloadStatus": 200,
+    "samePayloadReplayed": true,
+    "changedStatus": 200,
+    "changedReplayed": true,
+    "sameTicket": true,
+    "storedName": "AUDIT customer A"
+  },
+  "crossCustomer": {
+    "status": 201,
+    "persistedCrossOrg": true
+  },
+  "crossService": {
+    "status": 404,
+    "code": "NOT_FOUND",
+    "messageKey": "error.NOT_FOUND",
+    "details": {
+      "serviceId": "a6e68173-b876-4b6c-865f-ea5e40769988"
+    },
+    "overridable": false
+  },
+  "otherTicketAdd": {
+    "status": 201,
+    "result": {
+      "ticketItemId": "93c85480-c887-4403-847c-989c65ecd906",
+      "subtotalCents": 4500
+    },
+    "replayed": false,
+    "undoToken": "26cfb857-e0b8-47a2-8244-c13f620da652"
+  },
+  "orderFilters": [
+    {
+      "filter": "omitted",
+      "status": 200,
+      "rows": 50,
+      "otherStaffOrders": 34
+    },
+    {
+      "filter": "self",
+      "status": 200,
+      "rows": 20,
+      "otherStaffOrders": 0
+    },
+    {
+      "filter": "other",
+      "status": 200,
+      "rows": 13,
+      "otherStaffOrders": 13
+    }
+  ],
+  "revocation": {
+    "waitBarrierReached": true,
+    "inFlightStatus": 201,
+    "ticketPersisted": true,
+    "subsequentRequestStatus": 401
+  }
+}

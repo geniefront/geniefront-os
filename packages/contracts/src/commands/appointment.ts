@@ -1,3 +1,4 @@
+import {depositAdjustmentConsent} from '../depositAdjustment.js';
 /**
  * 预约相关命令。
  *
@@ -218,6 +219,14 @@ export const AppointmentReschedule = defineCommand({
   reversible: true,
   idempotency: 'optional',
 });
+export const AppointmentCancelGuests=defineCommand({name:'appointment.cancelGuests',input:z.object({
+  appointmentId:uuid,guestIndices:z.array(z.number().int().min(0).max(19)).min(1).max(20)
+    .refine(v=>new Set(v).size===v.length,{message:'Select each guest once'}),reason:z.string().trim().min(2).max(500),
+  expectedRefundCents:z.number().int().min(0).max(1_000_000_000),depositAdjustment:depositAdjustmentConsent.optional(),
+}),output:z.object({appointmentId:uuid,cancellationIds:z.array(uuid),cancelledItemIds:z.array(uuid),remainingGuests:z.number().int().min(0),
+  refunds:z.array(z.object({refundId:uuid,amountCents:z.number().int().positive(),status:z.string()}))}),
+permission:'appointment.cancel',ai:{description:'Cancel selected guests while preserving other participants and their paid deposit.',confirm:'always',exposed:false},
+reversible:false,idempotency:'required'});
 
 /**
  * 前台在尚未开单的预约详情里追加一个正式预约项目。
@@ -230,6 +239,8 @@ export const AppointmentAddItem = defineCommand({
   input: z.object({
     appointmentId: uuid,
     serviceId: uuid,
+    guestIndex:z.number().int().min(0).max(19).optional(),
+    depositAdjustment:depositAdjustmentConsent.optional(),
     membershipId: uuid.nullable().default(null),
     startsAt: z.string().datetime({ offset: true }).optional(),
     resourceId: uuid.nullable().optional(),
@@ -252,6 +263,12 @@ export const AppointmentAddItem = defineCommand({
   reversible: true,
   idempotency: 'required',
 });
+
+/** Replaces one ordinary unperformed service while preserving the original row and requiring a deposit requote. */
+export const AppointmentReplaceItem=defineCommand({name:'appointment.replaceItem',input:AppointmentAddItem.input.omit({startsAt:true,durationMin:true,guestIndex:true}).extend({
+ itemId:uuid,membershipId:uuid.nullable().optional(),
+}),output:AppointmentAddItem.output.extend({replacedItemId:uuid}),permission:'appointment.write',fieldPermissions:OVERBOOK_FIELD_PERMISSION,
+ ai:{description:'Replace an unperformed single-person appointment service after reviewing the changed deposit.',confirm:'always',exposed:false},reversible:true,idempotency:'required'});
 
 export const AppointmentCancel = defineCommand({
   name: 'appointment.cancel',
@@ -407,9 +424,10 @@ export const APPOINTMENT_COMMANDS = [
   AppointmentCreate,
   AppointmentCreateBatch,
   AppointmentReschedule,
+  AppointmentReplaceItem,
   AppointmentAddItem,
   AppointmentCancel,
+  AppointmentCancelGuests,
   AppointmentSaveServiceBrief,
   AppointmentAssignCustomer,
 ] as const;
-

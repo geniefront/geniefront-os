@@ -178,7 +178,7 @@ export function BookingExperiencePage() {
       const notes = [guestNotes, input.notes].filter(Boolean).join("\n\n");
       const result = await book({ ...input, ...(notes ? { notes } : {}) }, idem, shop?.publicKey);
       setDone(result);
-      reportBooked();
+      if(!result.summary?.deposit||['paid','refunded'].includes(result.summary.deposit.status))reportBooked();
       if (result.summary) {
         const summary = result.summary;
         setPicked({
@@ -816,6 +816,10 @@ export function BookingExperiencePage() {
                     openedAt={started.current}
                     onSubmit={submit}
                     onBack={() => goStep(3)}
+                    onRefreshQuote={async()=>{
+                      await Promise.all([shopQuery.refetch({throwOnError:true}),catalogQuery.refetch({throwOnError:true}),bundles.refetch({throwOnError:true})]);
+                      setIdem(crypto.randomUUID());setPicked(null);goStep(3);
+                    }}
                     party={{
                       partySize,
                       priceCents: price,

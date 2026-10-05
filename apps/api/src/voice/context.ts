@@ -3,6 +3,7 @@ import { loadBookingStaff } from '../queries/bookingStaff';
 import type postgres from 'postgres';
 import { AppError, ERROR_CODES, pickText } from '@gf/contracts';
 import { addDays, businessDateOf, findBookingOffers, readBookingPolicy } from '@gf/scheduling';
+import {voiceDepositQuoteFromSettings} from './deposit';
 
 export interface VoiceSearch { date?: string | undefined; serviceId?: string | undefined; membershipId?: string | undefined; partySize?: number | undefined }
 const number = (v: unknown, fallback: number) => typeof v === 'number' && Number.isFinite(v) ? v : fallback;
@@ -11,8 +12,8 @@ const minute = (time: string) => { const [h, m] = time.split(':').map(Number); r
 export async function loadVoiceContext(tx: postgres.TransactionSql, locationId: string, search: VoiceSearch, now = new Date()) {
   const [loc] = await tx<{ name: unknown; timezone: string; address: unknown; phone: string | null;
     business_hours: Record<string, { open: string; close: string; periods?: Array<{open:string;close:string}> } | null>; settings: Record<string, unknown>;
-    holiday_calendar: unknown[]; cutoff: string; status: string }[]>`
-    select name, timezone, address, phone, business_hours, settings, holiday_calendar,
+    holiday_calendar: unknown[]; cutoff: string; status: string;currency:string }[]>`
+    select name, timezone,currency,address, phone, business_hours, settings, holiday_calendar,
       business_day_cutoff::text as cutoff, status from locations where id = ${locationId}`;
   if (!loc || ['suspended', 'closed'].includes(loc.status)) throw new AppError(ERROR_CODES.NOT_FOUND);
   const services = await tx<{ id: string; name: unknown; duration_min: number; base_price_cents: number }[]>`
@@ -38,7 +39,8 @@ export async function loadVoiceContext(tx: postgres.TransactionSql, locationId: 
     staff: staffRows.map(s => ({ membershipId: s.membership_id, name: pickText(s.display_name, 'en') })),
     date, partySize: search.partySize ?? 1, policy,
     slots: [] as Array<{ startsAt: string; membershipId: string | null; membershipIds?:Array<string|null> }>,
-    guidance: 'Use only returned slots. A slot is not reserved. Confirm booking only after submit_booking returns ok=true.',
+    guidance: 'Use only returned slots. A slot is not reserved. When a deposit is required, obtain explicit agreement to its quote and policy. Confirm booking only when submit_booking returns bookingConfirmed=true.',
+    deposit:service?voiceDepositQuoteFromSettings(loc.settings,loc.currency,service.base_price_cents*(search.partySize??1)):null,
   };
   if (!service || date < today || date > addDays(today, Math.max(1, Math.min(365, number(online.max_days_ahead, 60))))) return result;
   const keys = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];

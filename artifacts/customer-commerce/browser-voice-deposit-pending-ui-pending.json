@@ -1,0 +1,21 @@
+{
+  "at": "2026-10-01T10:15:28.181Z",
+  "scenario": "pending-ui",
+  "actualVoiceToolHttp": true,
+  "physicalPhoneConversationVerified": false,
+  "bookingConfirmed": false,
+  "realEmailDeliveryVerified": false,
+  "appointmentId": "fd5558e8-e3a5-4e54-a0a7-503cdcde6c70",
+  "holdId": "3c4307dc-e9d9-4e47-b0fb-b7f46483c7db",
+  "facts": {
+    "source": "phone_ai",
+    "deposit_status": "pending",
+    "hold_status": "pending",
+    "service_total_cents": 10000,
+    "amount_cents": 2000,
+    "collected_rows": 0,
+    "confirmation_rows": 0,
+    "request_rows": 0,
+    "captured_request_rows": 0
+  }
+}

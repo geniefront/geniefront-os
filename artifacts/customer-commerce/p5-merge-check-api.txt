@@ -1,0 +1,29 @@
+$ vitest run src/customer_commands.test.ts src/customerMemberships.test.ts src/marketing.test.ts src/giftcard.test.ts src/money.test.ts src/workstations_backend.test.ts src/v1Issues.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ✓ src/customerMemberships.test.ts (38 tests) 14140ms
+   ✓ redeems a specific paid membership unit once and refunds its service back to the original unit, never cash 436ms
+   ✓ serializes two cashiers competing for the last paid membership unit 307ms
+   ✓ keeps per-unit paid values and commission snapshots after catalog changes and restores the exact units 322ms
+   ✓ accumulates partial service returns without restoring fractional or duplicate membership sessions 654ms
+   ✓ keeps the original expiry when a fully returned service restores a membership unit after its period has ended 2264ms
+   ✓ plans all 12 annual calendar batches, grants only due benefits, and two workers cannot issue twice 413ms
+   ✓ accepts a recovered paid renewal once; cancel-at-end and old active events cannot resurrect terminal subscriptions 323ms
+   ✓ requires a resource-specific expiring bearer, with no access from another token, store or employee role 309ms
+   ✓ conserves membership, package, discount, deposit, gift, credit, cash, tax, fee and tips through three original-source returns 1267ms
+   ✓ conserves all six payment sources across a quoted three-ticket group and each original service return 1128ms
+   ✓ merges an explicitly selected identity without rewriting paid records, duplicating subscriptions or granting a shared-phone stranger its assets 1693ms
+ ✓ src/money.test.ts (22 tests) 2454ms
+   ✓ ⭐ 组单：一人付全部 > quotes and settles grouped service and tip stages separately with one cash tender 312ms
+ ✓ src/workstations_backend.test.ts (15 tests) 342ms
+ ✓ src/marketing.test.ts (12 tests) 478ms
+ ✓ src/giftcard.test.ts (22 tests) 1225ms
+ ✓ src/v1Issues.test.ts (13 tests) 470ms
+ ✓ src/customer_commands.test.ts (8 tests) 206ms
+
+ Test Files  7 passed (7)
+      Tests  130 passed (130)
+   Start at  11:59:04
+   Duration  31.71s (transform 713ms, setup 10.55s, collect 1.73s, tests 19.32s, environment 0ms, prepare 27ms)
+

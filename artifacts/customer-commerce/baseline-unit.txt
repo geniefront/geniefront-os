@@ -1,0 +1,361 @@
+$ pnpm --filter '!@gf/api' --filter '!@gf/db' test
+Scope: 15 of 18 workspace projects
+apps/ios test$ vitest run --passWithNoTests
+packages/aws test$ vitest run --passWithNoTests
+packages/contracts test$ vitest run --passWithNoTests
+packages/payroll test$ vitest run
+apps/ios test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/ios
+apps/ios test: include: **/*.{test,spec}.?(c|m)[jt]s?(x)
+apps/ios test: exclude:  **/node_modules/**, **/dist/**, **/cypress/**, **/.{idea,git,cache,output,temp}/**, **/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*
+apps/ios test: No test files found, exiting with code 0
+apps/ios test: Done
+packages/rotation test$ vitest run
+packages/aws test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/aws
+packages/contracts test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/contracts
+packages/payroll test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/payroll
+packages/payroll test:  ✓ src/giftcard.test.ts (14 tests) 10ms
+packages/aws test:  ✓ src/sigv4.test.ts (14 tests) 4ms
+packages/aws test:  Test Files  1 passed (1)
+packages/aws test:       Tests  14 passed (14)
+packages/aws test:    Start at  11:43:10
+packages/aws test:    Duration  1.27s (transform 81ms, setup 0ms, collect 115ms, tests 4ms, environment 9ms, prepare 206ms)
+packages/aws test: Done
+packages/scheduling test$ vitest run
+packages/payroll test:  ✓ src/settle.test.ts (16 tests) 6ms
+packages/contracts test:  ✓ src/shopSlug.test.ts (19 tests) 12ms
+packages/contracts test:  ✓ src/planAccess.test.ts (5 tests) 2ms
+packages/payroll test:  ✓ src/bundle.test.ts (21 tests) 7ms
+packages/payroll test:  ✓ src/commission.test.ts (22 tests) 6ms
+packages/payroll test:  ✓ src/credits.test.ts (38 tests) 84ms
+packages/payroll test:  ✓ src/tip.test.ts (19 tests) 89ms
+packages/contracts test:  ✓ src/birthdate.test.ts (15 tests) 13ms
+packages/contracts test:  ✓ src/phone.test.ts (16 tests) 14ms
+packages/payroll test:  Test Files  6 passed (6)
+packages/payroll test:       Tests  130 passed (130)
+packages/payroll test:    Start at  11:43:10
+packages/payroll test:    Duration  1.61s (transform 377ms, setup 0ms, collect 1.02s, tests 201ms, environment 1ms, prepare 1.67s)
+packages/contracts test:  ✓ src/catalogPresets.test.ts (6 tests) 12ms
+packages/contracts test:  ✓ src/kiosk.test.ts (4 tests) 3ms
+packages/payroll test: Done
+packages/contracts test:  ✓ src/money.test.ts (6 tests) 41ms
+packages/contracts test:  ✓ src/voiceConfiguration.test.ts (4 tests) 14ms
+packages/rotation test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/rotation
+packages/contracts test:  ✓ src/setupReadiness.test.ts (2 tests) 53ms
+packages/contracts test:  ✓ src/businessHours.test.ts (2 tests) 10ms
+packages/contracts test:  ✓ src/healthForms.test.ts (2 tests) 4ms
+packages/contracts test:  ✓ src/aiSchema.test.ts (3 tests) 2ms
+packages/contracts test:  ✓ src/voiceNotifications.test.ts (3 tests) 7ms
+packages/rotation test:  ✓ src/engine.test.ts (30 tests) 11ms
+packages/contracts test:  ✓ src/bookingMedia.test.ts (1 test) 2ms
+packages/rotation test:  Test Files  1 passed (1)
+packages/rotation test:       Tests  30 passed (30)
+packages/rotation test:    Start at  11:43:12
+packages/rotation test:    Duration  771ms (transform 59ms, setup 0ms, collect 103ms, tests 11ms, environment 0ms, prepare 139ms)
+packages/rotation test: Done
+packages/scheduling test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/scheduling
+packages/contracts test:  ✓ src/profile.test.ts (2 tests) 18ms
+packages/contracts test:  ✓ src/phoneEntrypoints.test.ts (2 tests) 12ms
+packages/contracts test:  ✓ src/registry.test.ts (3 tests) 11ms
+packages/contracts test:  ✓ src/appointmentCapabilities.test.ts (1 test) 6ms
+packages/contracts test:  ✓ src/serviceParty.test.ts (1 test) 4ms
+packages/contracts test:  Test Files  19 passed (19)
+packages/contracts test:       Tests  97 passed (97)
+packages/contracts test:    Start at  11:43:10
+packages/contracts test:    Duration  3.59s (transform 1.89s, setup 0ms, collect 6.16s, tests 242ms, environment 3ms, prepare 4.42s)
+packages/contracts test: Done
+packages/scheduling test:  ✓ src/voiceMetering.test.ts (4 tests) 13ms
+packages/scheduling test:  ✓ src/capacity.test.ts (25 tests) 38ms
+packages/scheduling test:  ✓ src/slots.test.ts (23 tests) 23ms
+packages/scheduling test:  ✓ src/business-hours.test.ts (19 tests) 53ms
+packages/scheduling test:  ✓ src/partyPlan.test.ts (11 tests) 10ms
+packages/scheduling test:  ✓ src/roster.test.ts (17 tests) 64ms
+packages/scheduling test:  ✓ src/booking-window.test.ts (2 tests) 57ms
+packages/scheduling test:  ✓ src/bookingPolicy.test.ts (8 tests) 116ms
+packages/scheduling test:  Test Files  8 passed (8)
+packages/scheduling test:       Tests  109 passed (109)
+packages/scheduling test:    Start at  11:43:13
+packages/scheduling test:    Duration  1.53s (transform 446ms, setup 0ms, collect 908ms, tests 374ms, environment 8ms, prepare 1.98s)
+packages/scheduling test: Done
+packages/ai test$ vitest run
+apps/marketing test$ vitest run
+apps/platform test$ vitest run --passWithNoTests
+packages/brightdata test$ vitest run
+packages/ai test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/ai
+packages/brightdata test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/brightdata
+apps/marketing test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/marketing
+apps/platform test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/platform
+packages/brightdata test:  ✓ src/map.test.ts (15 tests) 148ms
+packages/ai test:  ✓ src/copilot/storeContext.test.ts (15 tests) 87ms
+packages/ai test:  ✓ src/copilot/snapshot.test.ts (16 tests) 15ms
+packages/ai test:  ✓ src/runtime/usage.test.ts (17 tests) 19ms
+packages/ai test:  ✓ src/normalize.test.ts (24 tests) 116ms
+packages/ai test:  ✓ src/storefront.test.ts (9 tests) 16ms
+packages/ai test:  ✓ src/serviceShortNames.test.ts (8 tests) 84ms
+packages/ai test:  ✓ src/regions.test.ts (13 tests) 22ms
+packages/ai test:  ✓ src/priceList.test.ts (2 tests) 20ms
+packages/ai test:  ✓ src/translate.test.ts (12 tests) 150ms
+packages/ai test:  ✓ src/cost.test.ts (6 tests) 112ms
+packages/ai test:  ✓ src/runtime/luna.test.ts (7 tests) 13ms
+packages/ai test:  ✓ src/businessSummary.test.ts (2 tests) 18ms
+packages/brightdata test:  ✓ src/client.test.ts (7 tests) 17ms
+packages/brightdata test:  Test Files  2 passed (2)
+packages/brightdata test:       Tests  22 passed (22)
+packages/brightdata test:    Start at  11:43:15
+packages/brightdata test:    Duration  7.21s (transform 3.33s, setup 0ms, collect 6.01s, tests 165ms, environment 0ms, prepare 1.01s)
+packages/ai test:  ✓ src/healthForms.test.ts (1 test) 81ms
+packages/brightdata test: Done
+packages/yelp test$ vitest run
+apps/marketing test:  ✓ src/lib/checkout.test.ts (2 tests) 5ms
+packages/yelp test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/yelp
+apps/marketing test:  ✓ src/lib/signupStatus.test.ts (2 tests) 32ms
+packages/ai test:  ✓ src/healthSummary.test.ts (3 tests) 60ms
+packages/ai test:  Test Files  14 passed (14)
+packages/ai test:       Tests  135 passed (135)
+packages/ai test:    Start at  11:43:15
+packages/ai test:    Duration  11.14s (transform 13.96s, setup 0ms, collect 31.58s, tests 811ms, environment 3ms, prepare 7.37s)
+packages/ai test: Done
+apps/platform test:  ✓ src/lib/license.test.ts (13 tests) 193ms
+apps/marketing test:  ✓ src/lib/desk.test.ts (1 test) 3ms
+apps/platform test:  ✓ src/lib/idempotency.test.tsx (1 test) 223ms
+apps/platform test:  ✓ src/lib/session.test.tsx (3 tests) 674ms
+apps/platform test:    ✓ ignores old identity responses after logout and clears cached data 322ms
+apps/platform test:  ✓ src/components/OwnerTransferPanel.test.tsx (1 test) 791ms
+apps/platform test:    ✓ requires explicit acknowledgement of retained payment details before transferring 789ms
+packages/yelp test:  ✓ src/map.test.ts (20 tests) 9ms
+packages/yelp test:  Test Files  1 passed (1)
+packages/yelp test:       Tests  20 passed (20)
+packages/yelp test:    Start at  11:43:25
+packages/yelp test:    Duration  2.50s (transform 259ms, setup 0ms, collect 283ms, tests 9ms, environment 0ms, prepare 622ms)
+packages/yelp test: Done
+apps/platform test:  ✓ src/components/VoiceConfigurationPanel.test.tsx (3 tests) 243ms
+apps/platform test:  Test Files  5 passed (5)
+apps/platform test:       Tests  21 passed (21)
+apps/platform test:    Start at  11:43:17
+apps/platform test:    Duration  12.55s (transform 2.35s, setup 0ms, collect 7.48s, tests 2.12s, environment 26.92s, prepare 3.28s)
+apps/platform test: Done
+apps/marketing test:  ✓ src/App.test.tsx (12 tests) 5055ms
+apps/marketing test:    ✓ Marketing sign-in > home nav and footer link to the desk login origin 599ms
+apps/marketing test:    ✓ Marketing pricing and signup > 15. all three plans render including AI Voice Booking 420ms
+apps/marketing test:    ✓ Marketing pricing and signup > 17. form validation works 625ms
+apps/marketing test:    ✓ Marketing pricing and signup > 18. valid response redirects to Stripe URL 586ms
+apps/marketing test:    ✓ Marketing pricing and signup > 18b. voice booking trial CTA opens modal and submits checkout 671ms
+apps/marketing test:    ✓ Marketing pricing and signup > 19. missing/invalid URL does not redirect 796ms
+apps/marketing test:    ✓ Marketing pricing and signup > terms, privacy, and SMS routes are not broken 942ms
+apps/marketing test:  Test Files  4 passed (4)
+apps/marketing test:       Tests  17 passed (17)
+apps/marketing test:    Start at  11:43:16
+apps/marketing test:    Duration  18.05s (transform 1.85s, setup 5.76s, collect 3.33s, tests 5.10s, environment 21.16s, prepare 2.68s)
+apps/marketing test: Done
+apps/booking test$ vitest run --passWithNoTests
+apps/ipad test$ vitest run --passWithNoTests
+apps/web test$ vitest run --passWithNoTests
+apps/web test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+apps/booking test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/booking
+apps/ipad test:  RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/ipad
+apps/booking test:  ✓ src/lib/serviceGroups.test.ts (2 tests) 52ms
+apps/ipad test:  ✓ src/lib/walkIn.test.ts (2 tests) 22ms
+apps/booking test:  ✓ src/lib/session.test.ts (2 tests) 10ms
+apps/ipad test:  ✓ src/api/client.test.ts (3 tests) 101ms
+apps/ipad test:  ✓ src/components/VirtualKeypad.test.tsx (2 tests) 569ms
+apps/ipad test:    ✓ VirtualKeypad Component > triggers onKeyPress with appropriate digits when buttons are tapped 544ms
+apps/booking test:  ✓ src/lib/experience.test.ts (4 tests) 109ms
+apps/ipad test:  ✓ src/components/InactivityTimer.test.tsx (2 tests) 860ms
+apps/ipad test:    ✓ InactivityTimer Privacy Protection Component > triggers onTimeout when idle timeout and countdown elapse 692ms
+apps/booking test:  ✓ src/lib/format.test.ts (3 tests) 256ms
+apps/ipad test:  ✓ src/pages/HomePage.test.tsx (2 tests) 1077ms
+apps/ipad test:    ✓ HomePage Component > renders core action cards and navigates on tap 920ms
+apps/ipad test:  ✓ src/components/BodyMapSelector.test.tsx (2 tests) 2548ms
+apps/ipad test:    ✓ BodyMapSelector Component > cycles body part states on tap: none -> focus -> avoid -> none 723ms
+apps/ipad test:    ✓ BodyMapSelector Component > renders clear all button when items are selected and resets selection 1766ms
+apps/ipad test:  ✓ src/components/SignaturePad.test.tsx (1 test) 2572ms
+apps/ipad test:    ✓ SignaturePad tablet resizing > maps resized display coordinates to the preserved canvas and clears the final undone stroke 2571ms
+apps/web test:  ✓ src/features/billing/display.test.ts (14 tests) 171ms
+apps/web test:  ✓ src/features/queue/completeService.test.ts (15 tests) 192ms
+apps/web test:  ✓ src/features/queue/checkoutMath.test.ts (27 tests) 534ms
+apps/booking test:  ✓ src/lib/partyGuests.test.ts (2 tests) 23ms
+apps/ipad test:  ✓ src/pages/PairingPage.test.tsx (2 tests) 4851ms
+apps/ipad test:    ✓ PairingPage Component > renders pairing instructions and keypad input 727ms
+apps/ipad test:    ✓ PairingPage Component > 空配对码点完成绑定时给出校验提示 4120ms
+apps/ipad test: stderr | src/pages/HealthFormPage.test.tsx > #21 submits each guest form with their own visit, including a failed retry
+apps/ipad test: Not implemented: Window's scrollTo() method
+apps/booking test:  ✓ src/lib/manageToken.test.ts (2 tests) 55ms
+apps/ipad test:  ✓ src/pages/HealthFormPage.test.tsx (4 tests) 2126ms
+apps/ipad test:    ✓ health-form validation > renders the Web nail intake experience without the massage body map or 1/1 counter 953ms
+apps/ipad test:    ✓ #21 submits each guest form with their own visit, including a failed retry 1169ms
+apps/ipad test:  ✓ src/i18n/i18n.test.ts (2 tests) 171ms
+apps/booking test:  ✓ src/lib/apiScope.test.ts (1 test) 7ms
+apps/booking test:  ✓ src/lib/embed.test.ts (1 test) 13ms
+apps/web test:  ✓ src/lib/time.test.ts (35 tests) 819ms
+apps/web test:    ✓ wallMinutesToInstant > DST 切换日的营业时段逐点对齐 470ms
+apps/booking test: stderr | src/components/ServiceCustomizer.test.tsx > edits the actual variant and add-ons together, without saving on dismiss
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/ipad test:  ✓ src/utils/phone.test.ts (2 tests) 80ms
+apps/ipad test:  Test Files  11 passed (11)
+apps/ipad test:       Tests  24 passed (24)
+apps/ipad test:    Start at  11:43:36
+apps/ipad test:    Duration  38.42s (transform 13.23s, setup 37.95s, collect 38.88s, tests 14.98s, environment 140.10s, prepare 12.43s)
+apps/ipad test: Done
+apps/booking test:  ✓ src/components/ServiceCustomizer.test.tsx (1 test) 4538ms
+apps/booking test:    ✓ edits the actual variant and add-ons together, without saving on dismiss 4536ms
+apps/booking test: stderr | src/pages/ManageBookingPage.test.tsx > ManageBookingPage > shows locked and mismatch last-four errors from the mutation
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/booking test: stderr | src/pages/BookingExperiencePage.test.tsx > retains a storefront selection, assigns each guest, reviews before atomic submission
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/booking test: stderr | src/pages/BookingExperiencePage.test.tsx > retains a storefront selection, assigns each guest, reviews before atomic submission
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/web test:  ✓ src/lib/validation.test.ts (20 tests) 448ms
+apps/booking test: stderr | src/pages/BookingExperiencePage.test.tsx > explains unavailable times and offers another date
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/web test:  ✓ src/components/CreateAppointmentModal.test.ts (22 tests) 93ms
+apps/booking test: stderr | src/pages/BookingExperiencePage.test.tsx > explains unavailable times and offers another date
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/booking test: stderr | src/pages/ManageBookingPage.test.tsx > ManageBookingPage > becomes read-only and offers rebook after cancellation
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/booking test:  ✓ src/pages/ManageBookingPage.test.tsx (9 tests) 16963ms
+apps/booking test:    ✓ ManageBookingPage > bootstraps from the fragment token and still accepts the old path 2027ms
+apps/booking test:    ✓ ManageBookingPage > asks for last four before mutations and does not persist it 3188ms
+apps/booking test:    ✓ ManageBookingPage > shows locked and mismatch last-four errors from the mutation 3281ms
+apps/booking test:    ✓ ManageBookingPage > pages the manage calendar past 14 days when maxDaysAhead is greater 2558ms
+apps/booking test:    ✓ ManageBookingPage > updates the displayed time after a successful reschedule 3534ms
+apps/booking test:    ✓ ManageBookingPage > becomes read-only and offers rebook after cancellation 1555ms
+apps/booking test:    ✓ ManageBookingPage > cannot mutate completed or no-show appointments 485ms
+apps/booking test: stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/web test:  ✓ src/features/voice-plan/VoiceRoutingSettings.test.tsx (8 tests) 8414ms
+apps/web test:    ✓ shows the current mode 2 and numbers without editable live settings 2701ms
+apps/web test:    ✓ previews all three modes locally and preserves the current mode badge 1175ms
+apps/web test:    ✓ submits a line-specific support ticket with the current snapshot and does not alter routing 1695ms
+apps/web test:    ✓ includes the selected preview mode in a request while keeping current mode in the snapshot 1130ms
+apps/web test:    ✓ keeps the same idempotency key and draft when a failed submission is retried 861ms
+apps/web test:    ✓ locks repeated clicks while a ticket is being submitted 571ms
+apps/web test:  ✓ src/features/queue/roomAvailability.test.ts (19 tests) 11ms
+apps/booking test: stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/web test:  ✓ src/features/reviews/ReviewSourcesPanel.test.tsx (14 tests) 6174ms
+apps/web test:    ✓ 权限 > 没有 settings.manage 时显示无权限，而不是两条失败的请求 388ms
+apps/web test:    ✓ 采集配置 > 未配置的平台显示未配置，配置好的显示已配置 456ms
+apps/web test:    ✓ 采集配置 > 清空一项并保存时传 null —— 不传等于不动，抓取会照常发生 895ms
+apps/web test:    ✓ 手动同步 > 会花钱，所以必须先确认 —— 直接点按钮不发请求 565ms
+apps/web test:    ✓ 手动同步 > 确认之后才真的同步，并报出抓到与新增的条数 801ms
+apps/web test:    ✓ 手动同步 > 抓完了但没有新评价 —— 说成常态，不说成失败 756ms
+apps/web test:    ✓ 手动同步 > 抓取还在跑时告诉人稍后看记录，而不是报成功或失败 1265ms
+apps/web test:    ✓ 同步记录 > 失败原因原样显示 —— 翻译过的版本对不上排查 345ms
+apps/booking test: stderr | src/pages/BookingExperiencePage.test.tsx > books Couples Massage once for two guests instead of requiring a second paid selection
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/booking test: stderr | src/pages/BookingExperiencePage.test.tsx > books Couples Massage once for two guests instead of requiring a second paid selection
+apps/booking test: A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+apps/booking test:  ❯ src/pages/BookingExperiencePage.test.tsx (4 tests | 3 failed) 21127ms
+apps/booking test:    × retains a storefront selection, assigns each guest, reviews before atomic submission 6263ms
+apps/booking test:      → Test timed out in 5000ms.
+apps/booking test: If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+apps/booking test:    × explains unavailable times and offers another date 5087ms
+apps/booking test:      → Test timed out in 5000ms.
+apps/booking test: If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+apps/booking test:    × removes the chosen middle guest and preserves the remaining names and services 5496ms
+apps/booking test:      → Test timed out in 5000ms.
+apps/booking test: If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+apps/booking test:    ✓ books Couples Massage once for two guests instead of requiring a second paid selection 4267ms
+apps/web test:  ✓ src/features/settings/ServiceCatalog.test.tsx (9 tests) 10402ms
+apps/web test:    ✓ shows name, price and actions without expanding cards and separates deleted services 1709ms
+apps/web test:    ✓ deletes through the archive command only after confirmation 1660ms
+apps/web test:    ✓ keeps failed deletion open for retry 894ms
+apps/web test:    ✓ adds new services with online booking on by default 1752ms
+apps/web test:    ✓ enables online booking only for active ordinary services with version checks 602ms
+apps/web test:    ✓ restores deleted items without replacing their saved booking choice 727ms
+apps/web test:    ✓ AI fills all six short names into the editor and manual edits are saved 2237ms
+apps/web test:    ✓ bulk AI targets active services and add-ons only 641ms
+apps/web test:  ✓ src/pages/BusinessData.test.tsx (4 tests) 1437ms
+apps/web test:    ✓ BusinessData 权限与空数据防伪造测试 > 当账号无 report.view 权限时拦截并显示无权限提示，不渲染任何假数据 595ms
+apps/web test:    ✓ BusinessData 权限与空数据防伪造测试 > 当有权限且数据为空时，渲染真实的 $0.00 和 0% 指标及空状态，不使用硬编码伪造数据 434ms
+apps/web test:    ✓ BusinessData 权限与空数据防伪造测试 > 当有权限且接口返回正常数据时，正确渲染实际指标 365ms
+apps/web test:  ✓ src/features/queue/nextAction.test.ts (14 tests) 10ms
+apps/web test:  ✓ src/features/billing/BillingPanel.test.tsx (28 tests) 13225ms
+apps/web test:    ✓ BillingPanel 真实计费状态 > Essential 试用显示 Essential 与试用，而不是 Growth active 683ms
+apps/web test:    ✓ BillingPanel 真实计费状态 > 有收据链接时才给出下载 568ms
+apps/web test:    ✓ BillingPanel 真实计费状态 > 门户缺少 URL 时显示错误，不 toast 成功 542ms
+apps/web test:    ✓ BillingPanel 真实计费状态 > 已有支付方式时如实显示标签，不提供绑卡按钮 455ms
+apps/web test:    ✓ BillingPanel 真实计费状态 > 没有支付方式时绑卡走真实 setup 接口，缺 URL 不当成功 901ms
+apps/web test:    ✓ BillingPanel 真实计费状态 > credit 充值无论是否绑卡都跳转 Stripe 确认，不提前报成功 1264ms
+apps/web test:    ✓ BillingPanel 真实计费状态 > voice_minute 充值无论是否绑卡都跳转 Stripe 确认，不提前报成功 564ms
+apps/web test:    ✓ BillingPanel 真实计费状态 > 充值缺少 Stripe URL 时显示错误，不报充值成功 589ms
+apps/web test:    ✓ BillingPanel 真实计费状态 > 充值失败不会把已购余额提前加上去 598ms
+apps/web test:    ✓ BillingPanel 真实计费状态 > 自动续充显示服务端已保存的开关，而不是本地默认 313ms
+apps/web test:    ✓ BillingPanel 真实计费状态 > 自动续充保存成功后更新真实状态 717ms
+apps/web test:    ✓ BillingPanel 真实计费状态 > 自动续充保存失败时界面不假装已保存 774ms
+apps/web test:    ✓ BillingPanel 真实计费状态 > Stripe 门户仍是唯一的套餐管理动作 616ms
+apps/web test:    ✓ BillingPanel 订阅码付费 > 人工开通允许绑卡，但不显示尚未开通的 Stripe 订阅门户 470ms
+apps/web test:    ✓ BillingPanel 订阅码付费 > 兑换订阅码成功后显示新的有效期 1075ms
+apps/web test:    ✓ BillingPanel 订阅码付费 > 兑换额度包成功后说清加了多少额度 389ms
+apps/web test:    ✓ BillingPanel 订阅码付费 > 码无效 / 限频 / 还在 Stripe 上，三句话各不相同 1120ms
+apps/web test:  ✓ src/pages/Support.test.tsx (7 tests) 7983ms
+apps/web test:    ✓ Support submission surface > 客户看得到自己提过的工单和它的状态（AUD-08） 370ms
+apps/web test:    ✓ Support submission surface > ⛔ 运营内部备注不出现在客户这一页 346ms
+apps/web test:    ✓ Support submission surface > submits subject, message, and category through support.submitRequest 4835ms
+apps/web test:    ✓ Support submission surface > rapid double-click issues one submit with one idempotency key 1340ms
+apps/web test:    ✓ Support submission surface > shows an error state when the command fails 502ms
+apps/web test:    ✓ Support submission surface > keeps the same submission key after a lost response 549ms
+apps/web test:  ✓ src/LanguageContext.test.tsx (11 tests) 309ms
+apps/web test:  ✓ src/pages/Activate.test.tsx (6 tests) 1319ms
+apps/web test:    ✓ Activate 首次开店与密码设置页面 > 展示待开通的门店名称、邮箱账号与密码设置表单 377ms
+apps/web test:    ✓ Activate 首次开店与密码设置页面 > 当两次密码不一致时进行拦截提示 419ms
+apps/web test:  ✓ src/pages/Settings.10dlc.test.tsx (3 tests) 3492ms
+apps/web test:    ✓ Settings 10DLC copy and persist semantics > success copy says GenieFront received the application, not a carrier filing 2506ms
+apps/web test:    ✓ Settings 10DLC copy and persist semantics > failure does not claim success and keeps the form values 762ms
+apps/web test:  ✓ src/features/setup/autosave.test.tsx (6 tests) 227ms
+apps/web test:  ✓ src/lib/imageUpload.test.ts (6 tests) 24ms
+apps/web test:  ✓ src/i18n/i18n.test.ts (6 tests) 57ms
+apps/web test:  ✓ src/features/queue/assignment.test.ts (8 tests) 35ms
+apps/booking test:  ❯ src/pages/BookPage.test.tsx (14 tests | 3 failed) 34338ms
+apps/booking test:    ✓ BookPage > adds add-on duration and reloads availability with addon ids 4498ms
+apps/booking test:    × BookPage > sends any-specialist as null and a named specialist as that id 5125ms
+apps/booking test:      → Test timed out in 5000ms.
+apps/booking test: If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+apps/booking test:    ✓ BookPage > searches past 14 days when maxDaysAhead is greater 2601ms
+apps/booking test:    ✓ BookPage > searches today+maxDaysAhead inclusive 1519ms
+apps/booking test:    ✓ BookPage > shows slot times in the shop timezone 1853ms
+apps/booking test:    ✓ BookPage > returns to time selection and reloads slots after a 409 2983ms
+apps/booking test:    ✓ BookPage > double-click submit sends one request with one idempotency key 4135ms
+apps/booking test:    ✓ BookPage > resets Turnstile after a failed submission 3190ms
+apps/booking test:    ✓ BookPage > resets Turnstile after a 429 3442ms
+apps/booking test:    ✓ BookPage > stores only minimum same-session data on success 1533ms
+apps/booking test:    ✓ BookPage > omits the call prompt on success when the shop has no phone 1094ms
+apps/booking test:    ✓ BookPage > books a bundle: skips specialist, queries availability by bundleId, submits bundleSelections 924ms
+apps/booking test:    × #25 keeps the latest date when the stale request ends in success 512ms
+apps/booking test:      → resolveNew is not a function
+apps/booking test:    × #25 keeps the latest date when the stale request ends in failure 701ms
+apps/booking test:      → resolveNew is not a function
+apps/booking test: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+apps/booking test:  FAIL  src/pages/BookPage.test.tsx > BookPage > sends any-specialist as null and a named specialist as that id
+apps/booking test:  FAIL  src/pages/BookingExperiencePage.test.tsx > retains a storefront selection, assigns each guest, reviews before atomic submission
+apps/booking test:  FAIL  src/pages/BookingExperiencePage.test.tsx > explains unavailable times and offers another date
+apps/booking test:  FAIL  src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+apps/booking test: Error: Test timed out in 5000ms.
+apps/booking test: If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+apps/booking test: ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+apps/booking test:  FAIL  src/pages/BookPage.test.tsx > #25 keeps the latest date when the stale request ends in success
+apps/booking test:  FAIL  src/pages/BookPage.test.tsx > #25 keeps the latest date when the stale request ends in failure
+apps/booking test: TypeError: resolveNew is not a function
+apps/booking test:  ❯ src/pages/BookPage.test.tsx:379:3
+apps/booking test:     377|   const newSlot = `${dates[1]}T18:00:00.000Z`;
+apps/booking test:     378|   const oldSlot = `${dates[0]}T18:00:00.000Z`;
+apps/booking test:     379|   resolveNew(avail({ date: dates[1]!, slots: [{ startsAt: newSlot, sta…
+apps/booking test:        |   ^
+apps/booking test:     380|   await screen.findByTestId(`slot-${newSlot}`);
+apps/booking test:     381|   if (outcome === 'failure') rejectOld(new Error('old request failed')…
+apps/booking test: ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+apps/booking test:  Test Files  2 failed | 10 passed (12)
+apps/booking test:       Tests  6 failed | 39 passed (45)
+apps/booking test:    Start at  11:43:36
+apps/booking test:    Duration  70.98s (transform 12.74s, setup 42.22s, collect 78.63s, tests 77.49s, environment 150.57s, prepare 13.23s)
+apps/booking test: Failed
+/Users/naiyouzhu/siteadmin/geniefront-os/apps/booking:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @gf/booking@0.0.0 test: `vitest run --passWithNoTests`
+Exit status 1
+apps/web test:  ✓ src/pages/EmployeePerformance.test.tsx (2 tests) 795ms
+apps/web test:    ✓ EmployeePerformance compact card (U13 / W2b) > collapses a 30-skill roster into a count + "+N more" and only reveals the full list on expand 366ms
+apps/web test:    ✓ EmployeePerformance save failure > keeps entered values and never reports success or invents a staff card 427ms
+[ELIFECYCLE] Command failed with exit code 1.

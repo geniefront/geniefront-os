@@ -1,4 +1,7 @@
 import { useState, useMemo } from 'react';
+import {useNavigate} from 'react-router-dom';
+import {useSession} from '@/lib/session';
+import {commerceText} from '@gf/contracts';
 import { toast, Spinner } from '@heroui/react';
 import { useFieldErrors } from '@/lib/formFeedback';
 import { parseMoney } from '@/lib/validation';
@@ -16,7 +19,7 @@ import { useLanguage } from '@/LanguageContext';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { formatPhoneDisplay } from '@/lib/utils';
-import { dollarsToCents, centsToDollars } from '@/features/checkout/api';
+import { centsToDollars } from '@/features/checkout/api';
 import { formatValidityPeriod, giftCardStatusKey } from '@/lib/deskCopy';
 import {
   Plus,
@@ -57,17 +60,14 @@ import {
   useLoyaltyQuery,
   useGiftCardsQuery,
   useSavePackageTemplate,
-  useIssuePackage,
   useRedeemPackage,
   useSaveCouponTemplate,
   useVoidCoupon,
   useSaveLoyaltyRules,
   useAdjustLoyaltyPoints,
-  useIssueGiftCard,
   useAdjustGiftCard,
 } from '@/features/marketing/api';
 import type {
-  PackageTemplateView,
   CouponTemplateView,
   GiftCardView,
   CustomerPackageView,
@@ -154,8 +154,9 @@ const VIP_TIER_PERKS: { tier: number; nameKey: TranslationKey; discountPercent: 
 ];
 
 function MarketingContent() {
+  const navigate=useNavigate();
   const errorMessage = useErrorMessage();
-  const { t } = useLanguage();
+  const { t,language } = useLanguage();const {can,isOnline}=useSession();
   const [activeTab, setActiveTab] = useState('packages');
 
   // Queries
@@ -212,13 +213,11 @@ function MarketingContent() {
 
   // Mutations
   const savePackageMut = useSavePackageTemplate();
-  const issuePackageMut = useIssuePackage();
   const redeemPackageMut = useRedeemPackage();
   const saveCouponMut = useSaveCouponTemplate();
   const voidCouponMut = useVoidCoupon();
   const saveLoyaltyMut = useSaveLoyaltyRules();
   const adjustLoyaltyMut = useAdjustLoyaltyPoints();
-  const issueGiftCardMut = useIssueGiftCard();
   const adjustGiftCardMut = useAdjustGiftCard();
 
   // 自动化营销剧本列表
@@ -242,13 +241,6 @@ function MarketingContent() {
   const [pkgValidDays, setPkgValidDays] = useState('365');
   const [pkgServiceIds, setPkgServiceIds] = useState<string[]>([]);
 
-  // 2. 发售次卡给指定顾客 Modal
-  const [issuePackageModalOpen, setIssuePackageModalOpen] = useState(false);
-  const [issueTargetPkg, setIssueTargetPkg] = useState<PackageTemplateView | null>(null);
-  const [issueCustomerName, setIssueCustomerName] = useState('');
-  const [issueCustomerPhone, setIssueCustomerPhone] = useState('');
-  const [issueOverridePrice, setIssueOverridePrice] = useState('');
-
   // 3. 创建优惠券 Modal
   const [couponModalOpen, setCouponModalOpen] = useState(false);
   const [cpnCode, setCpnCode] = useState('');
@@ -257,13 +249,6 @@ function MarketingContent() {
   const [cpnValue, setCpnValue] = useState('15.00');
   const [cpnMinSpend, setCpnMinSpend] = useState('60.00');
   const [cpnValidDays, setCpnValidDays] = useState('30');
-
-  // 4. 发售Gift Card Modal
-  const [giftModalOpen, setGiftModalOpen] = useState(false);
-  const [gcFaceValue, setGcFaceValue] = useState('100.00');
-  const [gcSalePrice, setGcSalePrice] = useState('100.00');
-  const [gcRecipient, setGcRecipient] = useState('');
-  const [gcPurchaser, setGcPurchaser] = useState('');
 
   // 5. 积分规则 Modal
   const [loyaltyModalOpen, setLoyaltyModalOpen] = useState(false);
@@ -349,36 +334,6 @@ function MarketingContent() {
     }
   };
 
-  // 2. 发售次卡给顾客
-  const handleConfirmIssuePackage = async () => {
-    mktForm.clear();
-    if (!issueTargetPkg || !issueCustomerName.trim()) {
-      mktForm.fail('buyerName', t('crm.mktBuyerNameRequired'));
-      return;
-    }
-    try {
-      await issuePackageMut.mutateAsync({
-        templateId: issueTargetPkg.id,
-        // 后端按「同名同号」解析真实客户：给了手机号才可能复用老客户，
-        // 否则每次新建一条，事后由前台用 customer.merge 收口。
-        customer: {
-          name: issueCustomerName.trim(),
-          phoneE164: issueCustomerPhone.trim() || undefined,
-        },
-        soldPriceCentsOverride: issueOverridePrice.trim()
-          ? dollarsToCents(issueOverridePrice)
-          : undefined,
-      });
-      toast.success(t('crm.mktPackageSold', { p0: issueCustomerName.trim(), p1: issueTargetPkg.name }));
-      setIssuePackageModalOpen(false);
-      setIssueCustomerName('');
-      setIssueCustomerPhone('');
-      setIssueOverridePrice('');
-    } catch (err: any) {
-      toast.danger(errorMessage(err));
-    }
-  };
-
   // 3. 次卡核销一次 (带二次确认)
   const handleRedeemUnitWithConfirm = (up: CustomerPackageView) => {
     setConfirmModal({
@@ -453,31 +408,6 @@ function MarketingContent() {
         }
       },
     });
-  };
-
-  // 6. 发售Gift Card
-  const handleCreateGiftCard = async () => {
-    mktForm.clear();
-    const face = parseMoney(gcFaceValue);
-    if (!face.ok) return mktForm.fail('gcFaceValue', invalid.money(face.reason));
-    const sale = parseMoney(gcSalePrice, { allowEmpty: true });
-    if (!sale.ok) return mktForm.fail('gcSalePrice', invalid.money(sale.reason));
-
-    try {
-      const res = await issueGiftCardMut.mutateAsync({
-        faceValueCents: face.value,
-        salePriceCents: sale.value,
-        recipientName: gcRecipient.trim() || undefined,
-        recipientNote: gcPurchaser.trim() ? t('crm.mktGiftCardPurchaserNote', { p0: gcPurchaser.trim() }) : undefined,
-      });
-      await giftCardsQ.refetch();
-      toast.success(t('crm.mktGiftCardIssued', { p0: res?.code || 'GC-88992' }));
-      setGiftModalOpen(false);
-      setGcRecipient('');
-      setGcPurchaser('');
-    } catch (err: any) {
-      toast.danger(errorMessage(err));
-    }
   };
 
   // 7. 保存积分规则
@@ -630,7 +560,7 @@ function MarketingContent() {
               <Button
                 className="bg-teal-600 hover:bg-teal-700 text-white gap-1.5 font-bold text-xs shadow-xs"
                 size="sm"
-                onClick={() => setGiftModalOpen(true)}
+                onClick={() => navigate('/commerce')}
               >
                 <Plus className="w-4 h-4" />
                 <span>{t('crm.mktSellGiftCard')}</span>
@@ -835,11 +765,7 @@ function MarketingContent() {
                           className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs h-7 gap-1"
                           disabled={!pkg.active}
                           onClick={() => {
-                            setIssueTargetPkg(pkg);
-                            setIssueCustomerName('');
-                            setIssueCustomerPhone('');
-                            setIssueOverridePrice(centsToDollars(pkg.priceCents));
-                            setIssuePackageModalOpen(true);
+                            navigate(`/commerce?product=${encodeURIComponent(pkg.id)}`);
                           }}
                         >
                           <Send className="w-3 h-3" />
@@ -893,7 +819,7 @@ function MarketingContent() {
                       <div className="text-right">
                         <span className="font-extrabold text-teal-700 font-mono text-sm">
                           
-                          {t('crm.mktRemainingPrefix')} {up.remainingUnits} / {up.totalUnits}  {t('crm.mktSessionUnit')}
+                          {up.totalUnits===0?commerceText(language,'unlimited'):<>{t('crm.mktRemainingPrefix')} {up.remainingUnits} / {up.totalUnits} {t('crm.mktSessionUnit')}</>}
                         </span>
                         <div className="w-24 h-1.5 bg-slate-200 rounded-full overflow-hidden mt-1">
                           <div
@@ -910,7 +836,7 @@ function MarketingContent() {
                         variant="secondary"
                         className="text-xs font-bold text-emerald-800 border-emerald-300 hover:bg-emerald-50 h-8"
                         onClick={() => handleRedeemUnitWithConfirm(up)}
-                        disabled={up.remainingUnits <= 0}
+                        disabled={!isOnline||!can('commerce.sell')||!(up.canRedeem??(up.status==='active'&&(up.totalUnits===0||up.remainingUnits>0)))}
                       >
                         <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" />
                         <span>{t('crm.mktRedeemOne')}</span>
@@ -1056,7 +982,7 @@ function MarketingContent() {
               description={t('crm.mktNoGiftCardsDesc')}
               action={
                 <Button
-                  onClick={() => setGiftModalOpen(true)}
+                  onClick={() => navigate('/commerce')}
                   className="bg-teal-600 text-white font-bold"
                 >
                   
@@ -1487,74 +1413,6 @@ function MarketingContent() {
         </div>
       </Modal>
 
-      {/* 2. 发售次卡给指定顾客 Modal */}
-      <Modal
-        isOpen={issuePackageModalOpen}
-        onOpenChange={setIssuePackageModalOpen}
-        title={t('crm.mktSellPackageTitle', { p0: issueTargetPkg?.name ?? '' })}
-        footer={
-          <div className="flex justify-end gap-2 w-full">
-            <Button variant="secondary" onClick={() => setIssuePackageModalOpen(false)}>
-              {t('cancel') || t('crm.mktSellCancel')}
-            </Button>
-            <Button
-              isPending={issuePackageMut.isPending}
-              className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
-              onClick={handleConfirmIssuePackage}
-              disabled={issuePackageMut.isPending}
-            >
-              {issuePackageMut.isPending ? t('crm.mktSelling') : t('crm.mktSellConfirm')}
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-4 py-1 text-xs">
-          <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl text-teal-950">
-            <p className="font-bold">{t('crm.mktPackageLabel')}{issueTargetPkg?.name}</p>
-            <p className="text-[11px] text-teal-800 mt-0.5">
-              
-              {t('crm.mktIncludesPrefix2')} {issueTargetPkg?.totalUnits}  {t('crm.mktSessionsAndPrice')}{issueTargetPkg && centsToDollars(issueTargetPkg.priceCents)}
-            </p>
-          </div>
-
-          <div>
-            <label className="block font-bold text-slate-700 uppercase mb-1">
-              
-              {t('crm.mktBuyerNameLabel')}
-            </label>
-            <Input
-              {...mktForm.bind('buyerName')}
-              value={issueCustomerName}
-              onChange={(e) => { setIssueCustomerName(e.target.value); mktForm.clearField('buyerName'); }}
-              placeholder={t('crm.mktBuyerNamePlaceholder')}
-            />
-          </div>
-
-          <div>
-            <label className="block font-bold text-slate-700 uppercase mb-1">
-              {t('crm.mktBuyerPhoneLabel')}
-            </label>
-            <Input type="tel"
-              value={issueCustomerPhone}
-              onChange={(e) => setIssueCustomerPhone(e.target.value)}
-              placeholder={t('crm.mktBuyerPhonePlaceholder')}
-            />
-          </div>
-
-          <div>
-            <label className="block font-bold text-slate-700 uppercase mb-1">
-
-              {t('crm.mktActualAmountLabel')}
-            </label>
-            <Input
-              value={issueOverridePrice}
-              onChange={(e) => setIssueOverridePrice(e.target.value)}
-              placeholder={t('crm.mktActualAmountPlaceholder')}
-            />
-          </div>
-        </div>
-      </Modal>
-
       {/* 3. 创建优惠券 Modal */}
       <Modal
         isOpen={couponModalOpen}
@@ -1643,80 +1501,6 @@ function MarketingContent() {
                 type="number"
                 value={cpnMinSpend}
                 onChange={(e) => setCpnMinSpend(e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
-      </Modal>
-
-      {/* 4. 发售Gift Card Modal */}
-      <Modal
-        isOpen={giftModalOpen}
-        onOpenChange={setGiftModalOpen}
-        title={t('crm.mktGiftCardModalTitle')}
-        footer={
-          <div className="flex justify-end gap-2 w-full">
-            <Button variant="secondary" onClick={() => setGiftModalOpen(false)}>
-              {t('cancel') || t('crm.mktGcCancel')}
-            </Button>
-            <Button
-              isPending={issueGiftCardMut.isPending}
-              className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
-              onClick={handleCreateGiftCard}
-              disabled={issueGiftCardMut.isPending}
-            >
-              {issueGiftCardMut.isPending ? t('crm.mktGcIssuing') : t('crm.mktGcConfirm')}
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-4 py-1 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                {t('crm.mktGcFaceValueLabel')}
-              </label>
-              <Input
-                type="number"
-                {...mktForm.bind('gcFaceValue')}
-                value={gcFaceValue}
-                onChange={(e) => { setGcFaceValue(e.target.value); mktForm.clearField('gcFaceValue'); }}
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                {t('crm.mktGcSalePriceLabel')}
-              </label>
-              <Input
-                type="number"
-                {...mktForm.bind('gcSalePrice')}
-                value={gcSalePrice}
-                onChange={(e) => { setGcSalePrice(e.target.value); mktForm.clearField('gcSalePrice'); }}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                {t('crm.mktGcPurchaserLabel')}
-              </label>
-              <Input
-                value={gcPurchaser}
-                onChange={(e) => setGcPurchaser(e.target.value)}
-                placeholder={t('crm.mktGcPurchaserPlaceholder')}
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                {t('crm.mktGcRecipientLabel')}
-              </label>
-              <Input
-                value={gcRecipient}
-                onChange={(e) => setGcRecipient(e.target.value)}
-                placeholder={t('crm.mktGcRecipientPlaceholder')}
               />
             </div>
           </div>

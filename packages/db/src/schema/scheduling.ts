@@ -208,6 +208,7 @@ export const appointments = pgTable('appointments', {
   startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
   endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
   status: text('status').notNull().default('booked'),
+  depositStatus:text('deposit_status').notNull().default('none'),
   source: text('source').notNull().default('desk'),
   bookingChannelRef: text('booking_channel_ref'),
   partySize: integer('party_size').notNull().default(1),

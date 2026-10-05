@@ -1,0 +1,72 @@
+{
+  "scope": "P4 first monthly subscription purchase",
+  "at": "2026-10-01T22:26:04.531Z",
+  "productionPublished": false,
+  "realEmailSent": false,
+  "bankPayoutVerified": false,
+  "originalPlanAmountCents": 9900,
+  "currentPlanVersion": {
+    "version": 2,
+    "amount": "11900"
+  },
+  "customer": {
+    "id": "0ef40a69-adf7-4425-a928-72ae89bc470e",
+    "original_order_id": "ac623189-b655-4e36-856d-85f1d7d681e8",
+    "provider_status": "active",
+    "stripe_subscription_id": "sub_1ULkq4JDnwwxW56mHU9Z4JaK",
+    "stripe_customer_id": "cus_VMTmCJNfec1Bb5",
+    "current_period_end": "2026-11-01 14:19:58+00"
+  },
+  "account": "acct_1ULVaEJDnwwxW56m",
+  "payment": {
+    "id": "474cd88e-a525-4c2b-97b4-1cb289230507",
+    "status": "paid",
+    "amount_cents": 9900,
+    "currency": "usd",
+    "payment_intent_id": "pi_3ULkq3JDnwwxW56m1NLLxLmB",
+    "fee_cents": 317,
+    "net_cents": 9583,
+    "balance_transaction_id": "txn_3ULkq3JDnwwxW56m1jqnrt53",
+    "livemode": false
+  },
+  "invoices": [
+    {
+      "id": "71f396ab-8af3-4c15-afcc-f0103b55e827",
+      "stripe_invoice_id": "in_1ULkq2JDnwwxW56mEGHi13gy",
+      "period_start": "2026-10-01 14:19:58+00",
+      "period_end": "2026-11-01 14:19:58+00",
+      "paid_at": "2026-10-01 14:19:59+00"
+    }
+  ],
+  "cycles": [
+    {
+      "id": "78e8f03d-b8a8-4a09-bee4-787b4187525d",
+      "starts_at": "2026-10-01 14:19:58+00",
+      "ends_at": "2026-11-01 14:19:58+00",
+      "quantity": 1,
+      "value_cents": 9900,
+      "status": "issued"
+    }
+  ],
+  "counts": {
+    "ledger_entries": 1,
+    "signed_subscription_events": 8,
+    "signed_invoice_events": 2,
+    "payment_notices": 1
+  },
+  "stripe": {
+    "subscriptionId": "sub_1ULkq4JDnwwxW56mHU9Z4JaK",
+    "status": "active",
+    "livemode": false,
+    "invoiceId": "in_1ULkq2JDnwwxW56mEGHi13gy",
+    "invoiceStatus": "paid",
+    "paidCents": 9900,
+    "renewalPriceCents": 9900,
+    "renewalInterval": "month",
+    "nextPeriodEnd": 1793542798
+  },
+  "renewalVerified": false,
+  "annualSandboxVerified": false,
+  "lifecycleAcceptanceComplete": false,
+  "settingsRestored": true
+}

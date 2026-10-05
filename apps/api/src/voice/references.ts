@@ -56,6 +56,21 @@ export async function readInitialSnapshot(
     from voice_availability_snapshots where location_id=${ctx.locationId}`;
   return row;
 }
+
+/** Enqueue only. Preserve the current payload, revision, lease and backoff.
+ * The existing worker discovery query already finds due/missing snapshots. */
+export async function requestInitialSnapshot(
+  tx: postgres.TransactionSql,
+  ctx: CommandContext,
+  scope: string,
+  force = false,
+): Promise<void> {
+  await tx`insert into voice_availability_snapshots(location_id,org_id) values(${ctx.locationId},${ctx.orgId})
+    on conflict (location_id) do update set refresh_after=least(voice_availability_snapshots.refresh_after,now())
+    where voice_availability_snapshots.location_id=${ctx.locationId}
+      and (${force} or voice_availability_snapshots.scope<>${scope} or voice_availability_snapshots.payload is null)
+      and voice_availability_snapshots.refresh_after>now()`;
+}
 export async function claimInitialSnapshot(
   tx: postgres.TransactionSql,
   ctx: CommandContext,

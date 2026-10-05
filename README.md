@@ -25,6 +25,17 @@
 
 ---
 
+## 环境账号与 seed
+
+当前 local/staging 各保留原管理员，加 4 个新测试账号、2 家测试店；production 只保留栀子真实业务和原管理员。配置见 [`config/test-accounts.json`](config/test-accounts.json)，使用与清理说明见 [`TEST_ACCOUNTS.md`](docs/qa/TEST_ACCOUNTS.md)。
+
+```bash
+pnpm db:seed local
+pnpm db:seed staging
+```
+
+生产禁止 seed；旧 Lotus/Golden Foot fixture 只供隔离自动化测试使用。
+
 ## 上手
 
 ```bash
@@ -38,6 +49,11 @@ pnpm verify                   # 仅在独立且带测试种子的 test 数据库
 完整验证还必须配置 `DATABASE_TEST_TARGET=isolated`、`TEST_DATABASE_URL` 和
 `TEST_MIGRATION_DATABASE_URL`。测试配置不会读取普通 `.env` 的数据库连接串；缺少隔离标识时会在
 连接前失败，避免把 API/DB 测试写入 dev 或 prod。
+
+GitHub Actions 的 `verify` 在推送 `main` 和提交 PR 时自动运行约束检查与类型检查。
+发布前在 Actions 页面手动运行 `full-verify`；它会使用隔离 Postgres 跑迁移、种子、
+完整测试、前端构建和 API 镜像启动检查。该工作流不会部署，生产部署仍由本机
+`pnpm deploy:production` 发起。
 
 跑起来：
 

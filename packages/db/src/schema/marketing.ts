@@ -3,9 +3,10 @@
  */
 
 import {
-  pgTable, uuid, text, jsonb, boolean, integer, timestamp, index, uniqueIndex,
+  pgTable, uuid, text, jsonb, boolean, integer, timestamp, index, uniqueIndex,customType,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+const unitRange=customType<{data:string;driverData:string}>({dataType:()=> 'int4multirange'});
 import { organizations, locations } from './tenancy';
 import { customers } from './scheduling';
 import { tickets } from './tickets';
@@ -27,6 +28,8 @@ export const packageTemplates = pgTable('package_templates', {
   validDays: integer('valid_days'),
   scope: text('scope').notNull().default('location'),
   onlineSale: boolean('online_sale').notNull().default(false),
+  coverageMode: text('coverage_mode'),
+  commissionBasis: text('commission_basis'),
   active: boolean('active').notNull().default(true),
   sort: integer('sort').notNull().default(0),
   createdAt: createdAt(),
@@ -42,6 +45,12 @@ export const customerPackages = pgTable('customer_packages', {
   templateId: uuid('template_id').references(() => packageTemplates.id),
   customerId: uuid('customer_id').notNull().references(() => customers.id),
   remainingSessions: integer('remaining_sessions').notNull(),
+  purchaseOrderId: uuid('purchase_order_id').unique(),
+  purchaseSnapshot: jsonb('purchase_snapshot'),
+  reservedSessions: integer('reserved_sessions').notNull().default(0),
+  refundFrozen: boolean('refund_frozen').notNull().default(false),
+  commerceFrozen: boolean('commerce_frozen').notNull().default(false),
+  availableUnits:unitRange('available_units').notNull().default(sql`'{}'::int4multirange`),
   totalSessions: integer('total_sessions').notNull(),
   status: text('status').notNull().default('active'),
   expiresAt: timestamp('expires_at', { withTimezone: true }),

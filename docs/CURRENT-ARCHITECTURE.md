@@ -1,5 +1,7 @@
 # 现行系统架构（2026-09-05）
 
+> 当前环境账号、baseline seed 和生产保护范围见 [TEST_ACCOUNTS.md](qa/TEST_ACCOUNTS.md)（2026-09-27 更新）。
+
 > **这份是「现在仓库里实际长什么样」的地图。**
 > 设计理念、容量模型和宪法仍读 [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) 与 [`03-ROADMAP.md`](03-ROADMAP.md)。
 > `01` 里的仓库树（`apps/desk` / `staff` / `kiosk`、`packages/ui` / `i18n` / `sdk`）已经过时，不要按那张图找代码。
@@ -422,3 +424,10 @@ Seed 场景见 [`qa/SEED_SCENARIOS.md`](qa/SEED_SCENARIOS.md)。常用：`fresh_
 - Elastic Email 生产域名/抑制列表/退订
 - **`POST /v1/desk/tickets/:id/send-receipt` 仍 dispatch 已删除的 `ticket.sendReceipt`**（2026-09-01 起产品只打印）。UI 若还有「补发电子小票」就是死按钮
 - AI 电话工具含 `reschedule_appointment` / `cancel_appointment`，受门店 `saveAiChangePolicy` 闸门约束，不是「永远只能建单」
+# 2026-09-30 顾客商业支付范围扩展
+
+本次用户授权的范围包含顾客预约定金、礼品卡、次卡和月／年自动续费会员；此前“纯记录制、不收定金”的限制不再适用于此专项。店内现金／外部终端记录与平台 SaaS／AI 额度计费继续独立保留。
+
+新增 `commerce_orders/payments/refunds/tasks` 顾客支付域，不创建虚拟服务工单，不写入 `billing_accounts` 或 AI 额度账本。Connect direct charges 由服务器绑定门店账户，使用独立验签 endpoint 和稳定幂等键；Stripe 外部调用在命令事务之外。礼品卡和次卡复用既有资产实体，并补充购买来源、快照和退款预留；次卡使用独立数量账本，旧混合流水增加单位而不改金额。
+
+专项仍在实施；具体通过证据、外部阻塞和尚未完成的阶段见 [执行记录](plans/2026-09-30-customer-commerce-implementation-log.md)。定金与会员不能因仅有配置字段而标为已实现。

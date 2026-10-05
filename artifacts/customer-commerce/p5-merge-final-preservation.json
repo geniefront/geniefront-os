@@ -1,0 +1,36 @@
+{
+  "at": "2026-10-02T16:06:35.662Z",
+  "originalPurchaseRowsUnchanged": true,
+  "facts": {
+    "commerce_payments": {
+      "count": 14,
+      "hash": "0e6bc4cceb3a1ab766cc1486efff59e4"
+    },
+    "commerce_refunds": {
+      "count": 8,
+      "hash": "9408ca2098d64afacc73f0cea7aee0ec"
+    },
+    "commerce_orders": {
+      "count": 14,
+      "hash": "940b820ba49d5b7f8acf5396bc5d5dd3"
+    },
+    "customer_paid_memberships": {
+      "count": 3,
+      "hash": "8491d5bbb3a940e8fe6b7feb1bec2a5a"
+    },
+    "customer_membership_invoices": {
+      "count": 6,
+      "hash": "85a03de61fffb91f2db29865ae352591"
+    },
+    "customer_packages": {
+      "count": 2,
+      "hash": "ee7a4efac13dc7d85ad8656ed6301ca1"
+    },
+    "gift_cards": {
+      "count": 6,
+      "hash": "8fd6c1def4ece54a216a0cb2ad35cc4e"
+    }
+  },
+  "newStripePayment": false,
+  "productionChanged": false
+}

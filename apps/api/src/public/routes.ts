@@ -1,4 +1,5 @@
 import { serviceGuestCount } from '@gf/contracts';
+import {runCommerceTask} from '../commerce/worker';
 import {defaultBookingMedia,bookingMediaUrl} from '@gf/contracts';
 /**
  * 公开预约 API —— 门店官网上的「在线预约」（docs/13）。
@@ -26,7 +27,7 @@ import {defaultBookingMedia,bookingMediaUrl} from '@gf/contracts';
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { AppError, ERROR_CODES, pickText, phoneE164, readPublicBookingProfile } from '@gf/contracts';
+import { AppError, ERROR_CODES, pickText, phoneE164, readPublicBookingProfile,AppointmentCancelGuests } from '@gf/contracts';
 import { withTenant, ts, parseTs, type PublicShopRow } from '@gf/db';
 import { businessDateOf, isBookableDate } from '@gf/scheduling';
 import { dispatch } from '../bus';
@@ -38,9 +39,12 @@ import {
   assertOriginAllowed, publicContext, PUBLIC_KEY_HEADER,
 } from './publicAuth';
 import {
-  guestCancelBlockReason, guestRescheduleBlockReason, loadManagedBookingDetail,
+  guestCancelBlockReason, guestRescheduleBlockReason, loadManagedBookingDetail,depositCancellationCutoff,
 } from './managedDetail';
 import { checkManagedRescheduleSlot, loadManagedAvailability } from './managedAvailability';
+import {appointmentDepositPolicy} from '../commerce/depositPolicy';
+import {managedPhoneDigest} from './managedCancellation';
+import {depositConsent} from '@gf/contracts';
 import { assertHuman } from './turnstile';
 import { checkRateLimits } from './rateLimit';
 import {
@@ -92,6 +96,12 @@ function publicShopPayload(shop: PublicShopRow, locale: string) {
       selfRescheduleMax: shop.onlineBooking.selfRescheduleMax,
       allowClientPickStaff: shop.onlineBooking.allowClientPickStaff,
       cancellationPolicyNotice: shop.onlineBooking.cancellationPolicyNotice,
+      depositRequired:shop.onlineBooking.depositRequired===true,
+      depositMethod:shop.onlineBooking.depositMethod??'fixed',
+      depositAmountCents:shop.onlineBooking.depositAmountCents,
+      depositPercentBps:shop.onlineBooking.depositPercentBps,
+      retainDepositAfterCutoff:shop.onlineBooking.retainDepositAfterCutoff===true,
+      depositPolicyVersion:appointmentDepositPolicy(shop.onlineBooking).version,
     },
     turnstileSiteKey: process.env['TURNSTILE_SITE_KEY'] ?? null,
   };
@@ -135,6 +145,7 @@ const bookingBody = z.object({
     })).max(20).default([]),
   })).max(4).default([]),
   partySize: z.number().int().min(1).max(20).default(1),
+  depositConsent:depositConsent.optional(),
   notes: z.string().max(500).optional(),
   /** 蜜罐。真人看不见这个字段，所以它永远是空的 */
   website: z.string().max(200).optional(),
@@ -171,6 +182,9 @@ const cancelBody = z.object({
   last4: z.string().regex(/^\d{4}$/).optional(),
   turnstileToken: z.string().min(1).max(4096).optional(),
 });
+const cancelGuestsBody=AppointmentCancelGuests.input.omit({appointmentId:true}).extend({
+  ...cancelBody.shape,requestId:z.string().uuid(),
+}).strict();
 
 const rescheduleBody = z.object({
   manageToken: z.string().min(8).max(200),
@@ -589,14 +603,14 @@ export function registerPublicRoutes(app: FastifyInstance): void {
     const locale = localeOf(body.locale, shop);
     const ctx = publicContext(shop, locale, req.ip);
     const recoveryToken=replayableManageToken(shop.locationId,idem,{
-      customer:body.customer,items:body.items,bundleSelections:body.bundleSelections,partySize:body.partySize,notes:body.notes??'',
+      customer:body.customer,items:body.items,bundleSelections:body.bundleSelections,partySize:body.partySize,notes:body.notes??'',depositConsent:body.depositConsent,
     });
     const replay = await withTenant(
       {orgId:shop.orgId,locationId:shop.locationId,membershipId:null},async tx=>{
         const [cached]=await tx<{id:string;manage_token_digest:string}[]>`
           select a.id,a.manage_token_digest from command_idempotency c
           join appointments a on a.id=(c.result_json->>'appointmentId')::uuid
-          where c.location_id=${shop.locationId} and c.key=${idem} and c.command='appointment.create'`;
+          where c.location_id=${shop.locationId} and c.key=${idem} and c.command in('appointment.create','commerce.publicDepositBooking')`;
         if(!cached)return null;
         if(!recoveryToken || !sameDigest(hashManageToken(recoveryToken),cached.manage_token_digest)) {
           throw new AppError(ERROR_CODES.IDEMPOTENCY_KEY_REUSED);
@@ -692,9 +706,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
     // ── 建单 ──────────────────────────────────────────────────────────────
     const manageToken = recoveryToken ?? generateManageToken();
 
-    const out = await dispatch<{ appointmentId: string; businessDate: string }>(
-      'appointment.create',
-      {
+    const appointmentInput={
         customerId: null,
         items: checked.items,
         bundleSelections: checked.bundles,
@@ -713,10 +725,16 @@ export function registerPublicRoutes(app: FastifyInstance): void {
             smsOptIn: body.customer.smsOptIn,
           },
         },
-      },
-      ctx,
-      { idempotencyKey: idem },
-    );
+      };
+    const needsDeposit=shop.onlineBooking.depositRequired===true;
+    const out = await dispatch<{ appointmentId: string; businessDate: string;orderId?:string }>(
+      needsDeposit?'commerce.publicDepositBooking':'appointment.create',
+      needsDeposit?{appointment:appointmentInput,businessKey:`public-booking:${idem}`,depositConsent:body.depositConsent} : appointmentInput,ctx,
+      {idempotencyKey:idem,...(needsDeposit?{systemOrigin:'verified_public_booking_deposit'}:{})});
+    if(out.result.orderId){
+      const [task]=await withTenant(ctx,tx=>tx<{id:string}[]>`select id from commerce_tasks where kind='checkout' and subject_id=${out.result.orderId!}`);
+      if(task)await runCommerceTask(ctx,task.id);
+    }
 
     // 确认信 / 确认短信都在事务提交之后才发（同 server.ts 的那条命令路）。
     // 不 await：一封信发不出去永远不该拖慢一次成功的建单（宪法第 14 条）
@@ -807,11 +825,12 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       if (appt.status === 'cancelled') return { bookingId: appt.id, status: 'cancelled' };
 
       const cfg = shop.onlineBooking;
+      const cancelCutoffHours=depositCancellationCutoff(appt.deposit_policy,cfg.cancelCutoffHours);
       const cancelBlock = guestCancelBlockReason({
         status: appt.status,
         startsAt: appt.starts_at,
         createdAt: appt.created_at,
-        cancelCutoffHours: cfg.cancelCutoffHours,
+        cancelCutoffHours,
         rescheduleEnabled: cfg.rescheduleEnabled,
         rescheduleCutoffHours: cfg.rescheduleCutoffHours,
         selfRescheduleMax: cfg.selfRescheduleMax,
@@ -822,7 +841,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
           details: {
             reason: cancelBlock,
             ...(cancelBlock === 'cancel_cutoff_passed'
-              ? { cancelCutoffHours: cfg.cancelCutoffHours }
+              ? { cancelCutoffHours }
               : {}),
             shopPhone: shop.phone,
           },
@@ -846,6 +865,25 @@ export function registerPublicRoutes(app: FastifyInstance): void {
     });
 
   // ── 7. 自助改期（批 2，docs/13 §4.6）─────────────────────────────────────
+  app.post<{Params:{id:string};Body:unknown}>('/public/v1/bookings/:id/cancel-guests',async(req)=>{
+    const shop=await resolveShop(req.headers);assertOriginAllowed(originOf(req),shop,{forWrite:true});
+    const parsed=cancelGuestsBody.safeParse(req.body??{});
+    if(!parsed.success)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'bad_body'}});
+    const verdict=await checkRateLimits([{scope:'cancel_ip',id:req.ip,limit:20,windowSec:3600}],req.log);
+    if(!verdict.ok)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'too_many_attempts'},messageKey:'error.TOO_MANY_ATTEMPTS'});
+    const appt=await withTenant({orgId:shop.orgId,locationId:shop.locationId,membershipId:null},
+      tx=>loadOwnBooking(tx,shop,req.params.id,parsed.data.manageToken));
+    await assertLast4(shop,appt,parsed.data.last4);
+    const ctx=publicContext(shop,shop.defaultLocale,req.ip);
+    ctx.verifiedManagedBooking={appointmentId:appt.id,manageTokenDigest:hashManageToken(parsed.data.manageToken),verifiedPhoneDigest:managedPhoneDigest(appt.phone)};
+    const result=await dispatch<typeof AppointmentCancelGuests.output._type>('appointment.cancelGuests',{
+      appointmentId:appt.id,guestIndices:parsed.data.guestIndices,reason:parsed.data.reason,expectedRefundCents:parsed.data.expectedRefundCents,depositAdjustment:parsed.data.depositAdjustment,
+    },ctx,{idempotencyKey:`public-cancel-guests:${appt.id}:${parsed.data.requestId}`});
+    const delivery={orgId:shop.orgId,locationId:shop.locationId,membershipId:null};
+    void flushEmails(delivery,req.log);void flushSms(delivery,req.log);
+    return {bookingId:appt.id,status:result.result.remainingGuests?'booked':'cancelled',remainingGuests:result.result.remainingGuests,replayed:result.replayed};
+  });
+
   //
   // 初版明确写过「没有自助改期」，理由是「改期在公开页面上会变成
   // 取消 + 重订两步，中间那一格可能被人订走」。那个顾虑是真的 ——
@@ -1097,6 +1135,7 @@ interface OwnBooking {
   /** 客人留的手机号，用来校验后四位。没留手机号的单是 null */
   phone: string | null;
   self_reschedule_count: number;
+  deposit_policy:Record<string,unknown>|null;
 }
 
 async function loadOwnBooking(
@@ -1107,10 +1146,11 @@ async function loadOwnBooking(
 
   const [row] = await tx<(OwnBooking & { manage_token_digest: string | null })[]>`
     select a.id, a.status, a.starts_at::text as starts_at, a.created_at::text,
-           a.manage_token_digest, a.self_reschedule_count,
+           a.manage_token_digest, a.self_reschedule_count,h.policy_snapshot as deposit_policy,
            c.phone_e164 as phone
     from appointments a
     left join customers c on c.id = a.customer_id
+    left join commerce_appointment_holds h on h.appointment_id=a.id
     where a.id = ${id} and a.location_id = ${shop.locationId}
       and a.source in ${tx(GUEST_MANAGE_SOURCES)}`;
 

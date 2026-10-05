@@ -1,0 +1,165 @@
+{
+  "at": "2026-10-03T02:43:23.893488+00:00",
+  "scope": "P3 immutable deposit requotes, independent supplements, durable frontend recovery, exact source service returns and original Stripe test refunds; financial function search paths",
+  "completeGoal": false,
+  "migrationCount": 188,
+  "checks": {
+    "adjustmentApi": {
+      "tests": 19,
+      "providerFacts": "isolated injected events"
+    },
+    "depositMoneyWorkstationRegression": {
+      "files": 6,
+      "tests": 105
+    },
+    "commerceBillingVoicePublicRegression": {
+      "files": 4,
+      "tests": 112
+    },
+    "post188FinancialRegression": {
+      "files": 7,
+      "tests": 188,
+      "overlapsEarlierTests": true
+    },
+    "web": {
+      "files": 4,
+      "tests": 11
+    },
+    "assignment": {
+      "files": 1,
+      "tests": 1
+    },
+    "booking": {
+      "files": 2,
+      "tests": 26
+    },
+    "contracts": {
+      "files": 19,
+      "tests": 97
+    },
+    "typecheckPackages": 16,
+    "postNativeApiWebTypechecks": true,
+    "guards": true,
+    "webBookingContractsBuild": true,
+    "diffCheck": true
+  },
+  "migration": {
+    "immutableOriginal187": true,
+    "populated186to187CopyRehearsal": true,
+    "source18PaymentsUnchangedImmediatelyAfter187": true,
+    "emptyAnd151to188UpgradeAndReplay": true,
+    "preserved187to188Upgrade": true,
+    "financialTablesUnchangedBy188": 10,
+    "financialFunctionBodiesAndPrivilegesUnchanged": 24,
+    "securityAdvisorsBefore": 30,
+    "securityAdvisorsAfter": 6,
+    "changedFinancialFunctionsAdvisories": 0
+  },
+  "native": {
+    "appointmentId": "177b39b4-aff4-46e8-ad60-7509a3664cc7",
+    "originalPolicy": "20 percent, retained from original immutable purchase",
+    "originalServiceCents": 10000,
+    "replacementServiceCents": 1000,
+    "originalRefundExcessCents": 1800,
+    "supplement": {
+      "orderId": "23ba1903-dccc-47be-8e6e-60b23e915627",
+      "amountCents": 1800,
+      "feeCents": 82,
+      "netCents": 1718,
+      "signedEvents": 1,
+      "stripeVerified": true
+    },
+    "lostCommittedResponse": {
+      "committedStatus": 201,
+      "replayStatusObserved": 200,
+      "reloadedSameBrowserContext": true,
+      "oneCommandReceipt": true,
+      "oneActiveReplacement": true
+    },
+    "serviceTicketId": "bcf74933-2a98-4105-83bb-003da2c3840b",
+    "serviceDepositSourcesCents": [
+      200,
+      1800
+    ],
+    "newCashRecordedCents": 8000,
+    "serviceRefundsCents": [
+      4000,
+      6000
+    ],
+    "depositRestorationCents": [
+      [
+        80,
+        720
+      ],
+      [
+        120,
+        1080
+      ]
+    ],
+    "originalStripeRefunds": [
+      {
+        "refundId": "b819a1c0-1720-48f7-9875-9e9d5f63f9c4",
+        "paymentId": "b9580da7-0ff9-485b-b44a-57e8961254e4",
+        "amountCents": 1800,
+        "status": "succeeded",
+        "originalPaymentIntentVerified": true
+      },
+      {
+        "refundId": "5dba103a-68f2-4e8a-af26-a5c2751c154c",
+        "paymentId": "b9580da7-0ff9-485b-b44a-57e8961254e4",
+        "amountCents": 200,
+        "status": "succeeded",
+        "originalPaymentIntentVerified": true
+      },
+      {
+        "refundId": "f931b217-77a0-4637-8644-c6860dd28a8d",
+        "paymentId": "7be2657b-92f7-48cc-ac09-d362f8f213ed",
+        "amountCents": 1800,
+        "status": "succeeded",
+        "originalPaymentIntentVerified": true
+      }
+    ],
+    "finalHold": {
+      "status": "refunded",
+      "reserved_cents": 0,
+      "commerce_frozen": false
+    },
+    "finalSourceBalancesCents": [
+      0,
+      0
+    ],
+    "originalContractUnchanged": true,
+    "original17PaymentsUnchanged": {
+      "count": 17,
+      "hash": "95cc7592a6001bccb099e12c8117ab2a"
+    },
+    "currentPayments": {
+      "count": 19,
+      "hash": "1e8a03fa966eab1c27950d57b6e277f2"
+    },
+    "physicalCashTransferred": false
+  },
+  "ui": {
+    "browser": "agent-browser native Chromium",
+    "languages": [
+      "en",
+      "zh-Hans"
+    ],
+    "mobileWidth": 390,
+    "scrollWidth": 390,
+    "consoleErrors": 0,
+    "screenshotsReviewed": [
+      "p3-adjustments-supplement-quote.png",
+      "p3-adjustments-purchases-returned.png",
+      "p3-adjustments-final-mobile-zh.png"
+    ],
+    "cancelledHistoricalItemsExcludedFromAssignmentsAndDefaults": true
+  },
+  "remaining": [
+    "Pending repricing and group changes need their full native browser/payment acceptance matrix",
+    "Actual telephone, all roles, currencies, stores, languages, notification delivery and concurrency matrix",
+    "Other P0-P6 and A01-A22 incomplete requirements"
+  ],
+  "notificationDelivery": "capture",
+  "productionPublished": false
+}

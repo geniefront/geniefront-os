@@ -675,7 +675,8 @@ registerHandler(SaveVoiceBookingRules, async ({ input, ctx, tx, audit }) => {
   const [row] = await tx<{ settings: Record<string, unknown> }[]>`select settings from locations where id=${ctx.locationId} for update`;
   if (!row) throw new AppError(ERROR_CODES.NOT_FOUND);
   const before = (row.settings.online_booking ?? {}) as Record<string, unknown>;
-  const after = { ...before, max_days_ahead:input.maxDaysAhead, min_minutes_ahead:input.minMinutesAhead };
+  const after = { ...before, max_days_ahead:input.maxDaysAhead, min_minutes_ahead:input.minMinutesAhead,
+    ...(input.slotIntervalMinutes !== undefined ? { slot_interval_minutes:input.slotIntervalMinutes } : {}) };
   await tx`update locations set settings=jsonb_set(settings,'{online_booking}',${jsonb(after)}::jsonb),updated_at=now() where id=${ctx.locationId}`;
   audit({entityType:'location',entityId:ctx.locationId,before,after});
   return {saved:true};

@@ -1,0 +1,60 @@
+{
+  "at": "2026-10-02T11:01:09.287Z",
+  "originalCapturedBuyerReceiptLinkReused": true,
+  "newAccessTokenIssued": false,
+  "originalPaidCents": 50000,
+  "originalPurchaseRefundCents": 45000,
+  "currentAvailableSessions": 1,
+  "locales": [
+    {
+      "locale": "en",
+      "restoredSessions": 1,
+      "partialPurchaseRefundPreserved": true,
+      "mobileWidth": 390,
+      "mobileHeight": 844,
+      "overflow": false
+    },
+    {
+      "locale": "zh-Hans",
+      "restoredSessions": 1,
+      "partialPurchaseRefundPreserved": true,
+      "mobileWidth": 390,
+      "mobileHeight": 844,
+      "overflow": false
+    },
+    {
+      "locale": "zh-Hant",
+      "restoredSessions": 1,
+      "partialPurchaseRefundPreserved": true,
+      "mobileWidth": 390,
+      "mobileHeight": 844,
+      "overflow": false
+    },
+    {
+      "locale": "es",
+      "restoredSessions": 1,
+      "partialPurchaseRefundPreserved": true,
+      "mobileWidth": 390,
+      "mobileHeight": 844,
+      "overflow": false
+    },
+    {
+      "locale": "ko",
+      "restoredSessions": 1,
+      "partialPurchaseRefundPreserved": true,
+      "mobileWidth": 390,
+      "mobileHeight": 844,
+      "overflow": false
+    },
+    {
+      "locale": "vi",
+      "restoredSessions": 1,
+      "partialPurchaseRefundPreserved": true,
+      "mobileWidth": 390,
+      "mobileHeight": 844,
+      "overflow": false
+    }
+  ],
+  "browserErrors": 0,
+  "productionChanged": false
+}

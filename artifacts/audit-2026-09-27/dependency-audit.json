@@ -1,0 +1,735 @@
+{
+  "advisories": {
+    "1102341": {
+      "findings": [
+        {
+          "version": "0.21.5",
+          "paths": [
+            ".>vitest>@vitest/mocker>vite>esbuild",
+            ".>vitest>vite>esbuild",
+            ".>vitest>vite-node>vite>esbuild",
+            "apps__booking>@testing-library/jest-dom>vitest>@vitest/mocker>vite>esbuild",
+            "apps__booking>@testing-library/jest-dom>vitest>vite>esbuild",
+            "apps__booking>@testing-library/jest-dom>vitest>vite-node>vite>esbuild",
+            "apps__booking>vitest>@vitest/mocker>vite>esbuild",
+            "apps__booking>vitest>vite>esbuild",
+            "apps__booking>vitest>vite-node>vite>esbuild",
+            "apps__ipad>@testing-library/jest-dom>vitest>@vitest/mocker>vite>esbuild",
+            "apps__ipad>@testing-library/jest-dom>vitest>vite>esbuild",
+            "apps__ipad>@testing-library/jest-dom>vitest>vite-node>vite>esbuild",
+            "apps__ipad>vitest>@vitest/mocker>vite>esbuild",
+            "apps__ipad>vitest>vite>esbuild",
+            "apps__ipad>vitest>vite-node>vite>esbuild",
+            "apps__marketing>@testing-library/jest-dom>vitest>@vitest/mocker>vite>esbuild",
+            "apps__marketing>@testing-library/jest-dom>vitest>vite>esbuild",
+            "apps__marketing>@testing-library/jest-dom>vitest>vite-node>vite>esbuild",
+            "apps__marketing>vitest>@vitest/mocker>vite>esbuild",
+            "apps__marketing>vitest>vite>esbuild",
+            "apps__marketing>vitest>vite-node>vite>esbuild",
+            "apps__platform>vitest>@vitest/mocker>vite>esbuild",
+            "apps__platform>vitest>vite>esbuild",
+            "apps__platform>vitest>vite-node>vite>esbuild",
+            "apps__web>@testing-library/jest-dom>vitest>@vitest/mocker>vite>esbuild",
+            "apps__web>@testing-library/jest-dom>vitest>vite>esbuild",
+            "apps__web>@testing-library/jest-dom>vitest>vite-node>vite>esbuild",
+            "apps__web>vitest>@vitest/mocker>vite>esbuild",
+            "apps__web>vitest>vite>esbuild",
+            "apps__web>vitest>vite-node>vite>esbuild"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        },
+        {
+          "version": "0.18.20",
+          "paths": [
+            "packages__db>drizzle-kit>@esbuild-kit/esm-loader>@esbuild-kit/core-utils>esbuild"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        },
+        {
+          "version": "0.19.12",
+          "paths": [
+            "packages__db>drizzle-kit>esbuild",
+            "packages__db>drizzle-kit>esbuild-register>esbuild"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1102341,
+      "title": "esbuild enables any website to send any requests to the development server and read the response",
+      "module_name": "esbuild",
+      "vulnerable_versions": "<=0.24.2",
+      "patched_versions": ">=0.24.3",
+      "severity": "moderate",
+      "cwe": "CWE-346",
+      "github_advisory_id": "GHSA-67mh-4wv8-2f99",
+      "url": "https://github.com/advisories/GHSA-67mh-4wv8-2f99"
+    },
+    "1116229": {
+      "findings": [
+        {
+          "version": "5.4.21",
+          "paths": [
+            ".>vitest>@vitest/mocker>vite",
+            ".>vitest>vite",
+            ".>vitest>vite-node>vite",
+            "apps__booking>@testing-library/jest-dom>vitest>@vitest/mocker>vite",
+            "apps__booking>@testing-library/jest-dom>vitest>vite",
+            "apps__booking>@testing-library/jest-dom>vitest>vite-node>vite",
+            "apps__booking>vitest>@vitest/mocker>vite",
+            "apps__booking>vitest>vite",
+            "apps__booking>vitest>vite-node>vite",
+            "apps__ipad>@testing-library/jest-dom>vitest>@vitest/mocker>vite",
+            "apps__ipad>@testing-library/jest-dom>vitest>vite",
+            "apps__ipad>@testing-library/jest-dom>vitest>vite-node>vite",
+            "apps__ipad>vitest>@vitest/mocker>vite",
+            "apps__ipad>vitest>vite",
+            "apps__ipad>vitest>vite-node>vite",
+            "apps__marketing>@testing-library/jest-dom>vitest>@vitest/mocker>vite",
+            "apps__marketing>@testing-library/jest-dom>vitest>vite",
+            "apps__marketing>@testing-library/jest-dom>vitest>vite-node>vite",
+            "apps__marketing>vitest>@vitest/mocker>vite",
+            "apps__marketing>vitest>vite",
+            "apps__marketing>vitest>vite-node>vite",
+            "apps__platform>vitest>@vitest/mocker>vite",
+            "apps__platform>vitest>vite",
+            "apps__platform>vitest>vite-node>vite",
+            "apps__web>@testing-library/jest-dom>vitest>@vitest/mocker>vite",
+            "apps__web>@testing-library/jest-dom>vitest>vite",
+            "apps__web>@testing-library/jest-dom>vitest>vite-node>vite",
+            "apps__web>vitest>@vitest/mocker>vite",
+            "apps__web>vitest>vite",
+            "apps__web>vitest>vite-node>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1116229,
+      "title": "Vite Vulnerable to Path Traversal in Optimized Deps `.map` Handling",
+      "module_name": "vite",
+      "vulnerable_versions": "<=6.4.1",
+      "patched_versions": ">=6.4.2",
+      "severity": "moderate",
+      "cwe": "CWE-22, CWE-200",
+      "github_advisory_id": "GHSA-4w7w-66w2-5vf9",
+      "url": "https://github.com/advisories/GHSA-4w7w-66w2-5vf9"
+    },
+    "1116251": {
+      "findings": [
+        {
+          "version": "0.38.4",
+          "paths": [
+            "packages__db>drizzle-orm"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1116251,
+      "title": "Drizzle ORM has SQL injection via improperly escaped SQL identifiers",
+      "module_name": "drizzle-orm",
+      "vulnerable_versions": "<0.45.2",
+      "patched_versions": ">=0.45.2",
+      "severity": "high",
+      "cwe": "CWE-89",
+      "github_advisory_id": "GHSA-gpj5-g38j-94v9",
+      "url": "https://github.com/advisories/GHSA-gpj5-g38j-94v9"
+    },
+    "1120782": {
+      "findings": [
+        {
+          "version": "7.5.13",
+          "paths": [
+            "apps__booking>hpsetup>tar"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1120782,
+      "title": "node-tar applies PAX size override to intermediary GNU long-name/long-link headers, causing tar parser interpretation differential (file smuggling)",
+      "module_name": "tar",
+      "vulnerable_versions": "<=7.5.15",
+      "patched_versions": ">=7.5.16",
+      "severity": "moderate",
+      "cwe": "CWE-436",
+      "github_advisory_id": "GHSA-vmf3-w455-68vh",
+      "url": "https://github.com/advisories/GHSA-vmf3-w455-68vh"
+    },
+    "1120784": {
+      "findings": [
+        {
+          "version": "5.4.21",
+          "paths": [
+            ".>vitest>@vitest/mocker>vite",
+            ".>vitest>vite",
+            ".>vitest>vite-node>vite",
+            "apps__booking>@testing-library/jest-dom>vitest>@vitest/mocker>vite",
+            "apps__booking>@testing-library/jest-dom>vitest>vite",
+            "apps__booking>@testing-library/jest-dom>vitest>vite-node>vite",
+            "apps__booking>vitest>@vitest/mocker>vite",
+            "apps__booking>vitest>vite",
+            "apps__booking>vitest>vite-node>vite",
+            "apps__ipad>@testing-library/jest-dom>vitest>@vitest/mocker>vite",
+            "apps__ipad>@testing-library/jest-dom>vitest>vite",
+            "apps__ipad>@testing-library/jest-dom>vitest>vite-node>vite",
+            "apps__ipad>vitest>@vitest/mocker>vite",
+            "apps__ipad>vitest>vite",
+            "apps__ipad>vitest>vite-node>vite",
+            "apps__marketing>@testing-library/jest-dom>vitest>@vitest/mocker>vite",
+            "apps__marketing>@testing-library/jest-dom>vitest>vite",
+            "apps__marketing>@testing-library/jest-dom>vitest>vite-node>vite",
+            "apps__marketing>vitest>@vitest/mocker>vite",
+            "apps__marketing>vitest>vite",
+            "apps__marketing>vitest>vite-node>vite",
+            "apps__platform>vitest>@vitest/mocker>vite",
+            "apps__platform>vitest>vite",
+            "apps__platform>vitest>vite-node>vite",
+            "apps__web>@testing-library/jest-dom>vitest>@vitest/mocker>vite",
+            "apps__web>@testing-library/jest-dom>vitest>vite",
+            "apps__web>@testing-library/jest-dom>vitest>vite-node>vite",
+            "apps__web>vitest>@vitest/mocker>vite",
+            "apps__web>vitest>vite",
+            "apps__web>vitest>vite-node>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1120784,
+      "title": "launch-editor: NTLMv2 hash disclosure via UNC path handling on Windows",
+      "module_name": "vite",
+      "vulnerable_versions": "<=6.4.2",
+      "patched_versions": ">=6.4.3",
+      "severity": "moderate",
+      "cwe": "CWE-73, CWE-522",
+      "github_advisory_id": "GHSA-v6wh-96g9-6wx3",
+      "url": "https://github.com/advisories/GHSA-v6wh-96g9-6wx3"
+    },
+    "1123525": {
+      "findings": [
+        {
+          "version": "5.4.21",
+          "paths": [
+            ".>vitest>@vitest/mocker>vite",
+            ".>vitest>vite",
+            ".>vitest>vite-node>vite",
+            "apps__booking>@testing-library/jest-dom>vitest>@vitest/mocker>vite",
+            "apps__booking>@testing-library/jest-dom>vitest>vite",
+            "apps__booking>@testing-library/jest-dom>vitest>vite-node>vite",
+            "apps__booking>vitest>@vitest/mocker>vite",
+            "apps__booking>vitest>vite",
+            "apps__booking>vitest>vite-node>vite",
+            "apps__ipad>@testing-library/jest-dom>vitest>@vitest/mocker>vite",
+            "apps__ipad>@testing-library/jest-dom>vitest>vite",
+            "apps__ipad>@testing-library/jest-dom>vitest>vite-node>vite",
+            "apps__ipad>vitest>@vitest/mocker>vite",
+            "apps__ipad>vitest>vite",
+            "apps__ipad>vitest>vite-node>vite",
+            "apps__marketing>@testing-library/jest-dom>vitest>@vitest/mocker>vite",
+            "apps__marketing>@testing-library/jest-dom>vitest>vite",
+            "apps__marketing>@testing-library/jest-dom>vitest>vite-node>vite",
+            "apps__marketing>vitest>@vitest/mocker>vite",
+            "apps__marketing>vitest>vite",
+            "apps__marketing>vitest>vite-node>vite",
+            "apps__platform>vitest>@vitest/mocker>vite",
+            "apps__platform>vitest>vite",
+            "apps__platform>vitest>vite-node>vite",
+            "apps__web>@testing-library/jest-dom>vitest>@vitest/mocker>vite",
+            "apps__web>@testing-library/jest-dom>vitest>vite",
+            "apps__web>@testing-library/jest-dom>vitest>vite-node>vite",
+            "apps__web>vitest>@vitest/mocker>vite",
+            "apps__web>vitest>vite",
+            "apps__web>vitest>vite-node>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1123525,
+      "title": "vite: `server.fs.deny` bypass on Windows alternate paths",
+      "module_name": "vite",
+      "vulnerable_versions": "<=6.4.2",
+      "patched_versions": ">=6.4.3",
+      "severity": "high",
+      "cwe": "CWE-22, CWE-200",
+      "github_advisory_id": "GHSA-fx2h-pf6j-xcff",
+      "url": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff"
+    },
+    "1123939": {
+      "findings": [
+        {
+          "version": "7.5.13",
+          "paths": [
+            "apps__booking>hpsetup>tar"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1123939,
+      "title": "node-tar: Process crash via PAX numeric path type confusion",
+      "module_name": "tar",
+      "vulnerable_versions": "<=7.5.17",
+      "patched_versions": ">=7.5.18",
+      "severity": "moderate",
+      "cwe": "CWE-704",
+      "github_advisory_id": "GHSA-w8wr-v893-vjvp",
+      "url": "https://github.com/advisories/GHSA-w8wr-v893-vjvp"
+    },
+    "1123940": {
+      "findings": [
+        {
+          "version": "7.5.13",
+          "paths": [
+            "apps__booking>hpsetup>tar"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1123940,
+      "title": "node-tar: Decompression/parse DoS via unlimited input",
+      "module_name": "tar",
+      "vulnerable_versions": "<=7.5.18",
+      "patched_versions": ">=7.5.19",
+      "severity": "critical",
+      "cwe": "CWE-770",
+      "github_advisory_id": "GHSA-23hp-3jrh-7fpw",
+      "url": "https://github.com/advisories/GHSA-23hp-3jrh-7fpw"
+    },
+    "1123941": {
+      "findings": [
+        {
+          "version": "7.5.13",
+          "paths": [
+            "apps__booking>hpsetup>tar"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1123941,
+      "title": "node-tar: Negative tar entry size causes infinite loop in archive replace",
+      "module_name": "tar",
+      "vulnerable_versions": "<=7.5.17",
+      "patched_versions": ">=7.5.18",
+      "severity": "high",
+      "cwe": "CWE-835",
+      "github_advisory_id": "GHSA-8x88-c5mf-7j5w",
+      "url": "https://github.com/advisories/GHSA-8x88-c5mf-7j5w"
+    },
+    "1123942": {
+      "findings": [
+        {
+          "version": "7.5.13",
+          "paths": [
+            "apps__booking>hpsetup>tar"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1123942,
+      "title": "node-tar: Uncaught Exception DoS via NUL byte in PAX path/linkpath records",
+      "module_name": "tar",
+      "vulnerable_versions": "<=7.5.16",
+      "patched_versions": ">=7.5.17",
+      "severity": "moderate",
+      "cwe": "CWE-248",
+      "github_advisory_id": "GHSA-gvwx-54wh-qm9j",
+      "url": "https://github.com/advisories/GHSA-gvwx-54wh-qm9j"
+    },
+    "1139528": {
+      "findings": [
+        {
+          "version": "2.1.9",
+          "paths": [
+            ".>vitest",
+            "apps__booking>@testing-library/jest-dom>vitest",
+            "apps__booking>vitest",
+            "apps__ipad>@testing-library/jest-dom>vitest",
+            "apps__ipad>vitest",
+            "apps__marketing>@testing-library/jest-dom>vitest",
+            "apps__marketing>vitest",
+            "apps__platform>vitest",
+            "apps__web>@testing-library/jest-dom>vitest",
+            "apps__web>vitest"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1139528,
+      "title": "When Vitest UI server is listening, arbitrary file can be read and executed",
+      "module_name": "vitest",
+      "vulnerable_versions": "<3.2.6",
+      "patched_versions": ">=3.2.6",
+      "severity": "critical",
+      "cwe": "CWE-22, CWE-862",
+      "github_advisory_id": "GHSA-5xrq-8626-4rwp",
+      "url": "https://github.com/advisories/GHSA-5xrq-8626-4rwp"
+    },
+    "1145647": {
+      "findings": [
+        {
+          "version": "7.5.13",
+          "paths": [
+            "apps__booking>hpsetup>tar"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1145647,
+      "title": "node-tar: Uncontrolled recursion in mapHas/filesFilter allows uncatchable stack-overflow DoS via crafted long-path tar with member selection",
+      "module_name": "tar",
+      "vulnerable_versions": "<=7.5.20",
+      "patched_versions": ">=7.5.21",
+      "severity": "high",
+      "cwe": "CWE-400, CWE-674",
+      "github_advisory_id": "GHSA-r292-9mhp-454m",
+      "url": "https://github.com/advisories/GHSA-r292-9mhp-454m"
+    },
+    "1158514": {
+      "findings": [
+        {
+          "version": "5.12.0",
+          "paths": [
+            "apps__api>fastify"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1158514,
+      "title": "fastify vulnerable to schema validation bypass via root primitive coercion mismatch",
+      "module_name": "fastify",
+      "vulnerable_versions": "<5.12.1",
+      "patched_versions": ">=5.12.1",
+      "severity": "moderate",
+      "cwe": "CWE-20",
+      "github_advisory_id": "GHSA-w2qp-rph6-63g4",
+      "url": "https://github.com/advisories/GHSA-w2qp-rph6-63g4"
+    },
+    "1158519": {
+      "findings": [
+        {
+          "version": "5.12.0",
+          "paths": [
+            "apps__api>fastify"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1158519,
+      "title": "fastify vulnerable to X-Forwarded-* spoofing under trustProxy hop-count",
+      "module_name": "fastify",
+      "vulnerable_versions": ">=5.8.3 <5.12.1",
+      "patched_versions": ">=5.12.1",
+      "severity": "moderate",
+      "cwe": "CWE-348",
+      "github_advisory_id": "GHSA-3m5p-2c4r-xxw2",
+      "url": "https://github.com/advisories/GHSA-3m5p-2c4r-xxw2"
+    },
+    "1158520": {
+      "findings": [
+        {
+          "version": "4.1.2",
+          "paths": [
+            "apps__api>fastify>@fastify/ajv-compiler>fast-uri",
+            "apps__api>fastify>@fastify/fast-json-stringify-compiler>fast-json-stringify>fast-uri",
+            "apps__api>fastify>fast-json-stringify>fast-uri"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1158520,
+      "title": "fast-uri vulnerable to host confusion via skipped IDN canonicalization on scheme-relative references",
+      "module_name": "fast-uri",
+      "vulnerable_versions": ">=4.0.1 <4.1.3",
+      "patched_versions": ">=4.1.3",
+      "severity": "high",
+      "cwe": "CWE-436",
+      "github_advisory_id": "GHSA-5jgf-p345-68v8",
+      "url": "https://github.com/advisories/GHSA-5jgf-p345-68v8"
+    },
+    "1158521": {
+      "findings": [
+        {
+          "version": "3.1.5",
+          "paths": [
+            "apps__api>fastify>@fastify/ajv-compiler>ajv>fast-uri",
+            "apps__api>fastify>@fastify/ajv-compiler>ajv-formats>ajv>fast-uri",
+            "apps__api>fastify>@fastify/fast-json-stringify-compiler>fast-json-stringify>ajv>fast-uri",
+            "apps__api>fastify>@fastify/fast-json-stringify-compiler>fast-json-stringify>ajv-formats>ajv>fast-uri",
+            "apps__api>fastify>fast-json-stringify>ajv>fast-uri",
+            "apps__api>fastify>fast-json-stringify>ajv-formats>ajv>fast-uri"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1158521,
+      "title": "fast-uri vulnerable to host confusion via skipped IDN canonicalization on scheme-relative references",
+      "module_name": "fast-uri",
+      "vulnerable_versions": ">=3.1.3 <3.1.6",
+      "patched_versions": ">=3.1.6",
+      "severity": "high",
+      "cwe": "CWE-436",
+      "github_advisory_id": "GHSA-5jgf-p345-68v8",
+      "url": "https://github.com/advisories/GHSA-5jgf-p345-68v8"
+    },
+    "1158523": {
+      "findings": [
+        {
+          "version": "4.1.2",
+          "paths": [
+            "apps__api>fastify>@fastify/ajv-compiler>fast-uri",
+            "apps__api>fastify>@fastify/fast-json-stringify-compiler>fast-json-stringify>fast-uri",
+            "apps__api>fastify>fast-json-stringify>fast-uri"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1158523,
+      "title": "fast-uri vulnerable to server-side request forgery via malformed IPv6 normalization",
+      "module_name": "fast-uri",
+      "vulnerable_versions": ">=4.0.0 <4.1.3",
+      "patched_versions": ">=4.1.3",
+      "severity": "high",
+      "cwe": "CWE-20, CWE-918",
+      "github_advisory_id": "GHSA-f65p-4m7j-42xc",
+      "url": "https://github.com/advisories/GHSA-f65p-4m7j-42xc"
+    },
+    "1158524": {
+      "findings": [
+        {
+          "version": "3.1.5",
+          "paths": [
+            "apps__api>fastify>@fastify/ajv-compiler>ajv>fast-uri",
+            "apps__api>fastify>@fastify/ajv-compiler>ajv-formats>ajv>fast-uri",
+            "apps__api>fastify>@fastify/fast-json-stringify-compiler>fast-json-stringify>ajv>fast-uri",
+            "apps__api>fastify>@fastify/fast-json-stringify-compiler>fast-json-stringify>ajv-formats>ajv>fast-uri",
+            "apps__api>fastify>fast-json-stringify>ajv>fast-uri",
+            "apps__api>fastify>fast-json-stringify>ajv-formats>ajv>fast-uri"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1158524,
+      "title": "fast-uri vulnerable to server-side request forgery via malformed IPv6 normalization",
+      "module_name": "fast-uri",
+      "vulnerable_versions": ">=3.0.0 <3.1.6",
+      "patched_versions": ">=3.1.6",
+      "severity": "high",
+      "cwe": "CWE-20, CWE-918",
+      "github_advisory_id": "GHSA-f65p-4m7j-42xc",
+      "url": "https://github.com/advisories/GHSA-f65p-4m7j-42xc"
+    },
+    "1158526": {
+      "findings": [
+        {
+          "version": "4.1.2",
+          "paths": [
+            "apps__api>fastify>@fastify/ajv-compiler>fast-uri",
+            "apps__api>fastify>@fastify/fast-json-stringify-compiler>fast-json-stringify>fast-uri",
+            "apps__api>fastify>fast-json-stringify>fast-uri"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1158526,
+      "title": "fast-uri vulnerable to server-side request forgery via repeated hostname percent-decoding",
+      "module_name": "fast-uri",
+      "vulnerable_versions": ">=4.0.0 <4.1.3",
+      "patched_versions": ">=4.1.3",
+      "severity": "high",
+      "cwe": "CWE-174, CWE-918",
+      "github_advisory_id": "GHSA-fph4-wmhf-6fwf",
+      "url": "https://github.com/advisories/GHSA-fph4-wmhf-6fwf"
+    },
+    "1158527": {
+      "findings": [
+        {
+          "version": "3.1.5",
+          "paths": [
+            "apps__api>fastify>@fastify/ajv-compiler>ajv>fast-uri",
+            "apps__api>fastify>@fastify/ajv-compiler>ajv-formats>ajv>fast-uri",
+            "apps__api>fastify>@fastify/fast-json-stringify-compiler>fast-json-stringify>ajv>fast-uri",
+            "apps__api>fastify>@fastify/fast-json-stringify-compiler>fast-json-stringify>ajv-formats>ajv>fast-uri",
+            "apps__api>fastify>fast-json-stringify>ajv>fast-uri",
+            "apps__api>fastify>fast-json-stringify>ajv-formats>ajv>fast-uri"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1158527,
+      "title": "fast-uri vulnerable to server-side request forgery via repeated hostname percent-decoding",
+      "module_name": "fast-uri",
+      "vulnerable_versions": ">=3.1.2 <3.1.6",
+      "patched_versions": ">=3.1.6",
+      "severity": "high",
+      "cwe": "CWE-174, CWE-918",
+      "github_advisory_id": "GHSA-fph4-wmhf-6fwf",
+      "url": "https://github.com/advisories/GHSA-fph4-wmhf-6fwf"
+    },
+    "1158529": {
+      "findings": [
+        {
+          "version": "4.1.2",
+          "paths": [
+            "apps__api>fastify>@fastify/ajv-compiler>fast-uri",
+            "apps__api>fastify>@fastify/fast-json-stringify-compiler>fast-json-stringify>fast-uri",
+            "apps__api>fastify>fast-json-stringify>fast-uri"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1158529,
+      "title": "fast-uri vulnerable to host confusion via percent-encoded scheme normalization",
+      "module_name": "fast-uri",
+      "vulnerable_versions": ">=4.0.0 <4.1.3",
+      "patched_versions": ">=4.1.3",
+      "severity": "high",
+      "cwe": "CWE-177",
+      "github_advisory_id": "GHSA-jqff-g426-hqxp",
+      "url": "https://github.com/advisories/GHSA-jqff-g426-hqxp"
+    },
+    "1158530": {
+      "findings": [
+        {
+          "version": "3.1.5",
+          "paths": [
+            "apps__api>fastify>@fastify/ajv-compiler>ajv>fast-uri",
+            "apps__api>fastify>@fastify/ajv-compiler>ajv-formats>ajv>fast-uri",
+            "apps__api>fastify>@fastify/fast-json-stringify-compiler>fast-json-stringify>ajv>fast-uri",
+            "apps__api>fastify>@fastify/fast-json-stringify-compiler>fast-json-stringify>ajv-formats>ajv>fast-uri",
+            "apps__api>fastify>fast-json-stringify>ajv>fast-uri",
+            "apps__api>fastify>fast-json-stringify>ajv-formats>ajv>fast-uri"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1158530,
+      "title": "fast-uri vulnerable to host confusion via percent-encoded scheme normalization",
+      "module_name": "fast-uri",
+      "vulnerable_versions": ">=3.0.0 <3.1.6",
+      "patched_versions": ">=3.1.6",
+      "severity": "high",
+      "cwe": "CWE-177",
+      "github_advisory_id": "GHSA-jqff-g426-hqxp",
+      "url": "https://github.com/advisories/GHSA-jqff-g426-hqxp"
+    },
+    "1193683": {
+      "findings": [
+        {
+          "version": "2.1.9",
+          "paths": [
+            ".>vitest",
+            "apps__booking>@testing-library/jest-dom>vitest",
+            "apps__booking>vitest",
+            "apps__ipad>@testing-library/jest-dom>vitest",
+            "apps__ipad>vitest",
+            "apps__marketing>@testing-library/jest-dom>vitest",
+            "apps__marketing>vitest",
+            "apps__platform>vitest",
+            "apps__web>@testing-library/jest-dom>vitest",
+            "apps__web>vitest"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1193683,
+      "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock",
+      "module_name": "vitest",
+      "vulnerable_versions": ">=2.1.0 <4.1.11",
+      "patched_versions": ">=4.1.11",
+      "severity": "moderate",
+      "cwe": "CWE-22",
+      "github_advisory_id": "GHSA-82fw-gwwq-j7x9",
+      "url": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9"
+    },
+    "1193684": {
+      "findings": [
+        {
+          "version": "2.1.9",
+          "paths": [
+            ".>vitest>@vitest/mocker",
+            "apps__booking>@testing-library/jest-dom>vitest>@vitest/mocker",
+            "apps__booking>vitest>@vitest/mocker",
+            "apps__ipad>@testing-library/jest-dom>vitest>@vitest/mocker",
+            "apps__ipad>vitest>@vitest/mocker",
+            "apps__marketing>@testing-library/jest-dom>vitest>@vitest/mocker",
+            "apps__marketing>vitest>@vitest/mocker",
+            "apps__platform>vitest>@vitest/mocker",
+            "apps__web>@testing-library/jest-dom>vitest>@vitest/mocker",
+            "apps__web>vitest>@vitest/mocker"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1193684,
+      "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock",
+      "module_name": "@vitest/mocker",
+      "vulnerable_versions": ">=2.1.0 <4.1.11",
+      "patched_versions": ">=4.1.11",
+      "severity": "moderate",
+      "cwe": "CWE-22",
+      "github_advisory_id": "GHSA-82fw-gwwq-j7x9",
+      "url": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9"
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 10,
+      "high": 12,
+      "critical": 2
+    },
+    "dependencies": 309,
+    "devDependencies": 227,
+    "optionalDependencies": 184,
+    "totalDependencies": 643
+  }
+}

@@ -1,5 +1,8 @@
 # Test data audit — Seed V2
 
+> **2026-09-27 账号清理更新：** 当前环境账号和 seed 命令以[环境账号清单](TEST_ACCOUNTS.md)为准。下文旧账号、演示店及旧密码仅适用于历史记录或隔离测试 fixture，不能作为现行 local/staging/prod 登录配置；原 `ops` 管理员保留。
+
+
 Date: 2026-08-30  
 Scope: seed scripts, fixtures, factories, database test helpers, auth/org/location/membership/billing/appointment/queue/ticket/gift-card/payroll/10DLC/storefront/platform/support/Stripe/date helpers.  
 Production application code was not changed except existing test seams (gift-card suite now uses `billing.syncSubscription`; `setup:test:reset` uses the Seed V2 Stripe fixture).

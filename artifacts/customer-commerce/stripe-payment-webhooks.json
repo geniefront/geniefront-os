@@ -1,0 +1,25 @@
+{
+  "at": "2026-10-01T03:17:22.074206+00:00",
+  "source": "Observed stdout from the owned Stripe CLI snapshot listener; signing secrets excluded",
+  "connectedAccount": "acct_1ULVaEJDnwwxW56m",
+  "liveMode": false,
+  "forwarded": [
+    {
+      "type": "checkout.session.completed",
+      "eventId": "evt_1ULZq0JDnwwxW56mQn6G1onT",
+      "responseStatus": 200
+    },
+    {
+      "type": "refund.created",
+      "eventId": "evt_3ULZpzJDnwwxW56m1x9rRDoK",
+      "responseStatus": 200
+    },
+    {
+      "type": "refund.updated",
+      "eventId": "evt_3ULZpzJDnwwxW56m1uGrNVHL",
+      "responseStatus": 200
+    }
+  ],
+  "endpoint": "http://127.0.0.1:3087/v1/stripe/commerce-webhook",
+  "goalComplete": false
+}

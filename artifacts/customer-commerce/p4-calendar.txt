@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/scheduling
+
+ ✓ src/membershipPeriods.test.ts (4 tests) 22ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  10:07:25
+   Duration  222ms (transform 37ms, setup 0ms, collect 36ms, tests 22ms, environment 0ms, prepare 31ms)
+

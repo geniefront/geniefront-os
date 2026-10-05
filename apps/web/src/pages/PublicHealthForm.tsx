@@ -38,6 +38,7 @@ const localized = (value: Partial<Record<string, string>> | undefined, language:
 
 const localeByLanguage: Record<Language, string> = {
   'zh-Hans': 'zh-CN',
+  'zh-Hant': 'zh-TW',
   en: 'en-US',
   ko: 'ko-KR',
   es: 'es-ES',

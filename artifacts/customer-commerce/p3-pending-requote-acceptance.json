@@ -1,0 +1,136 @@
+{
+  "at": "2026-10-03T03:15:26.930971+00:00",
+  "scope": "P3 native pending party cancellation and service replacement with price reconfirmation, exact original deadline, expired old Stripe Checkout sessions and sole final payment",
+  "completeGoal": false,
+  "migrationCount": 188,
+  "native": {
+    "at": "2026-10-03T03:09:40.940Z",
+    "mode": "verify-paid",
+    "appointmentId": "1c691b33-f3e4-4e14-8596-df340318170e",
+    "holdId": "d5b138be-8475-42a2-8b32-23dbb4bc2f7d",
+    "originalContractAndDeadlineUnchanged": true,
+    "provider": [
+      {
+        "orderId": "c01ea0be-cf00-4032-bc5b-be51b1abc2b4",
+        "amountCents": 3400,
+        "requestState": "superseded",
+        "sessionStatus": "expired",
+        "paymentStatus": "unpaid",
+        "feeCents": null,
+        "netCents": null
+      },
+      {
+        "orderId": "7dae07b1-6275-48f3-93cd-1df317ef93cc",
+        "amountCents": 1400,
+        "requestState": "superseded",
+        "sessionStatus": "expired",
+        "paymentStatus": "unpaid",
+        "feeCents": null,
+        "netCents": null
+      },
+      {
+        "orderId": "501d7319-d7a3-4226-a733-64d9aad341f8",
+        "amountCents": 200,
+        "requestState": "paid",
+        "sessionStatus": "complete",
+        "paymentStatus": "paid",
+        "feeCents": 36,
+        "netCents": 164
+      }
+    ],
+    "facts": {
+      "status": "booked",
+      "deposit_status": "paid",
+      "party_size": 1,
+      "customer_cancellations": 1,
+      "collections": 1,
+      "confirmations": 1,
+      "active_service_cents": 1000
+    },
+    "originalDeadlinePassed": true,
+    "expiryTasks": {
+      "tasks": 3,
+      "completed": 3
+    },
+    "collectedGuestAllocation": [
+      {
+        "guestIndex": 1,
+        "amountCents": 200
+      }
+    ],
+    "signedCheckoutEvents": 1,
+    "capturedConfirmations": 1,
+    "nativeReloadReplay": {
+      "originalStatus": 200,
+      "response": {
+        "bookingId": "1c691b33-f3e4-4e14-8596-df340318170e",
+        "remainingGuests": 1,
+        "replayed": true,
+        "status": "booked"
+      },
+      "sameQuote": true,
+      "sameRequestId": true,
+      "status": 200
+    },
+    "priorPayments": {
+      "count": 19,
+      "hash": "1e8a03fa966eab1c27950d57b6e277f2"
+    },
+    "currentPayments": {
+      "count": 22,
+      "hash": "d62cf8fe4e061202502780125522595c"
+    },
+    "nativeCustomerPartialCancellation": true,
+    "nativeStaffServiceReplacement": true,
+    "notificationDelivery": "capture",
+    "productionPublished": false,
+    "goalComplete": false
+  },
+  "checks": {
+    "api": {
+      "files": 3,
+      "tests": 34,
+      "adjustmentsTests": 20
+    },
+    "booking": {
+      "files": 2,
+      "tests": 26
+    },
+    "web": {
+      "files": 1,
+      "tests": 2
+    },
+    "types": [
+      "api",
+      "web",
+      "booking",
+      "contracts"
+    ],
+    "guards": true,
+    "webBookingContractsBuild": true,
+    "diffCheck": true
+  },
+  "ui": {
+    "buyerErrors": 0,
+    "freshStaffErrors": 0,
+    "historicalStaffHmrErrors": 1,
+    "historicalErrorPreserved": true,
+    "mobileWidth": 390,
+    "scrollWidth": 390,
+    "languages": [
+      "en",
+      "zh-Hans"
+    ],
+    "currentRemainingGuestServiceCents": 1000,
+    "currentRefundableDepositCents": 200,
+    "replacedServiceHistoryExcludedFromCurrentGuestQuote": true,
+    "originalAllocationLabeledAsQuotedHistoryInSixLanguages": true
+  },
+  "remaining": [
+    "Requirement-by-requirement final evidence audit A01-A22",
+    "Actual telephone and any implementation or evidence gaps identified by the audit"
+  ],
+  "userScopeChange": "Successful bank payout and dependent actual successful bank-arrival batch are unverified/user-waived",
+  "notificationDelivery": "capture",
+  "productionPublished": false
+}

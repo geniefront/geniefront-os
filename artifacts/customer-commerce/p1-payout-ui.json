@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-02T06:53:55.006Z",
+  "scope": "Actual failed payout and return in a fresh owner browser",
+  "payoutFailed": true,
+  "debitVisible": true,
+  "returnVisible": true,
+  "manualAllocationNotInvented": true,
+  "hasAlert": false,
+  "horizontalOverflow": false,
+  "historicalBrowserErrors": 1,
+  "freshBrowserErrors": 0,
+  "freshSessionVerified": true,
+  "productionChanged": false
+}

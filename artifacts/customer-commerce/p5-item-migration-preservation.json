@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-02T12:39:24.287Z",
+  "previousMigration": 178,
+  "incrementalMigration": 179,
+  "preservedPaymentFingerprintBefore": "14:0e6bc4cceb3a1ab766cc1486efff59e4",
+  "preservedPaymentFingerprintAfter": "14:0e6bc4cceb3a1ab766cc1486efff59e4",
+  "unchanged": true,
+  "reset": false,
+  "productionChanged": false,
+  "protectedItemTables": 6
+}

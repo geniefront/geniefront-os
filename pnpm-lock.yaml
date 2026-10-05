@@ -90,6 +90,9 @@ importers:
       '@gf/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@gf/payroll':
+        specifier: workspace:*
+        version: link:../../packages/payroll
       '@gf/phone-input':
         specifier: workspace:*
         version: link:../../packages/phone-input

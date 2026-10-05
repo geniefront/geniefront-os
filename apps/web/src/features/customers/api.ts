@@ -1,3 +1,6 @@
+import {useState,useEffect} from 'react';
+import {customerMergeInput} from '@gf/contracts';
+import {useAttemptKey} from '@/lib/idempotency';
 /**
  * 客户档案数据层。
  *
@@ -5,7 +8,7 @@
  * `customer.*` 命令。这里不维护本地镜像，命令成功后统一失效相关查询。
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiGet, runCommand } from '@/lib/api';
+import { ApiError,apiGet, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import type {
   CustomerDetail,
@@ -144,24 +147,22 @@ export function useSetCustomerBlocked() {
 }
 
 export function useMergeCustomers() {
-  const queryClient = useQueryClient();
-  const { membershipId } = useSession();
-
-  return useMutation({
-    mutationFn: async (input: MergeCustomersInput) => {
-      const res = await runCommand<{ targetCustomerId: string; sourceCustomerId: string }>(
-        'customer.merge',
-        input,
-        membershipId!,
-      );
-      return res.result;
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['desk', 'customers'] });
-      queryClient.invalidateQueries({ queryKey: ['desk', 'customer', membershipId, data.targetCustomerId] });
-      queryClient.invalidateQueries({ queryKey: ['desk', 'customer', membershipId, data.sourceCustomerId] });
-    },
-  });
+  const queryClient=useQueryClient(),{membershipId}=useSession(),attempt=useAttemptKey(),storageKey=`gf-customer-merge:${membershipId}`;
+  type Pending={key:string;input:MergeCustomersInput};
+  const read=():Pending|null=>{try{const p=JSON.parse(sessionStorage.getItem(storageKey)??'null');const input=customerMergeInput.safeParse(p?.input);return p&&typeof p.key==='string'&&input.success?{key:p.key,input:input.data}:null;}catch{return null;}};
+  const [stored,setStored]=useState<{storageKey:string;value:Pending|null}>(()=>({storageKey,value:read()}));
+  useEffect(()=>{setStored({storageKey,value:read()});},[storageKey]);
+  const preserve=(value:Pending|null)=>{if(value)sessionStorage.setItem(storageKey,JSON.stringify(value));else sessionStorage.removeItem(storageKey);setStored({storageKey,value});};
+  const mutation=useMutation({mutationFn:async(input:MergeCustomersInput)=>{
+    const payload=customerMergeInput.parse(input),saved=read();
+    if(saved&&(saved.input.sourceCustomerId!==payload.sourceCustomerId||saved.input.targetCustomerId!==payload.targetCustomerId))throw new ApiError('VALIDATION_FAILED',{reason:'customer_merge_result_unknown'},false,409);
+    const pending=saved??{key:attempt.take([membershipId,payload]),input:payload};preserve(pending);
+    try{const res=await runCommand<{targetCustomerId:string;sourceCustomerId:string}>('customer.merge',payload,membershipId!,pending.key);
+      if(res.result.targetCustomerId!==payload.targetCustomerId||res.result.sourceCustomerId!==payload.sourceCustomerId)throw new Error('CUSTOMER_MERGE_RESPONSE_MISMATCH');
+      preserve(null);attempt.settle([membershipId,payload]);return res.result;
+    }catch(e){if(e instanceof ApiError&&e.status>0&&e.status<500&&(!saved||(![401,403,429].includes(e.status)&&e.code!=='IDEMPOTENCY_KEY_REUSED')))preserve(null);throw e;}
+  },onSuccess:()=>{void queryClient.invalidateQueries({queryKey:['desk']});void queryClient.invalidateQueries({queryKey:['checkout']});}});
+  return {...mutation,pendingMerge:stored.storageKey===storageKey?stored.value?.input??null:null};
 }
 
 export function useSendCustomerSms() {

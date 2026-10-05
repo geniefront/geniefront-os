@@ -1,0 +1,26 @@
+/tmp/commerce-checkout-quote-api-all-final.txt
+ ✓ src/public.test.ts (98 tests) 9319ms
+ ✓ src/commerce.test.ts (47 tests) 3807ms
+ ✓ src/customerMemberships.test.ts (36 tests) 7625ms
+ ✓ src/appointmentDeposits.test.ts (29 tests) 1746ms
+ ✓ src/bundle.test.ts (34 tests) 949ms
+ ✓ src/voice.test.ts (18 tests) 7963ms
+ ✓ src/money.test.ts (18 tests) 2512ms
+ ✓ src/appointmentGuestCancellation.test.ts (10 tests) 2609ms
+ ✓ src/voiceV2.test.ts (18 tests) 3884ms
+ ✓ src/voiceDeposits.test.ts (8 tests) 1349ms
+ ✓ src/workstations_backend.test.ts (15 tests) 329ms
+ ✓ src/appointmentDepositRetention.test.ts (10 tests) 1529ms
+ ✓ src/giftcard.test.ts (22 tests) 689ms
+ ✓ src/commercePayouts.test.ts (11 tests) 394ms
+ ✓ src/publicDeposits.test.ts (4 tests) 720ms
+ ✓ src/ticketLifecycle.test.ts (2 tests) 0ms
+ Test Files  16 passed (16)
+      Tests  380 passed (380)
+   Duration  86.54s (transform 1.49s, setup 36.45s, collect 4.48s, tests 45.42s, environment 0ms, prepare 34ms)
+/tmp/commerce-checkout-quote-planner-final.txt
+ ✓ src/commerce.test.ts (47 tests | 46 skipped) 262ms
+ ✓ src/customerMemberships.test.ts (36 tests | 35 skipped) 760ms
+ Test Files  2 passed (2)
+      Tests  2 passed | 81 skipped (83)
+   Duration  5.92s (transform 769ms, setup 3.24s, collect 1.53s, tests 1.02s, environment 0ms, prepare 31ms)

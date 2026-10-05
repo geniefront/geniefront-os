@@ -1,0 +1,54 @@
+{
+  "AUDIT_PERMISSIONS": {
+    "ticketRead": true,
+    "ticketWrite": true,
+    "discount": false,
+    "report": false,
+    "queueManage": false
+  },
+  "AUDIT_ORDERS": {
+    "status": 200,
+    "rows": 50,
+    "otherStaffOrders": 39,
+    "otherStaffAmountsExposed": true,
+    "cacheControl": "no-store, max-age=0"
+  },
+  "AUDIT_PRICE_OVERRIDE": {
+    "status": 201,
+    "catalogPriceCents": 4500,
+    "response": {
+      "result": {
+        "ticketId": "62e71efd-161c-4a1b-92c6-57e06f5b9949",
+        "ticketItemIds": [
+          "e71f3e8b-d07b-49ec-8284-1e1f7d006514"
+        ],
+        "bundleInstanceIds": [],
+        "subtotalCents": 0
+      },
+      "replayed": false,
+      "undoToken": "86fb367f-6934-4140-8f15-668c1bd6b599"
+    }
+  },
+  "dns_rebinding": {
+    "validationPublicResults": 1,
+    "connectionLookups": 1,
+    "internalRequests": 1,
+    "internalContentReturned": true
+  },
+  "migration_guard": {
+    "syntheticStagingWithDifferentMigrationHostAccepted": true,
+    "exitCode": 0,
+    "connectedToMigrationTarget": false
+  },
+  "test_guard": {
+    "syntheticNonLocalTestUrlsAccepted": true,
+    "connectionsMade": 0
+  },
+  "scope": {
+    "gitHead": "fb433fe",
+    "productionConnections": 0,
+    "deployments": 0,
+    "applicationSourceEdits": 0,
+    "testDatabase": "new disposable PostgreSQL 17 container bound to loopback"
+  }
+}

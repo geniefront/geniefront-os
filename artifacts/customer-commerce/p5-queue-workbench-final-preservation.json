@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-02T13:40:53.420Z",
+  "preservedPaymentFingerprint": "14:0e6bc4cceb3a1ab766cc1486efff59e4",
+  "unchangedSinceBeforeMigration": true,
+  "payments": 14,
+  "nativeQueueQuoteAuditMatched": true,
+  "migrations": 179,
+  "sources": 10,
+  "item_receipts": 4,
+  "item_returns": 9,
+  "commission_returns": 9,
+  "reset": false,
+  "productionChanged": false
+}

@@ -1,0 +1,18 @@
+{
+  "version": "notifications-20260921161644-r2",
+  "completedAt": "2026-09-21T16:27:22.633161+00:00",
+  "imageId": "sha256:aa51424e1f53db664662901ea2afe033bdb42e9f0a8c11b6ad3b9b520af4e8ea",
+  "healthyHosts": [
+    "gf-staging",
+    "gf-a",
+    "gf-b"
+  ],
+  "migration": "20260921155847_service_short_names.sql",
+  "rollbackBackupRelativePath": "release-backups/notifications-20260921161644",
+  "realAiChecks": [
+    "six languages",
+    "batch generation",
+    "preserve existing names"
+  ],
+  "sentTestNotifications": false
+}

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { withTenant, closeDb } from '@gf/db';
 import { buildContext } from './actor';
-import { dispatch } from './bus';
+import { dispatchWithCommerceSale as dispatch } from './test/commerceSaleDispatch';
 import { loadStaffDirectory } from './queries/staffList';
 import { loadCustomerList } from './queries/customer';
 import { loadPackages } from './queries/marketing';

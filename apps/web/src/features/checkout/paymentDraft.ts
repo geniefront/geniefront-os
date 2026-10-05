@@ -53,7 +53,9 @@ export function patchPayment(line: DraftLine, patch: Partial<DraftLine>): DraftL
 }
 
 export function distributeTip(lines: DraftLine[], cents: number): DraftLine[] {
+  let target=lines.findIndex(line=>!['gift_card','customer_credit'].includes(line.method));
+  if(target<0&&cents>0){target=lines.length;lines=[...lines,emptyLine('card')];}
   return lines.map((line, index) => patchPayment(line, {
-    tipCents: index === 0 ? cents : 0, keepChange: false,
+    tipCents: index === target ? cents : 0, keepChange: false,
   }));
 }

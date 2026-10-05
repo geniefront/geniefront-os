@@ -1,0 +1,74 @@
+{
+  "at": "2026-10-02T23:37:45.219437+00:00",
+  "scope": "P2 unlimited offline cash record, original-source service redemption/return and explicit manual refund termination",
+  "migrationUnchanged": 186,
+  "checks": {
+    "apiFiles": 4,
+    "apiTests": 137,
+    "commerceTests": 54,
+    "webFiles": 1,
+    "webTests": 4,
+    "contractFiles": 19,
+    "contractTests": 97,
+    "typecheckPackages": 16,
+    "finalWebTypes": true,
+    "webBuild": true,
+    "guards": true,
+    "diff": true,
+    "finalCommercePublicTests": 54,
+    "bookingFiles": 1,
+    "bookingTests": 12,
+    "bookingBuild": true
+  },
+  "native": {
+    "provider": "offline",
+    "cashRecordedCents": 50000,
+    "physicalCashObserved": false,
+    "serviceCoverageCents": 10000,
+    "newServicePaymentCents": 0,
+    "commissionBaseCents": 0,
+    "manualPurchaseRefundCents": 50000,
+    "explicitUnlimitedTerminationConfirmed": true,
+    "requestResponseLostAfterHttp201": true,
+    "sameKeyReplayHttp200": true,
+    "pendingRedemptionRejected": true,
+    "assetStatusAfterRefund": "void",
+    "originalServiceReturnedCents": 10000,
+    "newMoneyOnServiceReturn": 0,
+    "stoppedEntitlementRemainedUnavailable": true,
+    "dayCloseMatchesIndependentSql": true,
+    "manualRefundPartsCents": [
+      20000,
+      30000
+    ],
+    "successfulRequestReplays": 2,
+    "cashRecordedReturnedCents": 50000,
+    "fullRefundRejectsExtraCent": true,
+    "buyerStoppedReceiptVerified": true,
+    "capturedPurchaseNotices": 1,
+    "capturedRefundNotices": 2
+  },
+  "preservation": {
+    "original16PaymentRowsUnchanged": true,
+    "original16RowJsonHash": "007752639c9178921089555f1122decf",
+    "current17RowJsonHash": "95cc7592a6001bccb099e12c8117ab2a",
+    "newStripePayment": false
+  },
+  "expiryEvidence": {
+    "isolatedDatabaseRealTwoSecondBoundaryPassed": true,
+    "samePackageBeforeExpiryRedeemAndAfterExpiryRefusal": true,
+    "repeatedRefundsCappedAtOriginalPayment": true,
+    "nativeOneDayContractTerminatedBeforeExpiry": true,
+    "nativeClockNotAdvanced": true
+  },
+  "remaining": [
+    "full unlimited online/cross-store/currency/delivery/role matrix",
+    "native expiry boundary beyond this terminated one-day sample",
+    "P3 pending booking edits/supplements and remaining P4/P5 work",
+    "all remaining P0\u2013P6/A01\u2013A22 gates"
+  ],
+  "allAcceptancePassed": false,
+  "goalComplete": false,
+  "productionPublished": false,
+  "publicReceiptFix": "Server returns authoritative package availability and store timezone; stopped/expired unlimited packages no longer appear usable."
+}

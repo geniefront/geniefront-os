@@ -1,4 +1,14 @@
+import {lockCheckoutAssets,checkoutPlanningBalances,type CheckoutPlanningBalances} from './checkoutPlanning';
+import {createHash} from 'node:crypto';
+import {commerceFingerprint} from '@gf/payroll';
+import {recordTicketSources,ticketSourceRefundPlan,recordTicketSourceRefunds,restoreTicketPackages,ticketRefundComponents,ticketRefundReview} from './ticketSources';
+import {recordTicketItemGraph,recordTicketItemReturns,returnTicketItemCommissions} from './ticketItemSources';
 import { canonicalCustomer, customerAssetIds } from '../customerIdentity';
+import {allocatePackageUse} from './packageUnits';
+import {formatPackageUnitRanges,parsePackageUnitRanges,takePackageUnits} from '@gf/payroll';
+import {applyMembershipRedemptions,restoreTicketMemberships,type MembershipRedemption} from './membershipUnits';
+import {applyTicketPriceDiscounts,lockTicketMemberships} from './membershipDiscounts';
+import {applyDepositToTicket,restoreTicketDeposit} from './appointmentDepositPayments';
 /**
  * 工单命令实现。
  *
@@ -8,9 +18,9 @@ import { canonicalCustomer, customerAssetIds } from '../customerIdentity';
 
 import type postgres from 'postgres';
 import {
-  TicketOpen, TicketAddItem, TicketClose, TicketPay, TicketVoid,
-  TicketGroup, TicketUngroup, TicketCloseGroup, TicketRefund,
-  AppError, ERROR_CODES, type CommandContext, pickText
+  TicketOpen, TicketAddItem, TicketClose, TicketPay, TicketQuoteCheckout, TicketVoid,
+  TicketGroup, TicketUngroup, TicketCloseGroup, TicketQuoteGroup, TicketReviewRefund, TicketRefund,
+  AppError, ERROR_CODES, type CommandContext, type MembershipDiscountSelection, pickText
 } from '@gf/contracts';
 import {
   allocateTip, explainAllocation, DEFAULT_TIP_POLICY,
@@ -122,15 +132,18 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     // check and turn one arrival into two live tickets.
     const [appointment] = await tx<{
       id: string; customer_id: string | null; walk_in_name: string | null;
-      status: string; business_date: string;
+      status: string; deposit_status:string; business_date: string;
     }[]>`
-      select id, customer_id, walk_in_name, status,
+      select id, customer_id, walk_in_name, status, deposit_status,
              business_date::text as business_date
       from appointments
       where id = ${input.appointmentId} and location_id = ${ctx.locationId}
       for update`;
     if (!appointment) {
       throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+    }
+    if(appointment.deposit_status==='pending'||appointment.deposit_status==='review') {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'deposit_payment_required'}});
     }
     if (appointment.status === 'cancelled' || appointment.status === 'done') {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
@@ -146,7 +159,7 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
         },
       });
     }
-    if (input.customerId && input.customerId !== appointment.customer_id) {
+    if (input.customerId && (!appointment.customer_id || await canonicalCustomer(tx,input.customerId)!==await canonicalCustomer(tx,appointment.customer_id))) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: 'appointment_customer_mismatch' },
       });
@@ -565,6 +578,7 @@ interface TicketForClose {
   businessDate: string;
   groupId: string | null;
   customerId: string | null;
+  appointmentId:string|null;
   checkoutTiming: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
   serviceSettledAt: string | null;
   tipSettledAt: string | null;
@@ -575,11 +589,11 @@ async function loadTicketForClose(
 ): Promise<TicketForClose> {
   const [t] = await tx<{
     id: string; status: string; subtotal: number; total_cents: number; business_date: string; group_id: string | null;
-    customer_id: string | null; checkout_timing_snapshot: TicketForClose['checkoutTiming'];
+    customer_id: string | null; appointment_id:string|null;checkout_timing_snapshot: TicketForClose['checkoutTiming'];
     service_settled_at: string | null; tip_settled_at: string | null;
   }[]>`
     select id, status, subtotal_cents as subtotal, total_cents,
-           business_date::text as business_date, group_id, customer_id,
+           business_date::text as business_date, group_id, customer_id,appointment_id,
            checkout_timing_snapshot, service_settled_at::text as service_settled_at,
            tip_settled_at::text as tip_settled_at
     from tickets where id = ${ticketId} and location_id = ${locationId} for update`;
@@ -589,7 +603,7 @@ async function loadTicketForClose(
   }
   return {
     id: t.id, status: t.status, subtotalCents: t.subtotal, totalCents: t.total_cents,
-    businessDate: t.business_date, groupId: t.group_id, customerId: t.customer_id,
+    businessDate: t.business_date, groupId: t.group_id, customerId: t.customer_id,appointmentId:t.appointment_id,
     checkoutTiming: t.checkout_timing_snapshot,
     serviceSettledAt: t.service_settled_at, tipSettledAt: t.tip_settled_at,
   };
@@ -633,10 +647,12 @@ async function loadCheckoutPackagePolicy(
 async function applyPackageRedemptions(args: {
   tx: postgres.TransactionSql; ctx: CommandContext; ticket: TicketForClose;
   redemptions: readonly PackageRedemptionIn[]; policy: CheckoutPackagePolicy;
-}): Promise<{ coveredCents: number; commissionDiscountByItem: Map<string, number> }> {
+  excludedItemIds?:ReadonlySet<string>;persist?:boolean;balances?:CheckoutPlanningBalances|undefined;
+}): Promise<{ coveredCents: number; commissionDiscountByItem: Map<string, number>;commissionBaseByItem:Map<string,number>;usedItemIds:Set<string> }> {
   const { tx, ctx, ticket, redemptions, policy } = args;
   const commissionDiscountByItem = new Map<string, number>();
-  if (redemptions.length === 0) return { coveredCents: 0, commissionDiscountByItem };
+  const commissionBaseByItem=new Map<string,number>();
+  if (redemptions.length === 0) return { coveredCents: 0, commissionDiscountByItem,commissionBaseByItem,usedItemIds:new Set() };
   if (!ticket.customerId) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'package_requires_ticket_customer' } });
   }
@@ -653,31 +669,40 @@ async function applyPackageRedemptions(args: {
   const usedItemIds = new Set<string>();
   let coveredCents = 0;
 
-  for (const redemption of redemptions) {
+  for (const redemption of [...redemptions].sort((a,b)=>a.customerPackageId.localeCompare(b.customerPackageId))) {
     const units = redemption.units;
     const [pkg] = await tx<{
       id: string; customer_id: string; remaining_sessions: number; total_sessions: number;
-      status: string; expires_at: string | null; service_ids: string[]; sold_price_cents: number;
+      status: string; expires_at: string | null; service_ids: string[]; sold_price_cents: number;reserved_sessions:number;refund_frozen:boolean;commerce_frozen:boolean;
+      location_id:string;scope:string;coverage_mode:string|null;commission_basis:string|null;available_units:string;purchase_snapshot:{unitAllocationVersion?:number}|null;
     }[]>`
       select cp.id, cp.customer_id, cp.remaining_sessions, cp.total_sessions, cp.status,
-             cp.expires_at::text, coalesce(pt.service_ids, '{}')::text[] as service_ids,
-             coalesce((select max(ccl.amount_cents) from customer_credit_ledger ccl
-                       where ccl.kind = 'package' and ccl.subject_id = cp.id and ccl.entry = 'issue'),
-                      pt.price_cents, 0)::int as sold_price_cents
+             cp.expires_at::text,
+             case when cp.purchase_snapshot is not null then array(select jsonb_array_elements_text(cp.purchase_snapshot->'serviceIds'))
+                  else coalesce(pt.service_ids,'{}')::text[] end as service_ids,
+             coalesce((cp.purchase_snapshot->>'amountCents')::int,(select max(ccl.amount_cents) from customer_credit_ledger ccl
+                       where ccl.kind = 'package' and ccl.unit='cents' and ccl.subject_id = cp.id and ccl.entry = 'issue'),
+                      pt.price_cents, 0)::int as sold_price_cents,
+             cp.reserved_sessions,cp.refund_frozen,cp.commerce_frozen,cp.available_units,cp.purchase_snapshot,cp.location_id,coalesce(cp.purchase_snapshot->>'scope',pt.scope,'location') as scope,
+             cp.purchase_snapshot->>'coverageMode' as coverage_mode,cp.purchase_snapshot->>'commissionBasis' as commission_basis
       from customer_packages cp left join package_templates pt on pt.id = cp.template_id
       where cp.id = ${redemption.customerPackageId} and cp.org_id = ${ctx.orgId}
       for update of cp`;
     if (!pkg) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'customer_package' } });
-    if (pkg.customer_id !== ticket.customerId) {
+    const planned=args.balances?.packages.get(pkg.id);if(planned)Object.assign(pkg,planned);
+    if (!ticket.customerId || await canonicalCustomer(tx,pkg.customer_id) !== await canonicalCustomer(tx,ticket.customerId)) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'package_ticket_customer_mismatch' } });
     }
     if (pkg.status !== 'active') {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'package_not_active' } });
     }
+    if(pkg.refund_frozen||pkg.commerce_frozen||(pkg.scope!=='org'&&pkg.location_id!==ctx.locationId)) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'package_unavailable'}});
+    }
     if (pkg.expires_at && new Date(pkg.expires_at) < new Date()) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'package_expired' } });
     }
-    if (pkg.total_sessions > 0 && pkg.remaining_sessions < units) {
+    if (pkg.total_sessions > 0 && pkg.remaining_sessions-pkg.reserved_sessions < units) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: 'insufficient_sessions', remaining: pkg.remaining_sessions, requested: units },
       });
@@ -692,11 +717,13 @@ async function applyPackageRedemptions(args: {
     // 次卡不覆盖组合套餐子项（U10 / 计划 §4.5）。套餐子项 total_cents 已是分摊后
     // 净额，若按 service_id 命中再全额核销一次，会对同一执行单元二次抵扣，且
     // 提成基数、退款净额随之错位。散项（bundle_instance_id 为空）仍按既有规则核销。
-    const eligible = ticketItems.filter((item) => !usedItemIds.has(item.id)
+    const eligible = ticketItems.filter((item) => !usedItemIds.has(item.id)&&!args.excludedItemIds?.has(item.id)
       && item.bundle_instance_id === null
       && (pkg.service_ids.length === 0 || Boolean(item.service_id && pkg.service_ids.includes(item.service_id))));
     const selected: Array<{ id: string; service_id: string | null; total_cents: number; seq: number }> = [];
-    if (policy.coverageMode === 'bundle' && pkg.service_ids.length > 0) {
+    const coverageMode=pkg.coverage_mode??policy.coverageMode;
+    const commissionBasis=pkg.commission_basis??policy.commissionBasis;
+    if (coverageMode === 'bundle' && pkg.service_ids.length > 0) {
       for (const serviceId of pkg.service_ids) {
         const matches = eligible.filter((item) => item.service_id === serviceId).slice(0, units);
         if (matches.length < units) {
@@ -717,34 +744,36 @@ async function applyPackageRedemptions(args: {
     selected.forEach((item) => usedItemIds.add(item.id));
     const packageCovered = selected.reduce((sum, item) => sum + item.total_cents, 0);
     coveredCents += packageCovered;
-    const consumedBefore = pkg.total_sessions > 0 ? pkg.total_sessions - pkg.remaining_sessions : 0;
-    const allocatedSaleBase = pkg.total_sessions > 0
-      ? Math.floor(pkg.sold_price_cents * (consumedBefore + units) / pkg.total_sessions)
-        - Math.floor(pkg.sold_price_cents * consumedBefore / pkg.total_sessions)
-      : 0;
-    const commissionBase = policy.commissionBasis === 'catalog_price' ? packageCovered
-      : policy.commissionBasis === 'zero' ? 0 : Math.min(packageCovered, allocatedSaleBase);
-    const itemBases = commissionBase > 0
-      ? largestRemainderSplit(commissionBase, selected.map((item) => item.total_cents))
-      : selected.map(() => 0);
-    selected.forEach((item, index) => commissionDiscountByItem.set(
-      item.id, item.total_cents - (itemBases[index] ?? 0),
-    ));
+    const unitAllocation=allocatePackageUse(pkg,pkg.sold_price_cents,units);
+    let commissionBase=0;
 
     const nextRemaining = pkg.total_sessions > 0 ? pkg.remaining_sessions - units : pkg.remaining_sessions;
     const nextStatus = pkg.total_sessions > 0 && nextRemaining === 0 ? 'depleted' : 'active';
-    await tx`update customer_packages set remaining_sessions = ${nextRemaining}, status = ${nextStatus}, updated_at = now()
+    args.balances?.packages.set(pkg.id,{remaining_sessions:nextRemaining,available_units:formatPackageUnitRanges(unitAllocation.remaining)});
+    if(args.persist!==false)await tx`update customer_packages set remaining_sessions = ${nextRemaining}, status = ${nextStatus},available_units=${formatPackageUnitRanges(unitAllocation.remaining)}::int4multirange, updated_at = now()
              where id = ${pkg.id}`;
-    await tx`insert into customer_credit_ledger
+    const applications:Array<{redemptionId:string;itemIds:string[]}>=[];let unitRanges=parsePackageUnitRanges(formatPackageUnitRanges(unitAllocation.taken),pkg.total_sessions);
+    for(let ordinal=0;ordinal<units;ordinal++){
+      const unitItems=coverageMode==='bundle'&&pkg.service_ids.length?pkg.service_ids.map(serviceId=>selected.filter(i=>i.service_id===serviceId)[ordinal]!):[selected[ordinal]!];
+      const allocation=pkg.total_sessions>0?takePackageUnits(pkg.sold_price_cents,pkg.total_sessions,unitRanges,1):{taken:[],remaining:[],valueCents:0};unitRanges=allocation.remaining;
+      const unitCoverage=unitItems.reduce((sum,item)=>sum+item.total_cents,0);
+      const unitBase=commissionBasis==='catalog_price'?unitCoverage:commissionBasis==='zero'?0:commissionBasis==='sale_price'?allocation.valueCents:Math.min(unitCoverage,allocation.valueCents);
+      const itemBases=unitBase?largestRemainderSplit(unitBase,unitItems.map(item=>item.total_cents)):unitItems.map(()=>0);
+      unitItems.forEach((item,index)=>{commissionBaseByItem.set(item.id,itemBases[index]!);commissionDiscountByItem.set(item.id,Math.max(0,item.total_cents-itemBases[index]!));});commissionBase+=unitBase;
+      if(args.persist!==false){const [entry]=await tx<{id:string}[]>`insert into customer_package_ledger(org_id,location_id,package_id,entry,quantity,value_cents,ticket_id,reference,unit_ranges)
+        values(${ctx.orgId},${ctx.locationId},${pkg.id},'redeem',-1,${-allocation.valueCents},${ticket.id},${`ticket:${ticket.id}:unit:${ordinal}`},${formatPackageUnitRanges(allocation.taken)}::int4multirange) returning id`;
+      applications.push({redemptionId:entry!.id,itemIds:unitItems.map(i=>i.id)});}
+    }
+    if(args.persist!==false)await tx`insert into customer_credit_ledger
       (org_id, location_id, kind, subject_id, customer_id, entry, amount_cents,
        balance_after_cents, ticket_id, reason, actor_membership_id, idem_key, meta)
       values (${ctx.orgId}, ${ctx.locationId}, 'package', ${pkg.id}, ${ticket.customerId}, 'redeem',
               ${-units}, ${nextRemaining}, ${ticket.id}, 'ticket_payment', ${ctx.membershipId}, ${idemKey},
               ${jsonb({ units, ticketItemIds: selected.map((item) => item.id), coveredCents: packageCovered,
-                commissionBasis: policy.commissionBasis, commissionBaseCents: commissionBase,
-                coverageMode: policy.coverageMode })}::jsonb)`;
+                commissionBasis, commissionBaseCents: commissionBase,
+                coverageMode,unitApplications:applications })}::jsonb)`;
   }
-  return { coveredCents, commissionDiscountByItem };
+  return { coveredCents, commissionDiscountByItem,commissionBaseByItem,usedItemIds };
 }
 
 export interface CloseOutcome {
@@ -758,6 +787,7 @@ export interface CloseOutcome {
     source: 'cash' | 'card'; explain: string;
   }>;
   earnings: Array<{ membershipId: string; commissionCents: number; baseCents: number; explain: string }>;
+  quoteHash:string;
 }
 
 /**
@@ -768,7 +798,7 @@ export interface CloseOutcome {
  *
  * @param groupPaymentId 组单合并收款时，同一次收款在每张单上各留一行，共用这个 id
  */
-async function closeOneTicket(args: {
+type CheckoutArgs = {
   tx: postgres.TransactionSql;
   ctx: CommandContext;
   ticket: TicketForClose;
@@ -783,13 +813,22 @@ async function closeOneTicket(args: {
     percentageBp?: number | undefined;
   }[] | undefined;
   loaded: LoadedPlans;
+  expectedQuoteHash?: string|undefined;
+  planningBalances?:CheckoutPlanningBalances|undefined;
   groupPaymentId?: string;
   payerTicketId?: string;
   settlementStage?: 'service' | 'tip' | 'combined';
   packageRedemptions?: readonly PackageRedemptionIn[] | undefined;
-}): Promise<CloseOutcome> {
-  const { tx, ctx, ticket, payments, discountCents, surchargeCents = 0, tipSplits, loaded } = args;
+  membershipRedemptions?:readonly MembershipRedemption[]|undefined;
+  membershipDiscount?:MembershipDiscountSelection|undefined;
+  depositApplication?:{holdId:string;amountCents:number}|undefined;
+};
+
+/** Shared financial planner. Quote mode validates and locks the same facts without writing asset or payment rows. */
+async function prepareTicketCheckout(args:Omit<CheckoutArgs,'loaded'>,persist:boolean,quoteTipCents?:number){
+  const { tx, ctx, ticket, payments, surchargeCents = 0, tipSplits } = args;
   const settlementStage = args.settlementStage ?? 'combined';
+  await lockCheckoutAssets(tx,ctx,[{...args,customerId:ticket.customerId}]);
   const packagePolicy = await loadCheckoutPackagePolicy(tx, ctx.locationId);
   if (!packagePolicy.allowTipSplitOverride && tipSplits && tipSplits.length > 0) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'tip_split_override_disabled' } });
@@ -797,9 +836,18 @@ async function closeOneTicket(args: {
   if (settlementStage === 'tip' && (args.packageRedemptions?.length ?? 0) > 0) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'package_cannot_pay_tip' } });
   }
+  if(settlementStage==='tip'&&(args.membershipRedemptions?.length??0)>0)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'membership_cannot_pay_tip'}});
+  if(settlementStage==='tip'&&args.membershipDiscount)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'membership_discount_cannot_change_tip_stage'}});
+  await lockTicketMemberships(tx,(args.membershipRedemptions??[]).map(s=>s.cycleId),args.membershipDiscount?.membershipId);
+  const membershipApplication=await applyMembershipRedemptions(tx,ctx,ticket,args.membershipRedemptions??[],persist,args.planningBalances);
   const packageApplication = await applyPackageRedemptions({
-    tx, ctx, ticket, redemptions: args.packageRedemptions ?? [], policy: packagePolicy,
+    tx, ctx, ticket, redemptions: args.packageRedemptions ?? [], policy: packagePolicy,excludedItemIds:membershipApplication.usedItemIds,persist,balances:args.planningBalances,
   });
+  const prepaidCoveredCents=packageApplication.coveredCents+membershipApplication.coveredCents;
+  const pricing=settlementStage==='tip'?{discountCents:args.discountCents,discountByItem:new Map<string,number>()}:
+    await applyTicketPriceDiscounts(tx,ctx,ticket,args.discountCents,args.membershipDiscount,
+      new Set([...membershipApplication.usedItemIds,...packageApplication.usedItemIds]),persist);
+  const discountCents=pricing.discountCents;
   const [completion] = await tx<{ complete: boolean }[]>`
     select not exists(
       select 1 from ticket_items where ticket_id = ${ticket.id} and finished_at is null
@@ -811,7 +859,7 @@ async function closeOneTicket(args: {
       || serviceCompleted) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'service_stage_not_available' } });
     }
-    if (payments.some((p) => p.tipCents !== 0)) {
+    if ((quoteTipCents??0)!==0 || payments.some((p) => p.tipCents !== 0)) {
       throw new AppError(ERROR_CODES.PAYMENT_MISMATCH, { details: { reason: 'service_stage_tip_must_be_zero' } });
     }
   } else if (settlementStage === 'tip') {
@@ -836,78 +884,8 @@ async function closeOneTicket(args: {
 
   const cashTip = payments.filter((p) => p.method === 'cash').reduce((s, p) => s + p.tipCents, 0);
   const cardTip = payments.filter((p) => p.method !== 'cash').reduce((s, p) => s + p.tipCents, 0);
-  const totalTip = cashTip + cardTip;
-  const paidTotal = payments.reduce((s, p) => s + p.amountCents, 0);
-  const checkout = settlementStage === 'tip' ? null : await loadCheckoutSettings(tx, ctx);
-  const taxCents = settlementStage === 'tip'
-    ? 0
-    : locationTaxCents({
-      afterDiscountCents: Math.max(
-        0,
-        ticket.subtotalCents - discountCents - packageApplication.coveredCents,
-      ),
-      salesTaxRatePercent: checkout!.salesTaxRatePercent,
-      taxCalculationMode: checkout!.taxCalculationMode,
-    });
-  const shouldBe = settlementStage === 'tip'
-    ? totalTip
-    : checkoutDueCents({
-      afterDiscountCents: ticket.subtotalCents - discountCents - packageApplication.coveredCents,
-      taxCents,
-      tipCents: totalTip,
-      surchargeCents,
-      /* 内含税门店里税已在标价中，不能再加一遍 —— 见 checkoutDueCents 的注释 */
-      taxCalculationMode: checkout!.taxCalculationMode,
-    });
-
-  // 收多了收少了当场拦下。
-  if (paidTotal !== shouldBe) {
-    throw new AppError(ERROR_CODES.PAYMENT_MISMATCH, {
-      details: {
-        ticketId: ticket.id,
-        expected: shouldBe, received: paidTotal,
-        hint: '收款额 = 服务金额 − 折扣 − 套餐覆盖 + 税额 + 小费 + 刷卡费',
-      },
-    });
-  }
-
-  // ── 小费分配（唯一实现在 @gf/payroll）────────────────────────────────────
-  const lines = await tx<{
-    item_id: string; name: string; total_cents: number; item_discount_cents: number;
-    kind: string; category_id: string | null;
-    membership_id: string; role: string; minutes: number;
-    staff_name: unknown; level_key: string | null;
-  }[]>`
-    select ti.id as item_id, ti.name_snapshot as name, ti.total_cents,
-           ti.discount_cents as item_discount_cents, ti.kind, s.category_id,
-           tis.membership_id, tis.role, tis.minutes,
-           sp.display_name as staff_name, sl.key as level_key
-    from ticket_items ti
-    join ticket_item_staff tis on tis.ticket_item_id = ti.id
-    left join services s on s.id = ti.service_id
-    left join staff_profiles sp on sp.membership_id = tis.membership_id
-    left join staff_levels sl on sl.id = sp.level_id
-    where ti.ticket_id = ${ticket.id}`;
-
-  for (const line of lines) {
-    line.item_discount_cents += packageApplication.commissionDiscountByItem.get(line.item_id) ?? 0;
-  }
-
-  const serviceLines: ServiceLine[] = lines.map((l) => ({
-    ticketItemId: l.item_id,
-    membershipId: l.membership_id,
-    name: pickText(l.staff_name, ctx.locale),
-    role: l.role === 'assistant' ? 'assistant' : 'primary',
-    minutes: l.minutes,
-    amountCents: l.total_cents,
-    levelKey: l.level_key,
-  }));
-
-  const { policy, version } = await loadTipPolicy(tx, ctx.locationId);
-
-  const out: CloseOutcome['allocations'] = [];
-  try {
-    if (tipSplits && tipSplits.length > 0) {
+  const totalTip = quoteTipCents??cashTip + cardTip;
+  if(tipSplits?.length){
       const splitStaffIds = tipSplits.map((split) => split.staffMembershipId);
       if (new Set(splitStaffIds).size !== splitStaffIds.length) {
         throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
@@ -926,6 +904,158 @@ async function closeOneTicket(args: {
           details: { reason: 'tip_split_mismatch', expected: totalTip, received: splitTotal },
         });
       }
+  }
+
+  const checkout = settlementStage === 'tip' ? null : await loadCheckoutSettings(tx, ctx);
+  const taxCents = settlementStage === 'tip'
+    ? 0
+    : locationTaxCents({
+      afterDiscountCents: Math.max(
+        0,
+        ticket.subtotalCents - discountCents - prepaidCoveredCents,
+      ),
+      salesTaxRatePercent: checkout!.salesTaxRatePercent,
+      taxCalculationMode: checkout!.taxCalculationMode,
+    });
+  const shouldBe = settlementStage === 'tip'
+    ? totalTip
+    : checkoutDueCents({
+      afterDiscountCents: ticket.subtotalCents - discountCents - prepaidCoveredCents,
+      taxCents,
+      tipCents: totalTip,
+      surchargeCents,
+      /* 内含税门店里税已在标价中，不能再加一遍 —— 见 checkoutDueCents 的注释 */
+      taxCalculationMode: checkout!.taxCalculationMode,
+    });
+
+  const depositCents=args.depositApplication?await applyDepositToTicket(tx,ctx,args.depositApplication,ticket,shouldBe-totalTip,settlementStage,persist,args.planningBalances):0;
+  const storedSources:Array<{kind:string;id:string;amountCents:number;commissionBaseCents:number}>=[];
+  let giftCardCommissionCut = 0;
+  for (const p of payments) {
+    if (p.method !== 'gift_card'||p.amountCents===0) continue;
+    const r = await redeemForTicket(tx, ctx, {
+      ticketId: ticket.id, dueCents: p.amountCents,persist,...(args.planningBalances?{balances:args.planningBalances}:{}),
+      ...(p.giftCardId ? { giftCardId: p.giftCardId } : {}),
+      ...(p.giftCardCode ? { code: p.giftCardCode } : {}),
+    });
+    giftCardCommissionCut += r.appliedCents - r.commissionBaseCents;
+    storedSources.push({kind:'gift_card',id:r.giftCardId,amountCents:r.appliedCents,commissionBaseCents:r.commissionBaseCents});
+  }
+
+  const customerCreditCents = payments
+    .filter((p) => p.method === 'customer_credit')
+    .reduce((sum, p) => sum + p.amountCents, 0);
+  if (customerCreditCents > 0) {
+    if (!ticket.customerId) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'customer_credit_requires_ticket_customer' },
+      });
+    }
+    ticket.customerId = await canonicalCustomer(tx, ticket.customerId, true);
+    const [customer] = await tx<{ id: string }[]>`
+      select id from customers where id = ${ticket.customerId} for update`;
+    if (!customer) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'customer' } });
+    const [balance] = await tx<{ value: number }[]>`
+      select coalesce(sum(amount_cents), 0)::int as value
+      from customer_credit_ledger
+      where kind = 'store_credit' and customer_id in ${customerAssetIds(tx, ticket.customerId)}`;
+    const current = args.planningBalances?.credits.get(ticket.customerId)??balance?.value??0;
+    if (current < customerCreditCents) {
+      throw new AppError(ERROR_CODES.STORE_CREDIT_INSUFFICIENT, {
+        details: { customerId: ticket.customerId, availableCents: current,
+                   requestedCents: customerCreditCents },
+      });
+    }
+    args.planningBalances?.credits.set(ticket.customerId,current-customerCreditCents);
+    storedSources.push({kind:'store_credit',id:ticket.customerId,amountCents:customerCreditCents,commissionBaseCents:customerCreditCents});
+    if(persist)await tx`insert into customer_credit_ledger
+      (org_id, location_id, kind, subject_id, customer_id, entry,
+       amount_cents, balance_after_cents, ticket_id, reason,
+       actor_membership_id, idem_key, meta)
+      values (${ctx.orgId}, ${ctx.locationId}, 'store_credit', ${ticket.customerId},
+              ${ticket.customerId}, 'redeem', ${-customerCreditCents},
+              ${current - customerCreditCents}, ${ticket.id}, 'ticket_payment',
+              ${ctx.membershipId}, ${`ticket-credit-use-${ticket.id}`},
+              ${jsonb({ paymentMethod: 'customer_credit' })}::jsonb)`;
+  }
+
+  const storedValueCents=storedSources.reduce((n,p)=>n+p.amountCents,0);
+  if(storedValueCents>shouldBe-totalTip-depositCents)throw new AppError(ERROR_CODES.PAYMENT_MISMATCH,{details:{reason:'stored_value_exceeds_service_due'}});
+  const itemFacts=await tx`select id,service_id,total_cents,discount_cents,bundle_instance_id from ticket_items where ticket_id=${ticket.id} order by seq,id`;
+  const quote:Omit<typeof TicketQuoteCheckout.output._type,'quoteHash'>={version:2,ticketId:ticket.id,paymentStage:settlementStage,subtotalCents:ticket.subtotalCents,
+    discountCents,packageCoveredCents:packageApplication.coveredCents,membershipCoveredCents:membershipApplication.coveredCents,
+    taxCents,taxCalculationMode:checkout?.taxCalculationMode??'exclusive',taxRatePercent:Number(checkout?.salesTaxRatePercent??0),
+    surchargeCents,tipCents:totalTip,depositCents,amountDueCents:shouldBe-depositCents,totalCents:settlementStage==='tip'?ticket.totalCents+shouldBe:shouldBe+prepaidCoveredCents,storedValueCents,newMoneyDueCents:shouldBe-depositCents-storedValueCents,
+    items:itemFacts.map(i=>({ticketItemId:i.id,totalCents:i.total_cents,discountCents:pricing.discountByItem.get(i.id)??0,
+      coverage:membershipApplication.usedItemIds.has(i.id)?'membership':packageApplication.usedItemIds.has(i.id)?'package':'money'}))};
+  const quoteHash=createHash('sha256').update(commerceFingerprint({quote,itemFacts,customerId:ticket.customerId,
+    packageRedemptions:args.packageRedemptions??[],membershipRedemptions:args.membershipRedemptions??[],membershipDiscount:args.membershipDiscount??null,
+    depositApplication:args.depositApplication??null,...(tipSplits?.length?{tipSplits}:{}),storedSources,packageCommission:[...packageApplication.commissionBaseByItem],membershipCommission:[...membershipApplication.commissionBaseByItem]})).digest('hex');
+  if(args.expectedQuoteHash&&args.expectedQuoteHash!==quoteHash)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'checkout_quote_changed'}});
+  return {quote:{...quote,quoteHash},packageApplication,membershipApplication,prepaidCoveredCents,pricing,discountCents,
+    serviceCompleted,cashTip,cardTip,totalTip,checkout,taxCents,shouldBe,depositCents,giftCardCommissionCut};
+}
+
+async function closeOneTicket(args:CheckoutArgs):Promise<CloseOutcome>{
+  const {tx,ctx,ticket,payments,surchargeCents=0,tipSplits,loaded}=args;
+  const settlementStage=args.settlementStage??'combined';
+  const {quote,packageApplication,membershipApplication,prepaidCoveredCents,pricing,discountCents,serviceCompleted,
+    cashTip,cardTip,totalTip,checkout,taxCents,shouldBe,depositCents,giftCardCommissionCut}=await prepareTicketCheckout(args,true);
+  const paidTotal=payments.reduce((s,p)=>s+p.amountCents,0)+depositCents;
+
+  // 收多了收少了当场拦下。
+  if (paidTotal !== shouldBe) {
+    throw new AppError(ERROR_CODES.PAYMENT_MISMATCH, {
+      details: {
+        ticketId: ticket.id,
+        expected: shouldBe, received: paidTotal,
+        hint: '收款额 = 服务金额 − 折扣 − 套餐覆盖 + 税额 + 小费 + 刷卡费',
+      },
+    });
+  }
+
+  // ── 小费分配（唯一实现在 @gf/payroll）────────────────────────────────────
+  const lines = await tx<{
+    item_id: string; name: string; total_cents: number; item_discount_cents: number;
+    commission_base_cents?:number;
+    kind: string; category_id: string | null;
+    membership_id: string; role: string; minutes: number;
+    staff_name: unknown; level_key: string | null;
+  }[]>`
+    select ti.id as item_id, ti.name_snapshot as name, ti.total_cents,
+           ti.discount_cents as item_discount_cents, ti.kind, s.category_id,
+           tis.membership_id, tis.role, tis.minutes,
+           sp.display_name as staff_name, sl.key as level_key
+    from ticket_items ti
+    join ticket_item_staff tis on tis.ticket_item_id = ti.id
+    left join services s on s.id = ti.service_id
+    left join staff_profiles sp on sp.membership_id = tis.membership_id
+    left join staff_levels sl on sl.id = sp.level_id
+    where ti.ticket_id = ${ticket.id}`;
+
+  for (const line of lines) {
+    line.item_discount_cents += pricing.discountByItem.get(line.item_id) ?? 0;
+    line.item_discount_cents += packageApplication.commissionDiscountByItem.get(line.item_id) ?? 0;
+    line.item_discount_cents += membershipApplication.commissionDiscountByItem.get(line.item_id) ?? 0;
+    const packageBase=packageApplication.commissionBaseByItem.get(line.item_id);if(packageBase!==undefined)line.commission_base_cents=packageBase;
+    const memberBase=membershipApplication.commissionBaseByItem.get(line.item_id);if(memberBase!==undefined)line.commission_base_cents=memberBase;
+  }
+
+  const serviceLines: ServiceLine[] = lines.map((l) => ({
+    ticketItemId: l.item_id,
+    membershipId: l.membership_id,
+    name: pickText(l.staff_name, ctx.locale),
+    role: l.role === 'assistant' ? 'assistant' : 'primary',
+    minutes: l.minutes,
+    amountCents: l.total_cents,
+    levelKey: l.level_key,
+  }));
+
+  const { policy, version } = await loadTipPolicy(tx, ctx.locationId);
+
+  const out: CloseOutcome['allocations'] = [];
+  try {
+    if (tipSplits && tipSplits.length > 0) {
       const splitCashAmounts = cashTip > 0
         ? largestRemainderSplit(cashTip, tipSplits.map((s) => s.amountCents))
         : tipSplits.map(() => 0);
@@ -998,57 +1128,11 @@ async function closeOneTicket(args: {
    * 让前台改成实际能扣的金额重来，而不是悄悄少扣 —— 后者会让
    * 单据金额和实收金额对不上，那正是日结要发现的东西。
    */
-  let giftCardCommissionCut = 0;
-  for (const p of payments) {
-    if (p.method !== 'gift_card') continue;
-    const r = await redeemForTicket(tx, ctx, {
-      ticketId: ticket.id, dueCents: p.amountCents,
-      ...(p.giftCardId ? { giftCardId: p.giftCardId } : {}),
-      ...(p.giftCardCode ? { code: p.giftCardCode } : {}),
-    });
-    giftCardCommissionCut += r.appliedCents - r.commissionBaseCents;
-  }
-
-  const customerCreditCents = payments
-    .filter((p) => p.method === 'customer_credit')
-    .reduce((sum, p) => sum + p.amountCents, 0);
-  if (customerCreditCents > 0) {
-    if (!ticket.customerId) {
-      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-        details: { reason: 'customer_credit_requires_ticket_customer' },
-      });
-    }
-    ticket.customerId = await canonicalCustomer(tx, ticket.customerId, true);
-    const [customer] = await tx<{ id: string }[]>`
-      select id from customers where id = ${ticket.customerId} for update`;
-    if (!customer) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'customer' } });
-    const [balance] = await tx<{ value: number }[]>`
-      select coalesce(sum(amount_cents), 0)::int as value
-      from customer_credit_ledger
-      where kind = 'store_credit' and customer_id in ${customerAssetIds(tx, ticket.customerId)}`;
-    const current = balance?.value ?? 0;
-    if (current < customerCreditCents) {
-      throw new AppError(ERROR_CODES.STORE_CREDIT_INSUFFICIENT, {
-        details: { customerId: ticket.customerId, availableCents: current,
-                   requestedCents: customerCreditCents },
-      });
-    }
-    await tx`insert into customer_credit_ledger
-      (org_id, location_id, kind, subject_id, customer_id, entry,
-       amount_cents, balance_after_cents, ticket_id, reason,
-       actor_membership_id, idem_key, meta)
-      values (${ctx.orgId}, ${ctx.locationId}, 'store_credit', ${ticket.customerId},
-              ${ticket.customerId}, 'redeem', ${-customerCreditCents},
-              ${current - customerCreditCents}, ${ticket.id}, 'ticket_payment',
-              ${ctx.membershipId}, ${`ticket-credit-use-${ticket.id}`},
-              ${jsonb({ paymentMethod: 'customer_credit' })}::jsonb)`;
-  }
-
   // ── 提成落账 ──────────────────────────────────────────────────────────────
   const earnings = settlementStage === 'tip' ? [] : await writeCommissionEarnings({
     tx, ctx, ticketId: ticket.id, businessDate: ticket.businessDate,
     rows: lines as unknown as TicketRevenueRow[],
-    ticketDiscountCents: discountCents + giftCardCommissionCut,
+    ticketDiscountCents: giftCardCommissionCut,
     loaded,
   });
 
@@ -1072,14 +1156,19 @@ async function closeOneTicket(args: {
       closed_by = case when ${closeNow} then ${ctx.membershipId} else closed_by end,
       discount_cents = case when ${settlementStage} = 'tip' then discount_cents else ${discountCents} end,
       tax_cents = case when ${settlementStage} = 'tip' then tax_cents else ${taxCents} end,
+      settlement_tax_mode = case when ${settlementStage} = 'tip' then settlement_tax_mode else ${checkout?.taxCalculationMode??null} end,
+      settlement_tax_rate_percent = case when ${settlementStage} = 'tip' then settlement_tax_rate_percent else ${checkout?.salesTaxRatePercent??null} end,
       surcharge_cents = case when ${settlementStage} = 'tip' then surcharge_cents else ${surchargeCents} end,
       tip_cents = case when ${settlementStage} = 'tip' then tip_cents + ${totalTip} else ${totalTip} end,
       total_cents = case when ${settlementStage} = 'tip' then total_cents + ${paidTotal}
-                         else ${paidTotal + packageApplication.coveredCents} end,
+                         else ${paidTotal + prepaidCoveredCents} end,
       tip_policy_version = ${version},
       service_settled_at = case when ${settlementStage} in ('service', 'combined') then now() else service_settled_at end,
       tip_settled_at = case when ${settlementStage} in ('tip', 'combined') then now() else tip_settled_at end
     where id = ${ticket.id}`;
+
+  await recordTicketSources(tx,ctx,ticket.id,settlementStage);
+  if(settlementStage!=='tip')await recordTicketItemGraph(tx,ctx,ticket.id);
 
   // A checked-in appointment remains in walkin_queue until payment succeeds.
   // Advancing it in the same transaction prevents a paid guest from reappearing
@@ -1099,10 +1188,11 @@ async function closeOneTicket(args: {
   }
 
   return {
+    quoteHash:quote.quoteHash,
     ticketId: ticket.id,
     totalCents: settlementStage === 'tip'
       ? ticket.totalCents + paidTotal
-      : paidTotal + packageApplication.coveredCents,
+      : paidTotal + prepaidCoveredCents,
     closed: closeNow,
     tipCents: totalTip,
     taxCents,
@@ -1123,7 +1213,10 @@ const handleTicketCloseOrPay = async ({ input, ctx, tx, audit, emit }: HandlerAr
     surchargeCents: input.surchargeCents,
     tipSplits: input.tipSplits,
     packageRedemptions: input.packageRedemptions,
-    loaded,
+    membershipRedemptions:input.membershipRedemptions,
+    membershipDiscount:input.membershipDiscount,
+    depositApplication:input.depositApplication,
+    loaded,expectedQuoteHash:input.expectedQuoteHash,
     settlementStage: input.paymentStage,
   });
 
@@ -1131,7 +1224,7 @@ const handleTicketCloseOrPay = async ({ input, ctx, tx, audit, emit }: HandlerAr
   audit({
     entityType: 'ticket', entityId: input.ticketId,
     after: {
-      settlementStage: input.paymentStage,
+      settlementStage: input.paymentStage,checkoutQuoteVersion:2,checkoutQuoteHash:r.quoteHash,
       status: r.closed ? 'closed' : ticket.status,
       closed: r.closed,
       methods: input.payments.map((p) => p.method),
@@ -1151,9 +1244,31 @@ const handleTicketCloseOrPay = async ({ input, ctx, tx, audit, emit }: HandlerAr
   };
 };
 
+registerHandler(TicketQuoteCheckout,async({input,ctx,tx,audit}:HandlerArgs<typeof TicketQuoteCheckout.input._type>)=>{
+ const ticket=await loadTicketForClose(tx,input.ticketId,ctx.locationId);await assertDayOpen(tx,ctx.locationId,ticket.businessDate);
+ const {quote}=await prepareTicketCheckout({tx,ctx,ticket,payments:input.storedValuePayments,
+  discountCents:input.discountCents,surchargeCents:input.surchargeCents,settlementStage:input.paymentStage,tipSplits:input.tipSplits,
+  packageRedemptions:input.packageRedemptions,membershipRedemptions:input.membershipRedemptions,membershipDiscount:input.membershipDiscount,depositApplication:input.depositApplication},false,input.tipCents);
+ audit({entityType:'ticket',entityId:ticket.id,after:{checkoutQuoteVersion:2,checkoutQuoteHash:quote.quoteHash,financialFactsWritten:false}});return quote;
+});
+
 registerHandler(TicketClose, handleTicketCloseOrPay);
 registerHandler(TicketPay, handleTicketCloseOrPay);
 
+registerHandler(TicketReviewRefund,async({input,ctx,tx,audit})=>{
+ const [ticket]=await tx<{id:string;status:string;total_cents:number;refund_cents:number;tip_cents:number;tax_cents:number;surcharge_cents:number;service_charge_cents:number;service_settled_at:Date|null}[]>`
+  select * from tickets where id=${input.ticketId} and location_id=${ctx.locationId} for update`;
+ if(!ticket)throw new AppError(ERROR_CODES.NOT_FOUND);
+ if(!['closed','refunded'].includes(ticket.status)&&!ticket.service_settled_at)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'ticket_not_paid'}});
+ if(input.refundAmountCents>ticket.total_cents-ticket.refund_cents)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'refund_exceeds_total'}});
+ const [already]=await tx<{service:number;tax:number;fee:number;tip:number}[]>`select coalesce(sum(service_cents),0)::int as service,coalesce(sum(tax_cents),0)::int as tax,
+  coalesce(sum(fee_cents),0)::int as fee,coalesce(sum(tip_cents),0)::int as tip from ticket_refunds where ticket_id=${ticket.id}`;
+ if(!['closed','refunded'].includes(ticket.status)&&(input.refundAmountCents!==ticket.total_cents-ticket.refund_cents||input.refundTipCents!==ticket.tip_cents-already!.tip))throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'prepaid_ticket_requires_full_refund'}});
+ const components=ticketRefundComponents(ticket,already!,input.refundAmountCents,input.refundTipCents);
+ const allocation=await ticketSourceRefundPlan(tx,ctx,ticket.id,input.refundAmountCents,input.refundTipCents,input.refundMethod,components,input.refundItems);
+ audit({entityType:'ticket',entityId:ticket.id,after:{refundReview:true}});
+ return ticketRefundReview(ticket.id,input.refundAmountCents,input.refundTipCents,input.refundMethod,components,allocation);
+});
 registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketRefund.input._type>) => {
   const [t] = await tx<{
@@ -1199,7 +1314,7 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
 
   const [already] = await tx<{
     service: number; tax: number; fee: number; tip: number;
-    refunded_cash: number; refunded_card: number; refunded_gift: number; refunded_credit: number;
+    refunded_cash: number; refunded_card: number; refunded_gift: number; refunded_credit: number;refunded_deposit:number;refunded_membership:number;
   }[]>`
     select
       coalesce(sum(service_cents), 0)::int as service,
@@ -1209,7 +1324,8 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
       coalesce(sum(cash_cents), 0)::int as refunded_cash,
       coalesce(sum(card_cents), 0)::int as refunded_card,
       coalesce(sum(gift_card_cents), 0)::int as refunded_gift,
-      coalesce(sum(customer_credit_cents), 0)::int as refunded_credit
+      coalesce(sum(customer_credit_cents), 0)::int as refunded_credit,coalesce(sum(deposit_cents),0)::int as refunded_deposit,
+      coalesce(sum(membership_cents),0)::int as refunded_membership
     from ticket_refunds where ticket_id = ${t.id}`;
 
   if (prepaidActivity && input.refundTipCents !== t.tip_cents - (already?.tip ?? 0)) {
@@ -1220,66 +1336,41 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
 
   // Stored totals already encode inclusive/exclusive tax and package value.
   // Never reinterpret a historical payment using the shop's current tax mode.
-  const serviceTotal = Math.max(0, t.total_cents - t.tax_cents - t.tip_cents
-    - t.surcharge_cents - t.service_charge_cents);
-  const feeTotal = t.surcharge_cents + t.service_charge_cents;
-  let nonTipLeft = input.refundAmountCents - input.refundTipCents;
-  const serviceCents = Math.min(nonTipLeft, Math.max(0, serviceTotal - (already?.service ?? 0)));
-  nonTipLeft -= serviceCents;
-  const taxCents = Math.min(nonTipLeft, Math.max(0, t.tax_cents - (already?.tax ?? 0)));
-  nonTipLeft -= taxCents;
-  const feeCents = Math.min(nonTipLeft, Math.max(0, feeTotal - (already?.fee ?? 0)));
-  nonTipLeft -= feeCents;
-  if (nonTipLeft > 0 || input.refundTipCents > t.tip_cents - (already?.tip ?? 0)) {
-    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-      details: { reason: 'refund_components_exceed_remaining' },
-    });
-  }
+  const requestedComponents=ticketRefundComponents(t,already!,input.refundAmountCents,input.refundTipCents);
+  const serviceTotal=requestedComponents.serviceTotal;
 
   let cashCents = 0;
   let cardCents = 0;
   let giftCardCents = 0;
   let customerCreditCents = 0;
-  if (input.refundMethod === 'cash') {
-    cashCents = input.refundAmountCents;
-  } else if (input.refundMethod === 'store_credit') {
-    customerCreditCents = input.refundAmountCents;
-  } else {
-    const [paid] = await tx<{ cash: number; card: number; gift: number; credit: number }[]>`
-      select
-        coalesce(sum(amount_cents) filter (where method = 'cash'), 0)::int as cash,
-        coalesce(sum(amount_cents) filter (where method in ('card','external')), 0)::int as card,
-        coalesce(sum(amount_cents) filter (where method = 'gift_card'), 0)::int as gift,
-        coalesce(sum(amount_cents) filter (where method = 'customer_credit'), 0)::int as credit
-      from payments where ticket_id = ${t.id}`;
-    const remainingChannels = [
-      Math.max(0, (paid?.cash ?? 0) - (already?.refunded_cash ?? 0)),
-      Math.max(0, (paid?.card ?? 0) - (already?.refunded_card ?? 0)),
-      Math.max(0, (paid?.gift ?? 0) - (already?.refunded_gift ?? 0)),
-      Math.max(0, (paid?.credit ?? 0) - (already?.refunded_credit ?? 0)),
-    ];
-    if (remainingChannels.reduce((sum, value) => sum + value, 0) < input.refundAmountCents) {
-      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-        details: { reason: 'original_payment_refund_exceeds_channel_balance' },
-      });
-    }
-    [cashCents, cardCents, giftCardCents, customerCreditCents] = largestRemainderSplit(
-      input.refundAmountCents, remainingChannels, { zeroWeights: 'throw' },
-    ) as [number, number, number, number];
+  let depositCents=0;
+  let membershipCents=0;let packageCents=0;
+  const sourceReturn=await ticketSourceRefundPlan(tx,ctx,t.id,input.refundAmountCents,input.refundTipCents,input.refundMethod,requestedComponents,input.refundItems);
+  const {serviceCents,taxCents,feeCents}=sourceReturn.components;
+  if(input.reviewHash&&input.reviewHash!==ticketRefundReview(t.id,input.refundAmountCents,input.refundTipCents,input.refundMethod,{serviceCents,taxCents,feeCents},sourceReturn).reviewHash){
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'refund_review_changed'}});
   }
+  for(const part of sourceReturn.plan){switch(part.destination){case 'cash':cashCents+=part.amountCents;break;case 'card':cardCents+=part.amountCents;break;
+   case 'gift_card':giftCardCents+=part.amountCents;break;case 'store_credit':customerCreditCents+=part.amountCents;break;case 'deposit':depositCents+=part.amountCents;break;
+   case 'membership':membershipCents+=part.amountCents;break;case 'package':packageCents+=part.amountCents;break;}}
 
   const [refund] = await tx<{ id: string }[]>`
     insert into ticket_refunds
       (org_id, location_id, ticket_id, business_date, amount_cents,
        service_cents, tax_cents, fee_cents, tip_cents,
-       cash_cents, card_cents, gift_card_cents, customer_credit_cents,
+       cash_cents, card_cents, gift_card_cents, customer_credit_cents,deposit_cents,membership_cents,package_cents,
        method, reason, notes, refunded_by)
     values
       (${ctx.orgId}, ${ctx.locationId}, ${t.id}, ${refundDate}, ${input.refundAmountCents},
        ${serviceCents}, ${taxCents}, ${feeCents}, ${input.refundTipCents},
-       ${cashCents}, ${cardCents}, ${giftCardCents}, ${customerCreditCents},
+       ${cashCents}, ${cardCents}, ${giftCardCents}, ${customerCreditCents},${depositCents},${membershipCents},${packageCents},
        ${input.refundMethod}, ${input.reason}, ${input.notes ?? null}, ${ctx.membershipId})
     returning id`;
+  await recordTicketSourceRefunds(tx,ctx,refund!.id,sourceReturn.plan);
+  await recordTicketItemReturns(tx,ctx,refund!.id,sourceReturn.itemPlan);
+  await restoreTicketPackages(tx,ctx,t.id,refund!.id,sourceReturn.sources,sourceReturn.plan);
+  if(membershipCents>0)await restoreTicketMemberships(tx,ctx,t.id,refund!.id,membershipCents,refundDate,sourceReturn.plan.filter(p=>p.kind==='membership').map(p=>({redemptionId:sourceReturn.sources.find(s=>s.id===p.sourceId)!.membership_redemption_id!,amountCents:p.amountCents})));
+  if(depositCents>0)await restoreTicketDeposit(tx,ctx,t.id,refund!.id,depositCents,sourceReturn.plan.filter(p=>p.kind==='deposit').map(p=>({paymentId:sourceReturn.sources.find(s=>s.id===p.sourceId)!.payment_id!,amountCents:p.amountCents})));
 
   if (customerCreditCents > 0 && input.refundMethod === 'store_credit') {
     if (!t.customer_id) {
@@ -1312,11 +1403,11 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
         where kind = 'gift_card' and ticket_id = ${t.id} and entry = 'redeem'
         group by subject_id
       ), refunded as (
-        select subject_id as gift_card_id, sum(amount_cents)::int as amount
-        from customer_credit_ledger
-        where kind = 'gift_card' and ticket_id = ${t.id} and entry = 'refund'
-          and meta->>'ticketRefund' = 'true'
-        group by subject_id
+        select r.subject_id as gift_card_id, sum(r.amount_cents)::int as amount
+        from customer_credit_ledger r left join customer_credit_ledger original on original.id=r.reversal_of_id
+        where r.kind = 'gift_card' and r.entry = 'refund' and
+          ((r.ticket_id = ${t.id} and r.meta->>'ticketRefund' = 'true') or (original.ticket_id=${t.id} and original.entry='redeem'))
+        group by r.subject_id
       )
       select r.gift_card_id, r.amount as redeemed,
              coalesce(f.amount, 0)::int as already_refunded
@@ -1328,12 +1419,17 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
         details: { reason: 'gift_card_refund_source_missing' },
       });
     }
-    const giftRefunds = largestRemainderSplit(giftCardCents, remaining);
+    const exactGifts=new Map<string,number>();
+    for(const slice of sourceReturn.plan.filter(p=>p.kind==='gift_card')){const source=sourceReturn.sources.find(s=>s.id===slice.sourceId)!;
+      const [original]=await tx<{subject_id:string}[]>`select subject_id from customer_credit_ledger where id=${source.credit_ledger_id!}`;
+      if(!original)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'gift_card_refund_source_missing'}});exactGifts.set(original.subject_id,(exactGifts.get(original.subject_id)??0)+slice.amountCents);}
+    const giftRefunds = giftRows.map(g=>exactGifts.get(g.gift_card_id)??0);
     for (const [index, row] of giftRows.entries()) {
       const amount = giftRefunds[index]!;
       if (amount <= 0) continue;
-      const [card] = await tx<{ id: string }[]>`
-        select id from gift_cards where id = ${row.gift_card_id} for update`;
+      const [card] = await tx<{ id: string;status:string;purchase_order_id:string|null;fully_refunded:boolean }[]>`
+        select g.id,g.status,g.purchase_order_id,exists(select 1 from commerce_payments p where p.order_id=g.purchase_order_id and p.status='refunded') as fully_refunded
+        from gift_cards g where g.id = ${row.gift_card_id} for update of g`;
       if (!card) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'gift_card' } });
       const [balance] = await tx<{ value: number }[]>`
         select coalesce(sum(amount_cents), 0)::int as value
@@ -1346,7 +1442,12 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
                 ${nextBalance}, ${t.id}, ${input.reason}, ${ctx.membershipId},
                 ${`ticket-refund-${refund!.id}-${card.id}`},
                 ${jsonb({ ticketRefund: true, refundId: refund!.id })}::jsonb)`;
-      await tx`update gift_cards set balance_cents = ${nextBalance}, status = 'active', updated_at = now()
+      if(card.fully_refunded)await tx`insert into customer_credit_ledger
+        (org_id,location_id,kind,subject_id,entry,amount_cents,balance_after_cents,ticket_id,reason,actor_membership_id,idem_key,meta)
+        values(${ctx.orgId},${ctx.locationId},'gift_card',${card.id},'adjust',${-amount},${nextBalance-amount},${t.id},'returned_refunded_funding',${ctx.membershipId},
+          ${`ticket-refund-retire-${refund!.id}-${card.id}`},${jsonb({refundId:refund!.id,returnedUnavailable:true})}::jsonb)`;
+      await tx`update gift_cards set balance_cents = ${card.fully_refunded?nextBalance-amount:nextBalance},
+        status = ${card.fully_refunded||card.status==='void'&&!card.purchase_order_id?'void':card.status==='expired'?'expired':'active'}, updated_at = now()
                where id = ${card.id}`;
     }
   }
@@ -1420,7 +1521,7 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
   // 无论是全额退款还是部分退款，提成与小费的冲销一律作为负向记录写入当前营业日（refundDate），
   // 保证历史日结报表分文不变，当日工资扣减真实有据。
   const cumulativeServiceRefund = (already?.service ?? 0) + serviceCents;
-  if (serviceCents > 0) {
+  if (serviceCents > 0 && !await returnTicketItemCommissions(tx,ctx,t.id,refund!.id,refundDate)) {
     const commissionRows = await tx<{
       membership_id: string; amount: number; base: number;
       refunded_amount: number; refunded_base: number;
@@ -1493,9 +1594,15 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
              o.policy_version
       from original o left join refunded r using (membership_id, source)
       order by o.membership_id, o.source`;
-    const targets = largestRemainderSplit(
-      cumulativeTipRefund, tipRows.map((row) => row.amount),
-    );
+    // First preserve the original payment channel, then each staff allocation within it.
+    const channels=['cash','card'] as const;
+    const channelTotals=largestRemainderSplit(cumulativeTipRefund,channels.map(source=>tipRows.filter(row=>row.source===source).reduce((sum,row)=>sum+row.amount,0)));
+    const targets=tipRows.map(()=>0);
+    for(const [channel,source] of channels.entries()){
+      const indices=tipRows.flatMap((row,index)=>row.source===source?[index]:[]);
+      const staffTargets=largestRemainderSplit(channelTotals[channel]!,indices.map(index=>tipRows[index]!.amount));
+      indices.forEach((index,ordinal)=>{targets[index]=staffTargets[ordinal]!;});
+    }
     for (const [index, row] of tipRows.entries()) {
       const delta = targets[index]! - row.refunded;
       if (delta === 0) continue;
@@ -1536,43 +1643,25 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
 
 // ─────────────────────────────────────────────────────────────────── 组单
 
-registerHandler(TicketGroup, async ({ input, ctx, tx, audit }: HandlerArgs<
-  typeof TicketGroup.input._type>) => {
-  const date = await bizDate(tx, ctx.locationId);
-
-  let groupId = input.groupId;
-  if (!groupId) {
-    const [g] = await tx<{ id: string }[]>`
-      insert into ticket_groups (org_id, location_id, business_date, label, created_by)
-      values (${ctx.orgId}, ${ctx.locationId}, ${date}, ${input.label ?? null}, ${ctx.membershipId})
-      returning id`;
-    groupId = g!.id;
-  } else if (input.label) {
-    await tx`update ticket_groups set label = ${input.label} where id = ${groupId}`;
-  }
-
-  // 已结账的单不能改组：那会让「谁付的钱」这条线索指向一个当时不存在的组
-  const rows = await tx<{ id: string }[]>`
-    update tickets set group_id = ${groupId}
-    where id = any(${input.ticketIds}) and location_id = ${ctx.locationId} and status not in ('closed','voided')
-    returning id`;
-
-  if (rows.length === 0) {
-    throw new AppError(ERROR_CODES.NOT_FOUND, {
-      details: { reason: '这些单要么不存在，要么已经结账了' },
-    });
-  }
-
-  audit({ entityType: 'ticket_group', entityId: groupId,
-          after: { ticketIds: rows.map((r) => r.id), label: input.label ?? null } });
-  return { groupId, ticketCount: rows.length };
+registerHandler(TicketGroup,async({input,ctx,tx,audit}:HandlerArgs<typeof TicketGroup.input._type>)=>{
+ const selected=await tx<{id:string;status:string;group_id:string|null;service_settled_at:string|null;tip_settled_at:string|null}[]>`select id,status,group_id,service_settled_at,tip_settled_at from tickets where id=any(${input.ticketIds}::uuid[]) and location_id=${ctx.locationId} order by id for update`;
+ if(selected.length!==input.ticketIds.length||selected.some(t=>['closed','voided','refunded'].includes(t.status)))throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'group_ticket_unavailable'}});
+ if(selected.some(t=>(t.service_settled_at||t.tip_settled_at)&&t.group_id!==(input.groupId??null)))throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'settled_ticket_cannot_change_group'}});
+ let groupId=input.groupId;
+ if(groupId){const [group]=await tx`select id from ticket_groups where id=${groupId} and location_id=${ctx.locationId} for update`;if(!group)throw new AppError(ERROR_CODES.NOT_FOUND,{details:{entity:'ticket_group'}});
+  if(input.label!==undefined)await tx`update ticket_groups set label=${input.label} where id=${groupId}`;
+ }else{if(selected.some(t=>t.service_settled_at||t.tip_settled_at))throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'settled_ticket_cannot_change_group'}});
+  const date=await bizDate(tx,ctx.locationId),[group]=await tx<{id:string}[]>`insert into ticket_groups(org_id,location_id,business_date,label,created_by) values(${ctx.orgId},${ctx.locationId},${date},${input.label??null},${ctx.membershipId}) returning id`;groupId=group!.id;
+ }
+ await tx`update tickets set group_id=${groupId} where id=any(${input.ticketIds}::uuid[]) and location_id=${ctx.locationId}`;
+ audit({entityType:'ticket_group',entityId:groupId,after:{ticketIds:input.ticketIds,label:input.label??null}});return {groupId,ticketCount:input.ticketIds.length};
 });
 
 registerHandler(TicketUngroup, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof TicketUngroup.input._type>) => {
   const [row] = await tx<{ group_id: string | null }[]>`
     update tickets set group_id = null
-    where id = ${input.ticketId} and location_id = ${ctx.locationId} and status not in ('closed','voided')
+    where id = ${input.ticketId} and location_id = ${ctx.locationId} and status not in ('closed','voided','refunded') and service_settled_at is null and tip_settled_at is null
     returning group_id`;
   if (!row) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
   audit({ entityType: 'ticket', entityId: input.ticketId, after: { groupId: null } });
@@ -1586,122 +1675,88 @@ registerHandler(TicketUngroup, async ({ input, ctx, tx, audit }: HandlerArgs<
  * 然后每张单照常走一遍单独结账的逻辑 —— 提成、小费分配、报表口径全不变。
  * 合并的只是「谁掏的钱」这一件事。
  */
-registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
-  typeof TicketCloseGroup.input._type>) => {
-  const sortedTicketIds = [...input.ticketIds].sort();
-  const ticketsById = new Map<string, TicketForClose>();
-  for (const id of sortedTicketIds) {
-    const t = await loadTicketForClose(tx, id, ctx.locationId);
-    if (t.groupId !== input.groupId) {
-      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-        details: { ticketId: id, reason: '这张单不属于这一组' },
-      });
-    }
-    ticketsById.set(id, t);
+type GroupCheckoutInput=typeof TicketCloseGroup.input._type;
+async function prepareGroupCheckout(tx:postgres.TransactionSql,ctx:CommandContext,input:GroupCheckoutInput,quotedTipCents?:number){
+ const selections=new Map(input.ticketSelections.map(s=>[s.ticketId,s]));
+ if(selections.size!==input.ticketSelections.length||input.ticketSelections.some(s=>!input.ticketIds.includes(s.ticketId))||input.payerTicketId&&!input.ticketIds.includes(input.payerTicketId))
+  throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'invalid_group_ticket_selection'}});
+ const ticketsById=new Map<string,TicketForClose>();
+ for(const id of [...input.ticketIds].sort()){
+  const ticket=await loadTicketForClose(tx,id,ctx.locationId);
+  if(ticket.groupId!==input.groupId)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'ticket_not_in_group',ticketId:id}});
+  ticketsById.set(id,ticket);
+ }
+ const tickets=input.ticketIds.map(id=>ticketsById.get(id)!);
+ if(input.payments.some(p=>p.method==='customer_credit')){const owners=new Set<string>();for(const ticket of tickets){if(!ticket.customerId)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'group_credit_requires_ticket_selection'}});owners.add(await canonicalCustomer(tx,ticket.customerId));}
+  if(owners.size!==1)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'group_credit_requires_ticket_selection'}});}
+
+ for(const date of new Set(tickets.map(t=>t.businessDate)))await assertDayOpen(tx,ctx.locationId,date);
+ await lockCheckoutAssets(tx,ctx,tickets.map(t=>({...selections.get(t.id),customerId:t.customerId,payments:[...(selections.get(t.id)?.storedValuePayments??[]),...input.payments]})));
+ const stages=tickets.map(t=>selections.get(t.id)?.paymentStage??'combined');
+ const subtotals=tickets.map(t=>t.subtotalCents),tipSum=quotedTipCents??input.payments.reduce((n,p)=>n+p.tipCents,0);
+ const explicitTips=tickets.map(t=>selections.get(t.id)?.tipCents),fixedTips=explicitTips.reduce<number>((n,v)=>n+(v??0),0);
+ const tipWeights=tickets.map((t,i)=>explicitTips[i]===undefined&&stages[i]!=='service'?t.subtotalCents:0);
+ if(tipSum<fixedTips||tipSum>fixedTips&&!tipWeights.some(n=>n>0))throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'group_tip_selection_mismatch'}});
+ const sharedTips=tipSum>fixedTips?largestRemainderSplit(tipSum-fixedTips,tipWeights,{zeroWeights:'throw'}):tickets.map(()=>0);
+ const tips=tickets.map((_,i)=>explicitTips[i]??sharedTips[i]!);
+ const feeWeights=tickets.map((t,i)=>stages[i]==='tip'?0:t.subtotalCents);
+ if(input.surchargeCents>0&&!feeWeights.some(n=>n>0))throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'group_fee_cannot_pay_tip_stage'}});
+ const fees=input.surchargeCents?largestRemainderSplit(input.surchargeCents,feeWeights,{zeroWeights:'throw'}):tickets.map(()=>0);
+ async function buildRows(discounts:readonly number[],globalPayments?:readonly PaymentIn[][]){
+  const balances=checkoutPlanningBalances(),rows=[];
+  for(const [i,ticket] of tickets.entries()){
+   const selection=selections.get(ticket.id);
+   const args:Omit<CheckoutArgs,'loaded'>={tx,ctx,ticket,
+    payments:[...(selection?.storedValuePayments??[]),...(globalPayments?.[i]??[])],
+    discountCents:(selection?.discountCents??0)+(discounts[i]??0),surchargeCents:(selection?.surchargeCents??0)+fees[i]!,
+    settlementStage:stages[i]!,packageRedemptions:selection?.packageRedemptions,membershipRedemptions:selection?.membershipRedemptions,
+    membershipDiscount:selection?.membershipDiscount,depositApplication:selection?.depositApplication,tipSplits:selection?.tipSplits,planningBalances:balances};
+   const prepared=await prepareTicketCheckout(args,false,tips[i]);rows.push({args,prepared});
   }
-  const tickets = input.ticketIds.map((id) => ticketsById.get(id)!);
-  await assertDayOpen(tx, ctx.locationId, tickets[0]!.businessDate);
-
-  const subtotals = tickets.map((t) => t.subtotalCents);
-  const subtotalSum = subtotals.reduce((a, b) => a + b, 0);
-
-  const tipSum = input.payments.reduce((s, p) => s + p.tipCents, 0);
-  const paidSum = input.payments.reduce((s, p) => s + p.amountCents, 0);
-  const discounts = largestRemainderSplit(input.discountCents, subtotals);
-  const checkout = await loadCheckoutSettings(tx, ctx);
-  const taxes = tickets.map((t, i) => locationTaxCents({
-    afterDiscountCents: Math.max(0, t.subtotalCents - (discounts[i] ?? 0)),
-    salesTaxRatePercent: checkout.salesTaxRatePercent,
-    taxCalculationMode: checkout.taxCalculationMode,
-  }));
-  const taxSum = taxes.reduce((sum, value) => sum + value, 0);
-  /* 组单同样分两种税制 —— 内含税时税已在各单标价中，不能再加一遍 */
-  const expected = checkoutDueCents({
-    afterDiscountCents: subtotalSum - input.discountCents,
-    taxCents: taxSum,
-    tipCents: tipSum,
-    surchargeCents: input.surchargeCents,
-    taxCalculationMode: checkout.taxCalculationMode,
-  });
-  if (paidSum !== expected) {
-    throw new AppError(ERROR_CODES.PAYMENT_MISMATCH, {
-      details: {
-        expected, received: paidSum,
-        hint: '整组收款额 = 各单服务金额合计 − 折扣 + 税金 + 附加费 + 小费',
-      },
-    });
-  }
-
-  // ── 拆分：每张单的钱要对，每种支付方式的合计也要对 ───────────────────────
-  //
-  // 折扣按各单金额摊（最大余额法），于是每张单的服务净额是确定的；
-  // 小费同理。然后用 distributeBuckets 把实际收到的现金/刷卡额**填**进
-  // 各单的需求里 —— 按比例摊会在「单」和「支付方式」之间差出一分，
-  // 而支付方式那一边差一分，晚上点钞就对不上。
-  const surcharges = largestRemainderSplit(input.surchargeCents, subtotals);
-  const nets = tickets.map((t, i) => t.subtotalCents - (discounts[i] ?? 0) + (taxes[i] ?? 0) + (surcharges[i] ?? 0));
-  const tipShares = largestRemainderSplit(tipSum, subtotals);
-
-  const netBuckets = input.payments.map((p) => p.amountCents - p.tipCents);
-  const tipBuckets = input.payments.map((p) => p.tipCents);
-  const netFill = distributeBuckets(nets, netBuckets);
-  const tipFill = distributeBuckets(tipShares, tipBuckets);
-
-  const groupPaymentId = crypto.randomUUID();
-  const loaded = await loadPlans(tx, ctx.locationId);
-
-  const results: CloseOutcome[] = [];
-  for (const [i, t] of tickets.entries()) {
-    const lines: PaymentIn[] = input.payments
-      .map((p, j) => ({
-        method: p.method,
-        amountCents: (netFill[i]![j] ?? 0) + (tipFill[i]![j] ?? 0),
-        tipCents: tipFill[i]![j] ?? 0,
-        // 实收/找零只属于真正掏钱的那一次动作，不往每张单上复制 ——
-        // 复制的话日结会把同一笔实收数好几遍
-        tenderedCents: undefined,
-        changeCents: 0,
-        keepChange: p.keepChange,
-      }))
-      .filter((p) => p.amountCents > 0 || p.tipCents > 0);
-
-    results.push(await closeOneTicket({
-      tx, ctx, ticket: t,
-      // 整组里可能有人这一单是 0 元（全被折扣抵掉），照样要留一行收款
-      payments: lines.length > 0 ? lines : [{
-        method: input.payments[0]!.method, amountCents: 0, tipCents: 0,
-        tenderedCents: undefined, changeCents: 0, keepChange: false,
-      }],
-      discountCents: discounts[i] ?? 0, 
-      taxCents: taxes[i] ?? 0,
-      surchargeCents: surcharges[i] ?? 0,
-      loaded,
-      groupPaymentId,
-      ...(input.payerTicketId ? { payerTicketId: input.payerTicketId } : {}),
-    }));
-  }
-
-  audit({
-    entityType: 'ticket_group', entityId: input.groupId,
-    after: {
-      status: 'closed',
-      ticketCount: tickets.length,
-      methods: input.payments.map((p) => p.method),
-      payerTicketId: input.payerTicketId ?? null,
-    },
-  });
-
-  for (const r of results) {
-    emit({ type: 'ticket.changed', entityId: r.ticketId, businessDate: tickets[0]!.businessDate });
-  }
-
-  return {
-    groupId: input.groupId,
-    tickets: results.map((r) => ({
-      ticketId: r.ticketId, totalCents: r.totalCents, tipCents: r.tipCents,
-    })),
-    allocations: results.flatMap((r) => r.allocations),
-  };
+  return rows;
+ }
+ const initial=await buildRows(tickets.map(()=>0));
+ const capacities=initial.map((r,i)=>stages[i]==='tip'?0:r.prepared.quote.items.filter(item=>item.coverage==='money'&&!selections.get(r.args.ticket.id)?.membershipDiscount?.items.some(d=>d.ticketItemId===item.ticketItemId)).reduce((n,item)=>n+item.totalCents-item.discountCents,0));
+ if(input.discountCents>capacities.reduce((n,v)=>n+v,0))throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'group_discount_exceeds_uncovered_services'}});
+ const discounts=input.discountCents?largestRemainderSplit(input.discountCents,capacities,{zeroWeights:'throw'}):tickets.map(()=>0);
+ let rows=input.discountCents?await buildRows(discounts):initial;
+ const amountDueCents=rows.reduce((n,r)=>n+r.prepared.quote.newMoneyDueCents,0),paidSum=input.payments.reduce((n,p)=>n+p.amountCents,0);
+ const readyToPay=paidSum===amountDueCents&&input.payments.reduce((n,p)=>n+p.tipCents,0)===tipSum;
+ if(readyToPay){
+  const netFill=distributeBuckets(rows.map(r=>r.prepared.quote.newMoneyDueCents-r.prepared.quote.tipCents),input.payments.map(p=>p.amountCents-p.tipCents));
+  const tipFill=distributeBuckets(tips,input.payments.map(p=>p.tipCents));
+  const tenderOwners=input.payments.map((_,j)=>{const payer=input.payerTicketId?input.ticketIds.indexOf(input.payerTicketId):-1;
+   return payer>=0&&(netFill[payer]![j]??0)+(tipFill[payer]![j]??0)>0?payer:rows.findIndex((_,i)=>(netFill[i]![j]??0)+(tipFill[i]![j]??0)>0);});
+  const mapped=rows.map((_,i)=>input.payments.map((p,j):PaymentIn=>({
+   method:p.method,amountCents:(netFill[i]![j]??0)+(tipFill[i]![j]??0),tipCents:tipFill[i]![j]??0,
+   ...(tenderOwners[j]===i&&p.tenderedCents!==undefined?{tenderedCents:p.tenderedCents}:{}),
+   changeCents:tenderOwners[j]===i?p.changeCents:0,keepChange:tenderOwners[j]===i&&p.keepChange,
+   ...(p.giftCardId?{giftCardId:p.giftCardId}:{}),...(p.giftCardCode?{giftCardCode:p.giftCardCode}:{}),
+  })).filter(p=>p.amountCents>0));
+  rows=await buildRows(discounts,mapped);
+ }
+ const ticketQuotes=rows.map(r=>r.prepared.quote),tenders=rows.flatMap(r=>r.args.payments.map(p=>({ticketId:r.args.ticket.id,method:p.method,amountCents:p.amountCents,tipCents:p.tipCents})));
+ const sum=(key:'newMoneyDueCents'|'taxCents'|'discountCents'|'surchargeCents'|'storedValueCents'|'depositCents')=>ticketQuotes.reduce((n,q)=>n+q[key],0);
+ const quoteHash=createHash('sha256').update(commerceFingerprint({version:1,groupId:input.groupId,payerTicketId:input.payerTicketId??null,quotes:ticketQuotes.map(q=>q.quoteHash),payments:input.payments,readyToPay})).digest('hex');
+ const quote:typeof TicketQuoteGroup.output._type={version:1,groupId:input.groupId,quoteHash,readyToPay,amountDueCents,newMoneyDueCents:sum('newMoneyDueCents'),tipCents:tipSum,
+  taxCents:sum('taxCents'),discountCents:sum('discountCents'),surchargeCents:sum('surchargeCents'),storedValueCents:sum('storedValueCents'),depositCents:sum('depositCents'),tickets:ticketQuotes,tenders};
+ return {quote,rows};
+}
+registerHandler(TicketQuoteGroup,async({input,ctx,tx,audit}:HandlerArgs<typeof TicketQuoteGroup.input._type>)=>{
+ const {quote}=await prepareGroupCheckout(tx,ctx,input,input.tipCents);
+ audit({entityType:'ticket_group',entityId:input.groupId,after:{checkoutQuoteVersion:1,checkoutQuoteHash:quote.quoteHash,financialFactsWritten:false}});return quote;
+});
+registerHandler(TicketCloseGroup,async({input,ctx,tx,audit,emit}:HandlerArgs<typeof TicketCloseGroup.input._type>)=>{
+ const plan=await prepareGroupCheckout(tx,ctx,input);
+ if(input.expectedQuoteHash&&input.expectedQuoteHash!==plan.quote.quoteHash)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'group_checkout_quote_changed'}});
+ if(!plan.quote.readyToPay)throw new AppError(ERROR_CODES.PAYMENT_MISMATCH,{details:{expected:plan.quote.amountDueCents,received:input.payments.reduce((n,p)=>n+p.amountCents,0)}});
+ const groupPaymentId=crypto.randomUUID(),loaded=await loadPlans(tx,ctx.locationId),results:CloseOutcome[]=[];
+ for(const row of plan.rows){const {planningBalances:_,...args}=row.args;
+  results.push(await closeOneTicket({...args,loaded,groupPaymentId,...(input.payerTicketId?{payerTicketId:input.payerTicketId}:{}),expectedQuoteHash:row.prepared.quote.quoteHash}));
+ }
+ audit({entityType:'ticket_group',entityId:input.groupId,after:{status:results.every(r=>r.closed)?'closed':'stage_paid',ticketCount:results.length,methods:input.payments.map(p=>p.method),payerTicketId:input.payerTicketId??null,checkoutQuoteVersion:1,checkoutQuoteHash:plan.quote.quoteHash}});
+ for(const row of plan.rows)emit({type:'ticket.changed',entityId:row.args.ticket.id,businessDate:row.args.ticket.businessDate});
+ return {groupId:input.groupId,tickets:results.map(r=>({ticketId:r.ticketId,totalCents:r.totalCents,tipCents:r.tipCents})),allocations:results.flatMap(r=>r.allocations)};
 });
 
 // ─────────────────────────────────────────────────────────────────── 作废

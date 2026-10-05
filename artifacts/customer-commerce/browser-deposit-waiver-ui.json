@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-01T05:52:45.848Z",
+  "desktopFreshLoad": {
+    "loaded": true,
+    "errors": 0
+  },
+  "mobile": {
+    "loaded": true,
+    "errors": 0
+  },
+  "historicalDevelopmentSession": {
+    "errors": 3,
+    "message": "useSession must be used within a SessionProvider after Fast Refresh; retained as a development issue"
+  },
+  "goalComplete": false
+}

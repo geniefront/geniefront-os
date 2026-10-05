@@ -1,0 +1,36 @@
+{
+  "at": "2026-10-02T22:49:14.234430+00:00",
+  "screenshotsReviewed": [
+    "p4-access-revoke-confirm-en.png",
+    "p4-access-reissue-confirm-mobile-en.png",
+    "p4-access-reload-mobile-en.png",
+    "p4-access-final-desktop-en.png",
+    "p4-access-new-link-mobile-zh.png",
+    "p4-access-new-link-portal-zh.png",
+    "p4-access-old-link-denied-zh.png",
+    "p4-access-same-tab-recovered-zh.png"
+  ],
+  "owner": {
+    "desktopWidth": 1280,
+    "desktopScrollWidth": 1280,
+    "mobileWidth": 390,
+    "footerActionsVisible": true,
+    "pageErrors": 0
+  },
+  "customer": {
+    "width": 390,
+    "scrollWidth": 390,
+    "privateDataRemovedForDeniedCredential": true,
+    "replacementLinkRestoresSameMembership": true,
+    "sameTabRecoveryWithoutFullReload": true,
+    "credentialFragmentRemoved": true,
+    "paidInvoices": 5,
+    "pageErrors": 0
+  },
+  "visualCorrections": [
+    "pinned modal actions in footer",
+    "restored saved confirmation indicator on replay",
+    "removed empty private-detail card when access denied"
+  ],
+  "productionPublished": false
+}

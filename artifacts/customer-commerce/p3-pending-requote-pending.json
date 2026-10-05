@@ -1,0 +1,58 @@
+{
+  "at": "2026-10-03T02:55:41.678Z",
+  "mode": "verify-pending",
+  "appointmentId": "1c691b33-f3e4-4e14-8596-df340318170e",
+  "holdId": "d5b138be-8475-42a2-8b32-23dbb4bc2f7d",
+  "originalContractAndDeadlineUnchanged": true,
+  "provider": [
+    {
+      "orderId": "c01ea0be-cf00-4032-bc5b-be51b1abc2b4",
+      "amountCents": 3400,
+      "requestState": "superseded",
+      "sessionStatus": "expired",
+      "paymentStatus": "unpaid",
+      "feeCents": null,
+      "netCents": null
+    },
+    {
+      "orderId": "7dae07b1-6275-48f3-93cd-1df317ef93cc",
+      "amountCents": 1400,
+      "requestState": "superseded",
+      "sessionStatus": "expired",
+      "paymentStatus": "unpaid",
+      "feeCents": null,
+      "netCents": null
+    },
+    {
+      "orderId": "501d7319-d7a3-4226-a733-64d9aad341f8",
+      "amountCents": 200,
+      "requestState": "open",
+      "sessionStatus": "open",
+      "paymentStatus": "unpaid",
+      "feeCents": null,
+      "netCents": null
+    }
+  ],
+  "facts": {
+    "status": "booked",
+    "deposit_status": "pending",
+    "party_size": 1,
+    "customer_cancellations": 1,
+    "collections": 0,
+    "confirmations": 0,
+    "active_service_cents": 1000
+  },
+  "priorPayments": {
+    "count": 19,
+    "hash": "1e8a03fa966eab1c27950d57b6e277f2"
+  },
+  "currentPayments": {
+    "count": 22,
+    "hash": "1f9ae0e0c18262c8406521e4a36f9190"
+  },
+  "nativeCustomerPartialCancellation": true,
+  "nativeStaffServiceReplacement": true,
+  "notificationDelivery": "capture",
+  "productionPublished": false,
+  "goalComplete": false
+}

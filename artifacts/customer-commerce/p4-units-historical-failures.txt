@@ -1,0 +1,1345 @@
+Historical unpromoted/fixture/check failure: api-first
+$ vitest run src/customerMemberships.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ✓ src/customerMemberships.test.ts (14 tests) 2059ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  19:49:45
+   Duration  9.58s (transform 665ms, setup 5.66s, collect 1.27s, tests 2.06s, environment 0ms, prepare 179ms)
+
+
+Historical unpromoted/fixture/check failure: api-second
+$ vitest run src/customerMemberships.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ❯ src/customerMemberships.test.ts (18 tests | 3 failed) 1288ms
+   × redeems a specific paid membership unit once and refunds its service back to the original unit, never cash 109ms
+     → expected AppError: VALIDATION_FAILED { …(4) } to match object { Object (details) }
+(5 matching properties omitted from actual)
+   × accumulates partial service returns without restoring fractional or duplicate membership sessions 81ms
+     → undefined
+   × rolls back selected membership coverage when amounts, source, role or item identity are invalid 72ms
+     → Cannot read properties of undefined (reading 'id')
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/customerMemberships.test.ts > redeems a specific paid membership unit once and refunds its service back to the original unit, never cash
+AssertionError: expected AppError: VALIDATION_FAILED { …(4) } to match object { Object (details) }
+(5 matching properties omitted from actual)
+
+- Expected
++ Received
+
++ AppError {
++   "details": Object {
++     "issues": Array [
+        Object {
+-   "details": Object {
+-     "reason": "membership_refund_requires_original_method",
++         "message": "Invalid enum value. Expected 'customer_dissatisfied' | 'wrong_charge' | 'accidental_duplicate' | 'other', received 'service_issue'",
++         "path": Array [
++           "reason",
++         ],
++       },
++     ],
+    },
+  }
+
+ ❯ src/customerMemberships.test.ts:99:2
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/customerMemberships.test.ts > accumulates partial service returns without restoring fractional or duplicate membership sessions
+{
+  code: 'VALIDATION_FAILED',
+  messageKey: 'error.VALIDATION_FAILED',
+  details: { issues: [ [Object] ] },
+  overridable: false,
+  stacks: []
+}
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/customerMemberships.test.ts > rolls back selected membership coverage when amounts, source, role or item identity are invalid
+TypeError: Cannot read properties of undefined (reading 'id')
+ ❯ benefitTicket src/customerMemberships.test.ts:90:63
+     88|  const items=await withTenant(ctx,tx=>tx<{id:string}[]>`update ticket_…
+     89|  const [cycle]=await withTenant(ctx,tx=>tx<{id:string}[]>`select id fr…
+     90|  return {...created,itemIds:items.map(i=>i.id),cycleId:cycle!.id};
+       |                                                               ^
+     91| }
+     92| it('redeems a specific paid membership unit once and refunds its servi…
+ ❯ src/customerMemberships.test.ts:124:112
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 15 passed (18)
+   Start at  19:54:01
+   Duration  3.51s (transform 408ms, setup 1.26s, collect 853ms, tests 1.29s, environment 0ms, prepare 27ms)
+
+/Users/naiyouzhu/siteadmin/geniefront-os/apps/api:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @gf/api@0.0.0 test: `vitest run src/customerMemberships.test.ts`
+Exit status 1
+
+Historical unpromoted/fixture/check failure: api-third
+$ vitest run src/customerMemberships.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ❯ src/customerMemberships.test.ts (20 tests | 4 failed) 3614ms
+   × redeems a specific paid membership unit once and refunds its service back to the original unit, never cash 125ms
+     → permission denied for table customer_membership_ledger
+   × accumulates partial service returns without restoring fractional or duplicate membership sessions 84ms
+     → permission denied for table customer_membership_ledger
+   × expires missed annual periods, issues only the current paid batch, and schedules its expiry without duplicate workers 50ms
+     → new row for relation "customer_membership_cycles" violates check constraint "customer_membership_cycles_status_check"
+   × keeps the original expiry when a fully returned service restores a membership unit after its period has ended 2114ms
+     → new row for relation "customer_membership_cycles" violates check constraint "customer_membership_cycles_status_check"
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/customerMemberships.test.ts > redeems a specific paid membership unit once and refunds its service back to the original unit, never cash
+ FAIL  src/customerMemberships.test.ts > accumulates partial service returns without restoring fractional or duplicate membership sessions
+PostgresError: permission denied for table customer_membership_ledger
+ ❯ ErrorResponse ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:815:30
+ ❯ handle ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:489:6
+ ❯ Socket.data ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:324:9
+ ❯ cachedError ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/query.js:170:23
+ ❯ new Query ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/query.js:36:24
+ ❯ sql ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/index.js:112:11
+ ❯ Module.restoreTicketMemberships src/handlers/membershipUnits.ts:66:9
+     64|    from customer_membership_cycles c join customer_paid_memberships m …
+     65|   if(!cycle)invalid('membership_restore_source_missing');
+     66|   await tx`insert into customer_membership_service_refunds(org_id,loca…
+       |         ^
+     67|    values(${ctx.orgId},${ctx.locationId},${original.id},${refundId},${…
+     68|   if(returned!==original.remaining)continue;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  src/customerMemberships.test.ts > expires missed annual periods, issues only the current paid batch, and schedules its expiry without duplicate workers
+ FAIL  src/customerMemberships.test.ts > keeps the original expiry when a fully returned service restores a membership unit after its period has ended
+PostgresError: new row for relation "customer_membership_cycles" violates check constraint "customer_membership_cycles_status_check"
+ ❯ ErrorResponse ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:815:30
+ ❯ handle ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:489:6
+ ❯ Socket.data ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:324:9
+ ❯ cachedError ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/query.js:170:23
+ ❯ new Query ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/query.js:36:24
+ ❯ sql ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/index.js:112:11
+ ❯ Module.expireMembershipCycles src/handlers/membershipUnits.ts:92:9
+     90|    values(${ctx.orgId},${ctx.locationId},${c.id},'expire',${-quantity}…
+     91|     ${`expire:${c.id}`},${date},${jsonb({neverIssued:c.status==='plann…
+     92|   await tx`update customer_membership_cycles set available_units='{}':…
+       |         ^
+     93|  }
+     94|  return ended.length;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 16 passed (20)
+   Start at  20:02:14
+   Duration  5.98s (transform 458ms, setup 1.31s, collect 941ms, tests 3.61s, environment 0ms, prepare 27ms)
+
+/Users/naiyouzhu/siteadmin/geniefront-os/apps/api:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @gf/api@0.0.0 test: `vitest run src/customerMemberships.test.ts`
+Exit status 1
+
+Historical unpromoted/fixture/check failure: api-fourth
+$ vitest run src/customerMemberships.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ✓ src/customerMemberships.test.ts (20 tests) 4639ms
+   ✓ keeps the original expiry when a fully returned service restores a membership unit after its period has ended 2605ms
+
+ Test Files  1 passed (1)
+      Tests  20 passed (20)
+   Start at  20:03:08
+   Duration  7.01s (transform 468ms, setup 1.31s, collect 944ms, tests 4.64s, environment 0ms, prepare 29ms)
+
+
+Historical unpromoted/fixture/check failure: api-fifth
+$ vitest run src/customerMemberships.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ❯ src/customerMemberships.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/customerMemberships.test.ts [ src/customerMemberships.test.ts ]
+Error: API 测试种子重置失败
+
+═══ 填充真实测试数据（覆盖过去 14 天与未来 14 天） ═══
+
+1. 开始数据库事务与清理旧数据...
+Cleaning table: commerce_deposit_ledger
+Cleaning table: copilot_messages
+Cleaning table: copilot_sessions
+Cleaning table: ai_business_summaries
+Cleaning table: support_request_notes
+Cleaning table: support_requests
+Cleaning table: day_close_events
+Cleaning table: ticket_refunds
+[ELIFECYCLE] Command failed with exit code 1.
+
+$ tsx packages/db/src/seedEntry.ts
+
+种子失败： update or delete on table "ticket_refunds" violates foreign key constraint "membership_service_refund_scope" on table "customer_membership_ledger"
+ ❯ src/test/resetDatabase.ts:31:9
+     29| } catch (error) {
+     30|   const detail = error as { stdout?: string; stderr?: string };
+     31|   throw new Error(
+       |         ^
+     32|     `API 测试种子重置失败\n${detail.stdout ?? ''}\n${detail.stderr ?? …
+     33|   );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  20:06:19
+   Duration  2.75s (transform 33ms, setup 0ms, collect 0ms, tests 0ms, environment 0ms, prepare 69ms)
+
+/Users/naiyouzhu/siteadmin/geniefront-os/apps/api:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @gf/api@0.0.0 test: `vitest run src/customerMemberships.test.ts`
+Exit status 1
+
+Historical unpromoted/fixture/check failure: api-sixth
+$ vitest run src/customerMemberships.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ❯ src/customerMemberships.test.ts (21 tests | 1 failed) 3853ms
+   × keeps per-unit paid values and commission snapshots after catalog changes and restores the exact units 72ms
+     → membership redemption requires one eligible paid service unit
+   ✓ keeps the original expiry when a fully returned service restores a membership unit after its period has ended 2215ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/customerMemberships.test.ts > keeps per-unit paid values and commission snapshots after catalog changes and restores the exact units
+PostgresError: membership redemption requires one eligible paid service unit
+ ❯ ErrorResponse ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:815:30
+ ❯ handle ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:489:6
+ ❯ Socket.data ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:324:9
+ ❯ cachedError ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/query.js:170:23
+ ❯ new Query ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/query.js:36:24
+ ❯ sql ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/index.js:112:11
+ ❯ Module.applyMembershipRedemptions src/handlers/membershipUnits.ts:41:10
+     39|    const allocation=takePackageUnits(cycle.value_cents,cycle.quantity,…
+     40|    const commissionBase=basis==='catalog_price'?item.total_cents:basis…
+     41|    await tx`insert into customer_membership_ledger(org_id,location_id,…
+       |          ^
+     42|     values(${ctx.orgId},${ctx.locationId},${cycle.id},'redeem',-1,${-a…
+     43|      ${ticket.id},${item.id},${`redeem:${item.id}`},${item.total_cents…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 20 passed (21)
+   Start at  20:07:20
+   Duration  6.19s (transform 426ms, setup 1.35s, collect 879ms, tests 3.85s, environment 0ms, prepare 27ms)
+
+/Users/naiyouzhu/siteadmin/geniefront-os/apps/api:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @gf/api@0.0.0 test: `vitest run src/customerMemberships.test.ts`
+Exit status 1
+
+Historical unpromoted/fixture/check failure: web-final
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/features/printing/ReceiptDocument.test.tsx (4 tests) 474ms
+   ✓ customer receipt > separates paid membership service coverage from newly collected payments 342ms
+ ✓ src/features/commerce/GuestCancellationPanel.test.tsx (2 tests) 2278ms
+   ✓ confirms only selected guests and their exact refund quote, reusing the command key after an interruption 1989ms
+ ✓ src/features/commerce/DepositPaymentActions.test.tsx (3 tests) 3731ms
+   ✓ records the exact held deposit only after receiving a reference and preserves its idempotency key after an interrupted response 2547ms
+   ✓ keeps an existing Stripe attempt out of the cash entry and sends instructions with an explicit reason 1132ms
+ ✓ src/components/AppointmentDrawer.test.tsx (10 tests) 4107ms
+   ✓ online appointment contact details (voice_booking) > opens an unassigned appointment with phone=null email=guest@example.com 850ms
+   ✓ online appointment contact details (full) > opens an unassigned appointment with phone=null email=guest@example.com 377ms
+   ✓ online appointment contact details (full) > opens an unassigned appointment with phone=+12125550123 email=null 359ms
+   ✓ online appointment contact details (full) > opens an unassigned appointment with phone=null email=null 424ms
+   ✓ keeps cancelled service history visible but prevents editing it 310ms
+   ✓ shows unpaid holds as awaiting deposit throughout the drawer and defers arrival guidance 560ms
+   ✓ shows the normal booked stage after the deposit is paid 475ms
+   ✓ keeps terminal appointment services closed while explaining separate deposit handling 307ms
+ ✓ src/features/commerce/DepositRetentionActions.test.tsx (5 tests) 6631ms
+   ✓ requires an explicit amount and reason and preserves the selected guest quote on interrupted retries 2512ms
+   ✓ prevents exceeding the selected eligible share, removing all guests or acting offline 682ms
+   ✓ retries the original saved decision after the refreshed balance changes 1188ms
+   ✓ restores an unresolved decision on remount with its original input and key 2217ms
+ ❯ src/pages/Checkout.tips.test.tsx (6 tests | 1 failed) 6276ms
+   ✓ #23 submits matching channel tips, total and staff splits 1191ms
+   ✓ #22 and #23 keep cash change and retained-tip allocations consistent 1286ms
+   ✓ requires frontdesk confirmation to apply a paid deposit and charges the tip through the new payment channel 630ms
+   ✓ keeps deposit application read-only without commerce permission 313ms
+   × selects specific paid membership service coverage while collecting tips through the new payment channel 2590ms
+     → Unable to find an accessible element with the role "button" and name "15% $7.50"
+
+Here are the accessible roles:
+
+  heading:
+
+  Name "openTickets":
+  <h2
+    class="text-sm font-bold text-slate-900 flex items-center gap-1.5"
+  />
+
+  Name "Guest A":
+  <h2
+    class="text-base font-bold text-slate-900 truncate"
+  />
+
+  Name "checkout.lineItemsTitle":
+  <h3
+    class="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5"
+  />
+
+  Name "Paid memberships · Covered services":
+  <h3
+    class="font-bold"
+  />
+
+  Name "checkout.tipSplitTitle":
+  <h3
+    class="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5"
+  />
+
+  Name "checkout.paymentMethods":
+  <h3
+    class="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5"
+  />
+
+  --------------------------------------------------
+  button:
+
+  Name "checkout.tabFinished1)":
+  <button
+    class="py-1 rounded-lg transition-all text-center truncate bg-white text-teal-900 shadow-sm font-black"
+    type="button"
+  />
+
+  Name "checkout.tabInService0)":
+  <button
+    class="py-1 rounded-lg transition-all text-center truncate hover:bg-slate-100 text-slate-600"
+    type="button"
+  />
+
+  Name "checkout.tabArrived0)":
+  <button
+    class="py-1 rounded-lg transition-all text-center truncate hover:bg-slate-100 text-slate-600"
+    type="button"
+  />
+
+  Name "checkout.tabAll1)":
+  <button
+    class="py-1 rounded-lg transition-all text-center truncate hover:bg-slate-100 text-slate-600"
+    type="button"
+  />
+
+  Name "Guest A$50.00 Massage checkout.statusFinished":
+  <button
+    class="w-full text-left p-3 transition-colors hover:bg-slate-50 relative bg-teal-50/70 border-l-4 border-teal-600"
+    type="button"
+  />
+
+  Name "voidTicketAction":
+  <button
+    class="button button--sm button--outline border-red-200 text-red-600 hover:bg-red-50 gap-1.5 h-8 text-xs font-bold shrink-0"
+    data-rac=""
+    data-react-aria-pressable="true"
+    data-slot="button"
+    id="react-aria-_r_1o_"
+    tabindex="0"
+    type="button"
+  />
+
+  Name "checkout.tipSmartSplit":
+  <button
+    class="px-2 py-0.5 rounded-md transition-all bg-white shadow-sm text-teal-800"
+    type="button"
+  />
+
+  Name "checkout.tipEnterByStaff":
+  <button
+    class="px-2 py-0.5 rounded-md transition-all text-slate-500"
+    type="button"
+  />
+
+  Name "checkout.noTip$0.00":
+  <button
+    class="p-1.5 rounded-xl border text-center font-bold transition-all border-teal-500 bg-teal-50 text-teal-900 ring-1 ring-teal-400"
+    type="button"
+  />
+
+  Name "15%$7.50":
+  <button
+    class="p-1.5 rounded-xl border text-center font-bold transition-all border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+    type="button"
+  />
+
+  Name "18%$9.00":
+  <button
+    class="p-1.5 rounded-xl border text-center font-bold transition-all border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+    type="button"
+  />
+
+  Name "20%$10.00":
+  <button
+    class="p-1.5 rounded-xl border text-center font-bold transition-all border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+    type="button"
+  />
+
+  Name "25%$12.50":
+  <button
+    class="p-1.5 rounded-xl border text-center font-bold transition-all border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+    type="button"
+  />
+
+  Name "checkout.addSplitChannel":
+  <button
+    class="button button--sm button--outline w-full border-dashed gap-2 font-bold text-xs h-9"
+    data-rac=""
+    data-react-aria-pressable="true"
+    data-slot="button"
+    id="react-aria-_r_1u_"
+    tabindex="0"
+    type="button"
+  />
+
+  Name "checkout.confirmCheckout ($0.00)":
+  <button
+    class="button button--lg button--primary w-full bg-teal-600 hover:bg-teal-700 text-white font-bold h-12 text-sm rounded-xl shadow-lg"
+    data-rac=""
+    data-react-aria-pressable="true"
+    data-slot="button"
+    id="react-aria-_r_21_"
+    tabindex="0"
+    type="button"
+  />
+
+  --------------------------------------------------
+  textbox:
+
+  Name "":
+  <input
+    class="w-full h-8 pl-8 pr-2.5 rounded-xl border border-slate-200 bg-white text-xs placeholder:text-slate-400 focus:outline-none focus:border-teal-500 transition-all"
+    placeholder="checkout.searchPlaceholder"
+    type="text"
+    value=""
+  />
+
+  Name "":
+  <input
+    class="block min-h-10 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900 shadow-none placeholder:text-slate-400 transition-all disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed border-slate-300 focus:border-teal-600 focus:outline-none focus:ring-3 focus:ring-teal-500/12 font-mono font-bold"
+    inputmode="decimal"
+    placeholder="0.00"
+    type="text"
+    value="0.00"
+  />
+
+  Name "":
+  <input
+    class="block min-h-10 rounded-xl border bg-white px-3 py-2 text-slate-900 shadow-none placeholder:text-slate-400 transition-all disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed border-slate-300 focus:border-teal-600 focus:outline-none focus:ring-3 focus:ring-teal-500/12 h-7 w-24 text-right font-mono text-xs"
+    inputmode="decimal"
+    placeholder="0.00"
+    type="text"
+    value=""
+  />
+
+  Name "":
+  <input
+    class="block min-h-10 w-full rounded-xl border bg-white px-3 py-2 text-slate-900 shadow-none placeholder:text-slate-400 transition-all disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed border-slate-300 focus:border-teal-600 focus:outline-none focus:ring-3 focus:ring-teal-500/12 font-mono text-xs font-bold"
+    inputmode="decimal"
+    placeholder="0.00"
+    type="text"
+    value=""
+  />
+
+  Name "":
+  <input
+    class="block min-h-10 w-full rounded-xl border bg-white px-3 py-2 shadow-none placeholder:text-slate-400 transition-all disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed border-slate-300 focus:border-teal-600 focus:outline-none focus:ring-3 focus:ring-teal-500/12 font-mono text-xs font-bold text-teal-700"
+    inputmode="decimal"
+    placeholder="0.00"
+    type="text"
+    value=""
+  />
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  <p
+    class="text-xs text-slate-500 mt-0.5 flex items-center gap-2"
+  />
+
+  Name "":
+  <p
+    class="text-sm text-slate-500"
+  />
+
+  Name "":
+  <p />
+
+  --------------------------------------------------
+  combobox:
+
+  Name "Benefit periods":
+  <select
+    aria-label="Benefit periods"
+    class="w-full rounded-lg border p-2"
+  />
+
+  Name "":
+  <select
+    class="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800"
+  />
+
+  Name "":
+  <select
+    class="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+  />
+
+  --------------------------------------------------
+  option:
+
+  Name "Do not use membership benefits":
+  <option
+    value=""
+  />
+
+  Name "Monthly care · Available services: 1":
+  <option
+    value="cycle-A"
+  />
+
+  Name "checkout.splitByRevenue":
+  <option
+    value="proportional"
+  />
+
+  Name "checkout.splitEqual":
+  <option
+    value="equal"
+  />
+
+  Name "payCash":
+  <option
+    value="cash"
+  />
+
+  Name "payCard":
+  <option
+    value="card"
+  />
+
+  Name "payGift":
+  <option
+    value="gift_card"
+  />
+
+  Name "methodExternal":
+  <option
+    value="external"
+  />
+
+  --------------------------------------------------
+  checkbox:
+
+  Name "Massage50.00":
+  <input
+    type="checkbox"
+  />
+
+  Name "checkout.cardSurchargeToggle":
+  <input
+    class="w-4 h-4 rounded text-purple-600 focus:ring-purple-500/20"
+    type="checkbox"
+  />
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  <strong
+    class="ml-auto"
+  />
+
+  Name "":
+  <strong
+    class="font-mono text-slate-800"
+  />
+
+  Name "":
+  <strong
+    class="font-mono text-teal-700"
+  />
+
+  Name "":
+  <strong
+    class="font-mono text-slate-900 font-black"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="min-h-full lg:h-full flex flex-col lg:flex-row gap-4 lg:overflow-hidden"
+    >
+      <div
+        class="card card--default rounded-2xl border border-slate-200 bg-white shadow-[var(--gf-shadow)] w-full lg:w-80 max-h-[24rem] lg:max-h-none shrink-0 flex flex-col overflow-hidden"
+        data-slot="card"
+      >
+        <div
+          class="p-3 border-b border-slate-100 bg-slate-50 space-y-2"
+        >
+          <div
+            class="flex items-center justify-between"
+          >
+            <h2
+              class="text-sm font-bold text-slate-900 flex items-center gap-1.5"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-receipt w-4 h-4 text-teal-600"
+                fill="none"
+                height="24"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"
+                />
+                <path
+                  d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"
+                />
+                <path
+                  d="M12 17.5v-11"
+                />
+              </svg>
+              <span>
+                openTickets
+              </span>
+            </h2>
+            <span
+              class="text-xs font-mono font-bold text-slate-500"
+            >
+              checkout.totalPrefix
+               
+              1
+                
+              checkout.totalSuffix
+            </span>
+          </div>
+          <div
+            class="grid grid-cols-2 xl:grid-cols-4 gap-1 p-1 bg-slate-200/70 rounded-xl text-[11px] font-bold text-slate-600"
+          >
+            <button
+              class="py-1 rounded-lg transition-all text-center truncate bg-white text-teal-900 shadow-sm font-black"
+              type="button"
+            >
+              checkout.tabFinished
+              1
+              )
+            </button>
+            <button
+              class="py-1 rounded-lg transition-all text-center truncate hover:bg-slate-100 text-slate-600"
+              type="button"
+            >
+              checkout.tabInService
+              0
+              )
+            </button>
+            <button
+              class="py-1 rounded-lg transition-all text-center truncate hover:bg-slate-100 text-slate-600"
+              type="button"
+            >
+              checkout.tabArrived
+              0
+              )
+            </button>
+            <button
+              class="py-1 rounded-lg transition-all text-center truncate hover:bg-slate-100 text-slate-600"
+              type="button"
+            >
+              checkout.tabAll
+              1
+              )
+            </button>
+          </div>
+          <div
+            class="relative mt-2"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-search w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"
+              fill="none"
+              height="24"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+              width="24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m21 21-4.34-4.34"
+              />
+              <circle
+                cx="11"
+                cy="11"
+                r="8"
+              />
+            </svg>
+            <input
+              class="w-full h-8 pl-8 pr-2.5 rounded-xl border border-slate-200 bg-white text-xs placeholder:text-slate-400 focus:outline-none focus:border-teal-500 transition-all"
+              placeholder="checkout.searchPlaceholder"
+              type="text"
+              value=""
+            />
+          </div>
+        </div>
+        <div
+          class="flex-1 overflow-y-auto divide-y divide-slate-100 custom-scrollbar"
+        >
+          <button
+            class="w-full text-left p-3 transition-colors hover:bg-slate-50 relative bg-teal-50/70 border-l-4 border-teal-600"
+            type="button"
+          >
+            <div
+              class="flex items-start justify-between gap-1.5 mb-1"
+            >
+              <span
+                class="font-bold text-slate-900 text-sm truncate"
+              >
+                Guest A
+              </span>
+              <span
+                class="text-sm font-mono font-black text-teal-800 shrink-0"
+              >
+                $
+                50.00
+              </span>
+            </div>
+            <div
+              class="text-xs text-slate-500 truncate"
+            >
+              Massage
+            </div>
+            <div
+              class[...
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/pages/Checkout.tips.test.tsx > selects specific paid membership service coverage while collecting tips through the new payment channel
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "15% $7.50"
+
+Here are the accessible roles:
+
+  heading:
+
+  Name "openTickets":
+  <h2
+    class="text-sm font-bold text-slate-900 flex items-center gap-1.5"
+  />
+
+  Name "Guest A":
+  <h2
+    class="text-base font-bold text-slate-900 truncate"
+  />
+
+  Name "checkout.lineItemsTitle":
+  <h3
+    class="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5"
+  />
+
+  Name "Paid memberships · Covered services":
+  <h3
+    class="font-bold"
+  />
+
+  Name "checkout.tipSplitTitle":
+  <h3
+    class="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5"
+  />
+
+  Name "checkout.paymentMethods":
+  <h3
+    class="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5"
+  />
+
+  --------------------------------------------------
+  button:
+
+  Name "checkout.tabFinished1)":
+  <button
+    class="py-1 rounded-lg transition-all text-center truncate bg-white text-teal-900 shadow-sm font-black"
+    type="button"
+  />
+
+  Name "checkout.tabInService0)":
+  <button
+    class="py-1 rounded-lg transition-all text-center truncate hover:bg-slate-100 text-slate-600"
+    type="button"
+  />
+
+  Name "checkout.tabArrived0)":
+  <button
+    class="py-1 rounded-lg transition-all text-center truncate hover:bg-slate-100 text-slate-600"
+    type="button"
+  />
+
+  Name "checkout.tabAll1)":
+  <button
+    class="py-1 rounded-lg transition-all text-center truncate hover:bg-slate-100 text-slate-600"
+    type="button"
+  />
+
+  Name "Guest A$50.00 Massage checkout.statusFinished":
+  <button
+    class="w-full text-left p-3 transition-colors hover:bg-slate-50 relative bg-teal-50/70 border-l-4 border-teal-600"
+    type="button"
+  />
+
+  Name "voidTicketAction":
+  <button
+    class="button button--sm button--outline border-red-200 text-red-600 hover:bg-red-50 gap-1.5 h-8 text-xs font-bold shrink-0"
+    data-rac=""
+    data-react-aria-pressable="true"
+    data-slot="button"
+    id="react-aria-_r_1o_"
+    tabindex="0"
+    type="button"
+  />
+
+  Name "checkout.tipSmartSplit":
+  <button
+    class="px-2 py-0.5 rounded-md transition-all bg-white shadow-sm text-teal-800"
+    type="button"
+  />
+
+  Name "checkout.tipEnterByStaff":
+  <button
+    class="px-2 py-0.5 rounded-md transition-all text-slate-500"
+    type="button"
+  />
+
+  Name "checkout.noTip$0.00":
+  <button
+    class="p-1.5 rounded-xl border text-center font-bold transition-all border-teal-500 bg-teal-50 text-teal-900 ring-1 ring-teal-400"
+    type="button"
+  />
+
+  Name "15%$7.50":
+  <button
+    class="p-1.5 rounded-xl border text-center font-bold transition-all border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+    type="button"
+  />
+
+  Name "18%$9.00":
+  <button
+    class="p-1.5 rounded-xl border text-center font-bold transition-all border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+    type="button"
+  />
+
+  Name "20%$10.00":
+  <button
+    class="p-1.5 rounded-xl border text-center font-bold transition-all border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+    type="button"
+  />
+
+  Name "25%$12.50":
+  <button
+    class="p-1.5 rounded-xl border text-center font-bold transition-all border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+    type="button"
+  />
+
+  Name "checkout.addSplitChannel":
+  <button
+    class="button button--sm button--outline w-full border-dashed gap-2 font-bold text-xs h-9"
+    data-rac=""
+    data-react-aria-pressable="true"
+    data-slot="button"
+    id="react-aria-_r_1u_"
+    tabindex="0"
+    type="button"
+  />
+
+  Name "checkout.confirmCheckout ($0.00)":
+  <button
+    class="button button--lg button--primary w-full bg-teal-600 hover:bg-teal-700 text-white font-bold h-12 text-sm rounded-xl shadow-lg"
+    data-rac=""
+    data-react-aria-pressable="true"
+    data-slot="button"
+    id="react-aria-_r_21_"
+    tabindex="0"
+    type="button"
+  />
+
+  --------------------------------------------------
+  textbox:
+
+  Name "":
+  <input
+    class="w-full h-8 pl-8 pr-2.5 rounded-xl border border-slate-200 bg-white text-xs placeholder:text-slate-400 focus:outline-none focus:border-teal-500 transition-all"
+    placeholder="checkout.searchPlaceholder"
+    type="text"
+    value=""
+  />
+
+  Name "":
+  <input
+    class="block min-h-10 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900 shadow-none placeholder:text-slate-400 transition-all disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed border-slate-300 focus:border-teal-600 focus:outline-none focus:ring-3 focus:ring-teal-500/12 font-mono font-bold"
+    inputmode="decimal"
+    placeholder="0.00"
+    type="text"
+    value="0.00"
+  />
+
+  Name "":
+  <input
+    class="block min-h-10 rounded-xl border bg-white px-3 py-2 text-slate-900 shadow-none placeholder:text-slate-400 transition-all disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed border-slate-300 focus:border-teal-600 focus:outline-none focus:ring-3 focus:ring-teal-500/12 h-7 w-24 text-right font-mono text-xs"
+    inputmode="decimal"
+    placeholder="0.00"
+    type="text"
+    value=""
+  />
+
+  Name "":
+  <input
+    class="block min-h-10 w-full rounded-xl border bg-white px-3 py-2 text-slate-900 shadow-none placeholder:text-slate-400 transition-all disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed border-slate-300 focus:border-teal-600 focus:outline-none focus:ring-3 focus:ring-teal-500/12 font-mono text-xs font-bold"
+    inputmode="decimal"
+    placeholder="0.00"
+    type="text"
+    value=""
+  />
+
+  Name "":
+  <input
+    class="block min-h-10 w-full rounded-xl border bg-white px-3 py-2 shadow-none placeholder:text-slate-400 transition-all disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed border-slate-300 focus:border-teal-600 focus:outline-none focus:ring-3 focus:ring-teal-500/12 font-mono text-xs font-bold text-teal-700"
+    inputmode="decimal"
+    placeholder="0.00"
+    type="text"
+    value=""
+  />
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  <p
+    class="text-xs text-slate-500 mt-0.5 flex items-center gap-2"
+  />
+
+  Name "":
+  <p
+    class="text-sm text-slate-500"
+  />
+
+  Name "":
+  <p />
+
+  --------------------------------------------------
+  combobox:
+
+  Name "Benefit periods":
+  <select
+    aria-label="Benefit periods"
+    class="w-full rounded-lg border p-2"
+  />
+
+  Name "":
+  <select
+    class="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800"
+  />
+
+  Name "":
+  <select
+    class="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+  />
+
+  --------------------------------------------------
+  option:
+
+  Name "Do not use membership benefits":
+  <option
+    value=""
+  />
+
+  Name "Monthly care · Available services: 1":
+  <option
+    value="cycle-A"
+  />
+
+  Name "checkout.splitByRevenue":
+  <option
+    value="proportional"
+  />
+
+  Name "checkout.splitEqual":
+  <option
+    value="equal"
+  />
+
+  Name "payCash":
+  <option
+    value="cash"
+  />
+
+  Name "payCard":
+  <option
+    value="card"
+  />
+
+  Name "payGift":
+  <option
+    value="gift_card"
+  />
+
+  Name "methodExternal":
+  <option
+    value="external"
+  />
+
+  --------------------------------------------------
+  checkbox:
+
+  Name "Massage50.00":
+  <input
+    type="checkbox"
+  />
+
+  Name "checkout.cardSurchargeToggle":
+  <input
+    class="w-4 h-4 rounded text-purple-600 focus:ring-purple-500/20"
+    type="checkbox"
+  />
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  <strong
+    class="ml-auto"
+  />
+
+  Name "":
+  <strong
+    class="font-mono text-slate-800"
+  />
+
+  Name "":
+  <strong
+    class="font-mono text-teal-700"
+  />
+
+  Name "":
+  <strong
+    class="font-mono text-slate-900 font-black"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="min-h-full lg:h-full flex flex-col lg:flex-row gap-4 lg:overflow-hidden"
+    >
+      <div
+        class="card card--default rounded-2xl border border-slate-200 bg-white shadow-[var(--gf-shadow)] w-full lg:w-80 max-h-[24rem] lg:max-h-none shrink-0 flex flex-col overflow-hidden"
+        data-slot="card"
+      >
+        <div
+          class="p-3 border-b border-slate-100 bg-slate-50 space-y-2"
+        >
+          <div
+            class="flex items-center justify-between"
+          >
+            <h2
+              class="text-sm font-bold text-slate-900 flex items-center gap-1.5"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-receipt w-4 h-4 text-teal-600"
+                fill="none"
+                height="24"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"
+                />
+                <path
+                  d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"
+                />
+                <path
+                  d="M12 17.5v-11"
+                />
+              </svg>
+              <span>
+                openTickets
+              </span>
+            </h2>
+            <span
+              class="text-xs font-mono font-bold text-slate-500"
+            >
+              checkout.totalPrefix
+               
+              1
+                
+              checkout.totalSuffix
+            </span>
+          </div>
+          <div
+            class="grid grid-cols-2 xl:grid-cols-4 gap-1 p-1 bg-slate-200/70 rounded-xl text-[11px] font-bold text-slate-600"
+          >
+            <button
+              class="py-1 rounded-lg transition-all text-center truncate bg-white text-teal-900 shadow-sm font-black"
+              type="button"
+            >
+              checkout.tabFinished
+              1
+              )
+            </button>
+            <button
+              class="py-1 rounded-lg transition-all text-center truncate hover:bg-slate-100 text-slate-600"
+              type="button"
+            >
+              checkout.tabInService
+              0
+              )
+            </button>
+            <button
+              class="py-1 rounded-lg transition-all text-center truncate hover:bg-slate-100 text-slate-600"
+              type="button"
+            >
+              checkout.tabArrived
+              0
+              )
+            </button>
+            <button
+              class="py-1 rounded-lg transition-all text-center truncate hover:bg-slate-100 text-slate-600"
+              type="button"
+            >
+              checkout.tabAll
+              1
+              )
+            </button>
+          </div>
+          <div
+            class="relative mt-2"
+          >
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-search w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"
+              fill="none"
+              height="24"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+              width="24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m21 21-4.34-4.34"
+              />
+              <circle
+                cx="11"
+                cy="11"
+                r="8"
+              />
+            </svg>
+            <input
+              class="w-full h-8 pl-8 pr-2.5 rounded-xl border border-slate-200 bg-white text-xs placeholder:text-slate-400 focus:outline-none focus:border-teal-500 transition-all"
+              placeholder="checkout.searchPlaceholder"
+              type="text"
+              value=""
+            />
+          </div>
+        </div>
+        <div
+          class="flex-1 overflow-y-auto divide-y divide-slate-100 custom-scrollbar"
+        >
+          <button
+            class="w-full text-left p-3 transition-colors hover:bg-slate-50 relative bg-teal-50/70 border-l-4 border-teal-600"
+            type="button"
+          >
+            <div
+              class="flex items-start justify-between gap-1.5 mb-1"
+            >
+              <span
+                class="font-bold text-slate-900 text-sm truncate"
+              >
+                Guest A
+              </span>
+              <span
+                class="text-sm font-mono font-black text-teal-800 shrink-0"
+              >
+                $
+                50.00
+              </span>
+            </div>
+            <div
+              class="text-xs text-slate-500 truncate"
+            >
+              Massage
+            </div>
+            <div
+              class[...
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/pages/Checkout.tips.test.tsx:86:16
+     84|  fireEvent.change(screen.getByRole('combobox',{name:'Benefit periods'}…
+     85|  fireEvent.click(screen.getByRole('checkbox',{name:/Massage/}));await …
+     86|  expect(screen.getByRole('button',{name:'15% $7.50'})).toBeInTheDocume…
+       |                ^
+     87|  fireEvent.change(inputAfterLabel('tip'),{target:{value:'10'}});fireEv…
+     88|  await waitFor(()=>expect(state.close).toHaveBeenCalled());expect(stat…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 5 passed (6)
+      Tests  1 failed | 29 passed (30)
+   Start at  20:38:35
+   Duration  24.20s (transform 6.42s, setup 15.72s, collect 56.74s, tests 23.50s, environment 15.70s, prepare 916ms)
+
+undefined
+/Users/naiyouzhu/siteadmin/geniefront-os/apps/web:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/features/commerce/membershipPlans.test.tsx src/features/commerce/DepositRetentionActions.test.tsx src/features/commerce/DepositPanel.test.tsx src/features/commerce/GuestCancellationPanel.test.tsx src/features/commerce/DepositPaymentActions.test.tsx src/components/AppointmentDrawer.test.tsx src/features/printing/ReceiptDocument.test.tsx src/pages/Checkout.tips.test.tsx
+
+Historical unpromoted/fixture/check failure: booking-final
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/booking
+
+ ❯ src/pages/BookPage.test.tsx (16 tests | 1 failed) 21467ms
+   × BookPage > shows the percentage deposit and saved cancellation policy before accepting an explicit acknowledgement 5176ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   ✓ BookPage > refreshes a changed deposit quote and requires fresh acknowledgement while keeping the contact details 3913ms
+   ✓ BookPage > adds add-on duration and reloads availability with addon ids 710ms
+   ✓ BookPage > sends any-specialist as null and a named specialist as that id 2449ms
+   ✓ BookPage > searches past 14 days when maxDaysAhead is greater 972ms
+   ✓ BookPage > shows slot times in the shop timezone 642ms
+   ✓ BookPage > returns to time selection and reloads slots after a 409 2427ms
+   ✓ BookPage > double-click submit sends one request with one idempotency key 1173ms
+   ✓ BookPage > resets Turnstile after a failed submission 827ms
+   ✓ BookPage > resets Turnstile after a 429 718ms
+   ✓ BookPage > stores only minimum same-session data on success 483ms
+   ✓ BookPage > omits the call prompt on success when the shop has no phone 605ms
+   ✓ BookPage > books a bundle: skips specialist, queries availability by bundleId, submits bundleSelections 407ms
+   ✓ #25 keeps the latest date when the stale request ends in success 317ms
+   ✓ #25 keeps the latest date when the stale request ends in failure 384ms
+stderr | src/pages/ManageBookingPage.test.tsx > ManageBookingPage > shows locked and mismatch last-four errors from the mutation
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/ManageBookingPage.test.tsx > ManageBookingPage > becomes read-only and offers rebook after cancellation
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/ManageBookingPage.test.tsx > submits only the selected guest and exact refund quote, retaining its request ID after an interrupted response
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/ManageBookingPage.test.tsx > requires all participants of a shared service before customer cancellation
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+ ✓ src/pages/ManageBookingPage.test.tsx (13 tests) 1988ms
+   ✓ ManageBookingPage > shows locked and mismatch last-four errors from the mutation 304ms
+   ✓ submits only the selected guest and exact refund quote, retaining its request ID after an interrupted response 311ms
+stderr | src/pages/BookingExperiencePage.test.tsx > retains a storefront selection, assigns each guest, reviews before atomic submission
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > retains a storefront selection, assigns each guest, reviews before atomic submission
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > retains a storefront selection, assigns each guest, reviews before atomic submission
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > explains unavailable times and offers another date
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > explains unavailable times and offers another date
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > books Couples Massage once for two guests instead of requiring a second paid selection
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > books Couples Massage once for two guests instead of requiring a second paid selection
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+ ✓ src/pages/BookingExperiencePage.test.tsx (4 tests) 2920ms
+   ✓ retains a storefront selection, assigns each guest, reviews before atomic submission 1643ms
+   ✓ removes the chosen middle guest and preserves the remaining names and services 896ms
+ ✓ src/pages/MembershipsPage.test.tsx (7 tests) 584ms
+ ✓ src/components/AppointmentDeposit.test.tsx (8 tests) 171ms
+ ✓ src/pages/CommercePage.test.tsx (6 tests) 444ms
+ ✓ src/lib/experience.test.ts (4 tests) 14ms
+ ✓ src/lib/format.test.ts (3 tests) 6ms
+stderr | src/components/ServiceCustomizer.test.tsx > edits the actual variant and add-ons together, without saving on dismiss
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+ ✓ src/components/ServiceCustomizer.test.tsx (1 test) 164ms
+ ✓ src/lib/session.test.ts (2 tests) 2ms
+ ✓ src/lib/partyGuests.test.ts (2 tests) 2ms
+ ✓ src/lib/serviceGroups.test.ts (2 tests) 2ms
+ ✓ src/lib/manageToken.test.ts (2 tests) 1ms
+ ✓ src/lib/apiScope.test.ts (1 test) 2ms
+ ✓ src/lib/embed.test.ts (1 test) 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/pages/BookPage.test.tsx > BookPage > shows the percentage deposit and saved cancellation policy before accepting an explicit acknowledgement
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 14 passed (15)
+      Tests  1 failed | 71 passed (72)
+   Start at  20:38:35
+   Duration  52.36s (transform 2.46s, setup 2.00s, collect 11.75s, tests 27.77s, environment 8.07s, prepare 757ms)
+
+undefined
+/Users/naiyouzhu/siteadmin/geniefront-os/apps/booking:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run '--fileParallelism=false'
+
+Historical unpromoted/fixture/check failure: security
+{"membershipServiceFixtureFailed":true,"reason":"column \"membership_id\" does not exist"}

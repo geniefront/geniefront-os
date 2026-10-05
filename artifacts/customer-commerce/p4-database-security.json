@@ -1,0 +1,61 @@
+{
+  "mode": "dedicated-local-postgres",
+  "database": "gf_commerce_ci",
+  "runtime": "app_user",
+  "rows": [
+    {
+      "relname": "customer_membership_cycles",
+      "relrowsecurity": true,
+      "relforcerowsecurity": true,
+      "anon_select": false,
+      "authenticated_select": false,
+      "runtime_delete": false,
+      "runtime_update": true
+    },
+    {
+      "relname": "customer_membership_invoices",
+      "relrowsecurity": true,
+      "relforcerowsecurity": true,
+      "anon_select": false,
+      "authenticated_select": false,
+      "runtime_delete": false,
+      "runtime_update": false
+    },
+    {
+      "relname": "customer_membership_ledger",
+      "relrowsecurity": true,
+      "relforcerowsecurity": true,
+      "anon_select": false,
+      "authenticated_select": false,
+      "runtime_delete": false,
+      "runtime_update": false
+    },
+    {
+      "relname": "customer_membership_plan_versions",
+      "relrowsecurity": true,
+      "relforcerowsecurity": true,
+      "anon_select": false,
+      "authenticated_select": false,
+      "runtime_delete": false,
+      "runtime_update": false
+    },
+    {
+      "relname": "customer_membership_plans",
+      "relrowsecurity": true,
+      "relforcerowsecurity": true,
+      "anon_select": false,
+      "authenticated_select": false,
+      "runtime_delete": false,
+      "runtime_update": true
+    },
+    {
+      "relname": "customer_paid_memberships",
+      "relrowsecurity": true,
+      "relforcerowsecurity": true,
+      "anon_select": false,
+      "authenticated_select": false,
+      "runtime_delete": false,
+      "runtime_update": true
+    }
+  ]
+}

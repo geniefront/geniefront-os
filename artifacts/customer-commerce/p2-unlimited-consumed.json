@@ -1,0 +1,64 @@
+{
+  "at": "2026-10-02T23:02:20.094Z",
+  "scope": "Native offline unlimited purchase and original service consumption before purchase refund",
+  "original16PaymentsUnchanged": true,
+  "provider": "offline",
+  "physicalCashNotObserved": true,
+  "newStripePayment": false,
+  "orderId": "6e92adc5-1cd5-49b2-85a4-162e81be8e72",
+  "paymentId": "b71098fc-fca2-4b45-813e-330f6694b848",
+  "asset": {
+    "id": "a648ba52-cfee-4d06-aef7-043521fba98c",
+    "status": "active",
+    "total_sessions": 0,
+    "remaining_sessions": 0,
+    "refund_frozen": false,
+    "expires_at": "2026-10-03 23:01:03.243872+00",
+    "purchase_snapshot": {
+      "kind": "package",
+      "name": "QA Unlimited One Day",
+      "scope": "location",
+      "reason": null,
+      "version": 1,
+      "currency": "usd",
+      "sessions": 0,
+      "consentAt": "2026-10-02T23:01:03.248Z",
+      "validDays": 1,
+      "serviceIds": [
+        "a23e999b-79c5-4fe7-807e-46e085f469a5"
+      ],
+      "templateId": "db01d84c-61b9-40af-8724-9716e692aa09",
+      "amountCents": 50000,
+      "coverageMode": "any_included",
+      "recipientName": null,
+      "recipientNote": null,
+      "consentVersion": "commerce-v1",
+      "faceValueCents": 0,
+      "recipientEmail": null,
+      "commissionBasis": "sale_price",
+      "unitAllocationVersion": 2
+    }
+  },
+  "ticket": {
+    "status": "closed",
+    "total_cents": 10000,
+    "refund_cents": 0,
+    "new_money": 0,
+    "commission_base": 0
+  },
+  "ledger": [
+    {
+      "entry": "issue",
+      "quantity": 0,
+      "value_cents": 50000
+    },
+    {
+      "entry": "redeem",
+      "quantity": -1,
+      "value_cents": 0
+    }
+  ],
+  "refunds": [],
+  "productionPublished": false,
+  "stage": "consumed"
+}

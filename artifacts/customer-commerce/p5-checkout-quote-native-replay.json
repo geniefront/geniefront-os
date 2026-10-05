@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-02T13:18:22.044Z",
+  "ticketId": "7ae7954a-45c4-4b6d-8d07-24a599e2c5ba",
+  "originalHttpStatus": 201,
+  "responseLostAfterRealCommit": true,
+  "refreshedNativeRetry": true,
+  "httpStatus": 200,
+  "replayed": true,
+  "sameKey": true,
+  "sameQuote": true
+}

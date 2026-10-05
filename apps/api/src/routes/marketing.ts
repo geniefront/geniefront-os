@@ -26,8 +26,8 @@ export function registerMarketingRoutes(app: FastifyInstance, ctxFromHeaders: Ct
     req: FastifyRequest<{ Querystring: { status?: string; q?: string; limit?: string; offset?: string } }>,
   ) => {
     const ctx = await ctxFromHeaders(req);
-    if (!ctx.permissions.has('ticket.read') && !ctx.permissions.has('report.view')) {
-      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ticket.read' } });
+    if (!ctx.permissions.has('commerce.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'commerce.read' } });
     }
     const limit = req.query.limit ? Number(req.query.limit) : undefined;
     const offset = req.query.offset ? Number(req.query.offset) : undefined;
@@ -47,8 +47,8 @@ export function registerMarketingRoutes(app: FastifyInstance, ctxFromHeaders: Ct
     req: FastifyRequest<{ Querystring: { code?: string } }>,
   ) => {
     const ctx = await ctxFromHeaders(req);
-    if (!ctx.permissions.has('ticket.read') && !ctx.permissions.has('report.view') && !ctx.permissions.has('ticket.write')) {
-      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ticket.read' } });
+    if (!ctx.permissions.has('commerce.sell')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'commerce.sell' } });
     }
     const code = req.query.code?.trim();
     if (!code) {
@@ -61,8 +61,8 @@ export function registerMarketingRoutes(app: FastifyInstance, ctxFromHeaders: Ct
 
   const handlePackages = async (req: FastifyRequest) => {
     const ctx = await ctxFromHeaders(req);
-    if (!ctx.permissions.has('catalog.manage') && !ctx.permissions.has('ticket.read')) {
-      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'catalog.manage' } });
+    if (!ctx.permissions.has('commerce.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'commerce.read' } });
     }
     return withTenant(ctx, (tx) => loadPackages(tx, ctx));
   };

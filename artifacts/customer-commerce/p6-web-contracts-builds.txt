@@ -1,0 +1,253 @@
+Scope: 3 of 18 workspace projects
+apps/web prebuild$ node ../../scripts/prepare-heroui.mjs web
+apps/booking prebuild$ node ../../scripts/prepare-heroui.mjs
+apps/booking prebuild: HeroUI Pro 1.0.0-beta.10: ready
+apps/web prebuild: HeroUI Pro 1.0.0-beta.10: ready
+apps/booking prebuild: Done
+apps/web prebuild: Done
+apps/booking build$ vite build
+apps/web build$ vite build
+apps/booking build: vite v6.4.3 building for production...
+apps/web build: vite v6.4.3 building for production...
+apps/booking build: transforming...
+apps/web build: transforming...
+apps/booking build: ✓ 2094 modules transformed.
+apps/booking build: rendering chunks...
+apps/booking build: computing gzip size...
+apps/booking build: dist/index.html                                 0.90 kB │ gzip:   0.44 kB
+apps/booking build: dist/assets/index-DFb7JmmX.css                495.26 kB │ gzip:  51.17 kB
+apps/booking build: dist/assets/AppointmentPreview-Cj7bJwyr.js      5.61 kB │ gzip:   1.81 kB
+apps/booking build: dist/assets/vendor-react-DS38ovvx.js           47.55 kB │ gzip:  16.52 kB
+apps/booking build: dist/assets/vendor-query-CQeeDnik.js           67.50 kB │ gzip:  22.06 kB
+apps/booking build: dist/assets/index-Idtdl-cK.js               1,517.44 kB │ gzip: 410.50 kB
+apps/booking build: ✓ built in 3.81s
+apps/booking build: (!) Some chunks are larger than 500 kB after minification. Consider:
+apps/booking build: - Using dynamic import() to code-split the application
+apps/booking build: - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+apps/booking build: - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+apps/booking build: Done
+apps/web build: ✓ 6674 modules transformed.
+apps/web build: rendering chunks...
+apps/web build: computing gzip size...
+apps/web build: dist/index.html                                     1.44 kB │ gzip:   0.61 kB
+apps/web build: dist/assets/preview-BwGoV0v8.css                    2.95 kB │ gzip:   1.02 kB
+apps/web build: dist/assets/ServiceBriefPrint-9ZV-Ifrv.css          5.03 kB │ gzip:   1.59 kB
+apps/web build: dist/assets/index-ieJnLrch.css                    569.98 kB │ gzip:  59.90 kB
+apps/web build: dist/assets/useDebounced-zGcQU6gZ.js                0.19 kB │ gzip:   0.17 kB
+apps/web build: dist/assets/rotationRank-Dvz3koB8.js                0.19 kB │ gzip:   0.17 kB
+apps/web build: dist/assets/check-DKA00r0W.js                       0.30 kB │ gzip:   0.25 kB
+apps/web build: dist/assets/chevron-up-DA7fFiwD.js                  0.30 kB │ gzip:   0.25 kB
+apps/web build: dist/assets/chevron-down-Cu17FcCE.js                0.30 kB │ gzip:   0.25 kB
+apps/web build: dist/assets/chevron-left-ISIRtE4w.js                0.30 kB │ gzip:   0.25 kB
+apps/web build: dist/assets/idempotency-Cs7TkQsi.js                 0.32 kB │ gzip:   0.24 kB
+apps/web build: dist/assets/useEntitlements-CV6UO-yU.js             0.32 kB │ gzip:   0.27 kB
+apps/web build: dist/assets/x-DOFOQh5i.js                           0.33 kB │ gzip:   0.26 kB
+apps/web build: dist/assets/arrow-left-BhwdVJ3p.js                  0.34 kB │ gzip:   0.27 kB
+apps/web build: dist/assets/arrow-up-right-5zPXnu8c.js              0.34 kB │ gzip:   0.27 kB
+apps/web build: dist/assets/clock-DcAj-Mfe.js                       0.34 kB │ gzip:   0.27 kB
+apps/web build: dist/assets/search-Cjq6SRCM.js                      0.35 kB │ gzip:   0.28 kB
+apps/web build: dist/assets/trending-up-BUONK-al.js                 0.35 kB │ gzip:   0.27 kB
+apps/web build: dist/assets/circle-check-WmKjRVVE.js                0.35 kB │ gzip:   0.28 kB
+apps/web build: dist/assets/ban-CQDZmXih.js                         0.35 kB │ gzip:   0.28 kB
+apps/web build: dist/assets/play-DJtxVVOI.js                        0.36 kB │ gzip:   0.29 kB
+apps/web build: dist/assets/circle-check-big-CN_PPl4b.js            0.37 kB │ gzip:   0.29 kB
+apps/web build: dist/assets/user-Ca5xIVlt.js                        0.37 kB │ gzip:   0.29 kB
+apps/web build: dist/assets/smartphone-CiIQsYA_.js                  0.37 kB │ gzip:   0.29 kB
+apps/web build: dist/assets/flame-CJysgDc4.js                       0.37 kB │ gzip:   0.29 kB
+apps/web build: dist/assets/lock-D8pltc6z.js                        0.38 kB │ gzip:   0.30 kB
+apps/web build: dist/assets/credit-card-Cosr8lC5.js                 0.38 kB │ gzip:   0.30 kB
+apps/web build: dist/assets/mail-DqYUq9HE.js                        0.39 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/dollar-sign-BW133SCo.js                 0.39 kB │ gzip:   0.30 kB
+apps/web build: dist/assets/log-in-DuN_KdxY.js                      0.40 kB │ gzip:   0.29 kB
+apps/web build: dist/assets/download-bDci0oDZ.js                    0.41 kB │ gzip:   0.30 kB
+apps/web build: dist/assets/message-square-CLkDaIND.js              0.41 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/activity-CdZZuWnj.js                    0.41 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/pen-BfoTk7sW.js                         0.41 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/copy-DotVlWOp.js                        0.41 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/headphones-fcd7ehTe.js                  0.41 kB │ gzip:   0.29 kB
+apps/web build: dist/assets/history-B3llrFQu.js                     0.41 kB │ gzip:   0.30 kB
+apps/web build: dist/assets/timer-qbwkx3Wc.js                       0.41 kB │ gzip:   0.29 kB
+apps/web build: dist/assets/displayName-BvNtncZF.js                 0.41 kB │ gzip:   0.29 kB
+apps/web build: dist/assets/percent-B4sc0jyY.js                     0.42 kB │ gzip:   0.29 kB
+apps/web build: dist/assets/user-check-C19FJvCg.js                  0.42 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/banknote-eb74uJBM.js                    0.42 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/arrow-right-left-6cypBdjK.js            0.42 kB │ gzip:   0.30 kB
+apps/web build: dist/assets/circle-question-mark-HJ1_nwCk.js        0.42 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/circle-dollar-sign-DTNzaD_Y.js          0.42 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/external-link-C65jAbqe.js               0.42 kB │ gzip:   0.30 kB
+apps/web build: dist/assets/settings-2-D4KTMbQv.js                  0.43 kB │ gzip:   0.30 kB
+apps/web build: dist/assets/eye-DyG6dYPu.js                         0.43 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/file-check-2-BuHJUFI8.js                0.43 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/calendar-4p8RD3HE.js                    0.43 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/map-pin-BEQAkxPn.js                     0.43 kB │ gzip:   0.33 kB
+apps/web build: dist/assets/zap-CP3a2YC8.js                         0.44 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/triangle-alert-DOQwLrBC.js              0.44 kB │ gzip:   0.32 kB
+apps/web build: dist/assets/file-check-g04YMIC1.js                  0.44 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/shield-BLXQ8YId.js                      0.45 kB │ gzip:   0.33 kB
+apps/web build: dist/assets/award-CoNkWRHL.js                       0.45 kB │ gzip:   0.33 kB
+apps/web build: dist/assets/pen-line-B1MAgU-q.js                    0.45 kB │ gzip:   0.33 kB
+apps/web build: dist/assets/coins-IxG9doIT.js                       0.45 kB │ gzip:   0.33 kB
+apps/web build: dist/assets/wallet-DffaVls2.js                      0.46 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/send-8ARHfe4w.js                        0.46 kB │ gzip:   0.34 kB
+apps/web build: dist/assets/bell-D7ZqA-lW.js                        0.46 kB │ gzip:   0.34 kB
+apps/web build: dist/assets/receipt-BjDRKxk6.js                     0.47 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/bed-double-j6-TwUnq.js                  0.47 kB │ gzip:   0.31 kB
+apps/web build: dist/assets/coffee-FISCd-78.js                      0.48 kB │ gzip:   0.32 kB
+apps/web build: dist/assets/clipboard-check-DyUrYWGI.js             0.48 kB │ gzip:   0.34 kB
+apps/web build: dist/assets/calendar-check-Pi4ek7g1.js              0.48 kB │ gzip:   0.33 kB
+apps/web build: dist/assets/users-w6deuaAM.js                       0.48 kB │ gzip:   0.33 kB
+apps/web build: dist/assets/scissors-BYQg8mcE.js                    0.48 kB │ gzip:   0.32 kB
+apps/web build: dist/assets/languages-C-M6Lme8.js                   0.49 kB │ gzip:   0.32 kB
+apps/web build: dist/assets/printer-F-hfcCUr.js                     0.49 kB │ gzip:   0.34 kB
+apps/web build: dist/assets/shield-check-BZGpv93f.js                0.49 kB │ gzip:   0.36 kB
+apps/web build: dist/assets/ticket-Crq7mmqV.js                      0.49 kB │ gzip:   0.32 kB
+apps/web build: dist/assets/types-D537RPhW.js                       0.50 kB │ gzip:   0.24 kB
+apps/web build: dist/assets/phone-BvS7_y_X.js                       0.50 kB │ gzip:   0.34 kB
+apps/web build: dist/assets/tag-BGjwi-yB.js                         0.50 kB │ gzip:   0.35 kB
+apps/web build: dist/assets/save-bZc9JAoC.js                        0.50 kB │ gzip:   0.33 kB
+apps/web build: dist/assets/bot-Bn3X6sYa.js                         0.50 kB │ gzip:   0.33 kB
+apps/web build: dist/assets/trash-2-BqwyTEtZ.js                     0.50 kB │ gzip:   0.32 kB
+apps/web build: dist/assets/file-text-C0RIqkxi.js                   0.51 kB │ gzip:   0.32 kB
+apps/web build: dist/assets/gift-0ePKAciQ.js                        0.53 kB │ gzip:   0.36 kB
+apps/web build: dist/assets/list-ordered-BNNbifvi.js                0.53 kB │ gzip:   0.33 kB
+apps/web build: dist/assets/crown-BEo5GbCv.js                       0.54 kB │ gzip:   0.36 kB
+apps/web build: dist/assets/navigation-SdX0LXGl.js                  0.54 kB │ gzip:   0.35 kB
+apps/web build: dist/assets/package-DJjKdnee.js                     0.55 kB │ gzip:   0.36 kB
+apps/web build: dist/assets/life-buoy-CUYIlYwI.js                   0.55 kB │ gzip:   0.33 kB
+apps/web build: dist/assets/volume-2-NQXnK-VN.js                    0.56 kB │ gzip:   0.38 kB
+apps/web build: dist/assets/clipboard-list-Dqp56rkM.js              0.58 kB │ gzip:   0.36 kB
+apps/web build: dist/assets/layers-wgs6mj0v.js                      0.59 kB │ gzip:   0.35 kB
+apps/web build: dist/assets/sliders-vertical-BmgvXaX1.js            0.60 kB │ gzip:   0.34 kB
+apps/web build: dist/assets/phone-call-CVu6Z2ww.js                  0.60 kB │ gzip:   0.38 kB
+apps/web build: dist/assets/api-BVx6bYVk.js                         0.61 kB │ gzip:   0.33 kB
+apps/web build: dist/assets/heart-handshake-CyYak9Nz.js             0.63 kB │ gzip:   0.40 kB
+apps/web build: dist/assets/star-DcfQkcKl.js                        0.65 kB │ gzip:   0.41 kB
+apps/web build: dist/assets/settings-DOfzk8W9.js                    0.66 kB │ gzip:   0.36 kB
+apps/web build: dist/assets/calendar-days-D3binW0m.js               0.67 kB │ gzip:   0.37 kB
+apps/web build: dist/assets/orderDisplay-hYwAwIA2.js                0.70 kB │ gzip:   0.36 kB
+apps/web build: dist/assets/building-ic74ivtb.js                    0.74 kB │ gzip:   0.39 kB
+apps/web build: dist/assets/qr-code-CU4rOisa.js                     0.82 kB │ gzip:   0.42 kB
+apps/web build: dist/assets/LoadingSpinner-lAC5CKNC.js              0.84 kB │ gzip:   0.40 kB
+apps/web build: dist/assets/exportUtils-BTHCHzRk.js                 0.91 kB │ gzip:   0.44 kB
+apps/web build: dist/assets/list-BHPUltvR.js                        0.95 kB │ gzip:   0.40 kB
+apps/web build: dist/assets/api-CNDsz7ow.js                         1.07 kB │ gzip:   0.46 kB
+apps/web build: dist/assets/ReadOnlyNotice-BlZzHQ2d.js              1.14 kB │ gzip:   0.48 kB
+apps/web build: dist/assets/deskCopy-B1HRLR38.js                    1.32 kB │ gzip:   0.65 kB
+apps/web build: dist/assets/api-BB9slqFL.js                         1.34 kB │ gzip:   0.57 kB
+apps/web build: dist/assets/PageHeader-ColRgAmY.js                  1.36 kB │ gzip:   0.52 kB
+apps/web build: dist/assets/api-Dw3KDRnS.js                         1.38 kB │ gzip:   0.46 kB
+apps/web build: dist/assets/GuardedButton-Dja92ajj.js               1.43 kB │ gzip:   0.66 kB
+apps/web build: dist/assets/api-BuqniJ5K.js                         1.54 kB │ gzip:   0.55 kB
+apps/web build: dist/assets/api-CalynOwB.js                         1.64 kB │ gzip:   0.70 kB
+apps/web build: dist/assets/api-Cv7E8l-O.js                         1.65 kB │ gzip:   0.50 kB
+apps/web build: dist/assets/api-Cku_lQVx.js                         1.68 kB │ gzip:   0.81 kB
+apps/web build: dist/assets/api-B9K_jX1s.js                         1.73 kB │ gzip:   0.73 kB
+apps/web build: dist/assets/preferences-B0y9dUec.js                 1.77 kB │ gzip:   0.70 kB
+apps/web build: dist/assets/api-DfaLyD0_.js                         1.85 kB │ gzip:   0.72 kB
+apps/web build: dist/assets/api-CtqDxgAL.js                         1.89 kB │ gzip:   0.57 kB
+apps/web build: dist/assets/appointmentDetail-Ce7pIGt8.js           1.96 kB │ gzip:   0.73 kB
+apps/web build: dist/assets/ActionMenu-BRWrrXax.js                  2.15 kB │ gzip:   0.82 kB
+apps/web build: dist/assets/api-X0gcRLM7.js                         2.45 kB │ gzip:   0.66 kB
+apps/web build: dist/assets/api-DU72sT6X.js                         2.59 kB │ gzip:   0.69 kB
+apps/web build: dist/assets/primitives-DoGw0v_s.js                  2.61 kB │ gzip:   0.77 kB
+apps/web build: dist/assets/Table-CCJnSUZp.js                       2.64 kB │ gzip:   0.72 kB
+apps/web build: dist/assets/Unsubscribe-C6ZrPWzp.js                 3.09 kB │ gzip:   0.94 kB
+apps/web build: dist/assets/api-DBOXTYvW.js                         3.15 kB │ gzip:   1.06 kB
+apps/web build: dist/assets/api-PkqPGeOG.js                         3.25 kB │ gzip:   1.34 kB
+apps/web build: dist/assets/CallConversation-8OFk67Yd.js            3.27 kB │ gzip:   1.03 kB
+apps/web build: dist/assets/HealthSummary-C_zmlYzW.js               3.59 kB │ gzip:   1.24 kB
+apps/web build: dist/assets/BookingCapacityPreview-CxDUeDuq.js      3.61 kB │ gzip:   1.19 kB
+apps/web build: dist/assets/Modal-BsvdbN0p.js                       3.65 kB │ gzip:   1.05 kB
+apps/web build: dist/assets/preview-C817JaQx.js                     3.71 kB │ gzip:   1.64 kB
+apps/web build: dist/assets/api-D-CnnHSz.js                         3.96 kB │ gzip:   1.71 kB
+apps/web build: dist/assets/api-B8xQi8t7.js                         4.53 kB │ gzip:   0.93 kB
+apps/web build: dist/assets/errorMessage-yyIvcN5Q.js                4.64 kB │ gzip:   1.52 kB
+apps/web build: dist/assets/BirthdateField-B8ul1keV.js              5.18 kB │ gzip:   1.71 kB
+apps/web build: dist/assets/model-CsjhBND7.js                       5.38 kB │ gzip:   1.68 kB
+apps/web build: dist/assets/avatarPresets-CNUWJiA2.js               5.69 kB │ gzip:   2.01 kB
+apps/web build: dist/assets/support-BN-iRSQg.js                     5.70 kB │ gzip:   2.52 kB
+apps/web build: dist/assets/permissions-DL9qTdQw.js                 5.71 kB │ gzip:   2.76 kB
+apps/web build: dist/assets/api-rXpKK-0-.js                         5.74 kB │ gzip:   1.76 kB
+apps/web build: dist/assets/BookingCapacityFields-HYpBOUhj.js       5.81 kB │ gzip:   1.29 kB
+apps/web build: dist/assets/email-BPDDTBu9.js                       5.89 kB │ gzip:   2.88 kB
+apps/web build: dist/assets/ResetPassword-DwyiSiEV.js               6.03 kB │ gzip:   1.48 kB
+apps/web build: dist/assets/QueryState-Cyb96cgP.js                  7.00 kB │ gzip:   1.67 kB
+apps/web build: dist/assets/TechSummaryPage-CnIhojsS.js             9.71 kB │ gzip:   1.76 kB
+apps/web build: dist/assets/StaffSettingsPreview-CD0vNPFo.js       10.91 kB │ gzip:   3.09 kB
+apps/web build: dist/assets/ReceiptPrint-BDBMISF4.js               11.28 kB │ gzip:   2.40 kB
+apps/web build: dist/assets/QRCodeZoomModal-D0s6ox91.js            12.69 kB │ gzip:   2.61 kB
+apps/web build: dist/assets/ImageUploader-Q8dA-1lf.js              13.78 kB │ gzip:   3.77 kB
+apps/web build: dist/assets/Support-orKTPMQM.js                    13.96 kB │ gzip:   2.87 kB
+apps/web build: dist/assets/reviews-DLB8Ppjy.js                    15.22 kB │ gzip:   6.80 kB
+apps/web build: dist/assets/TechLayout-9QN8cdg5.js                 15.51 kB │ gzip:   3.51 kB
+apps/web build: dist/assets/index-DnflQSQi.js                      16.69 kB │ gzip:   6.28 kB
+apps/web build: dist/assets/Payouts-DjKgLxF7.js                    17.57 kB │ gzip:   2.83 kB
+apps/web build: dist/assets/Activate-DB_2cMpk.js                   18.23 kB │ gzip:   3.71 kB
+apps/web build: dist/assets/CompletedHealthForm-Whu7qNMf.js        19.03 kB │ gzip:   3.52 kB
+apps/web build: dist/assets/index-UXupf3pU.js                      21.02 kB │ gzip:   9.24 kB
+apps/web build: dist/assets/CommerceDayPanel-BlvjPPVy.js           21.86 kB │ gzip:   6.49 kB
+apps/web build: dist/assets/ReviewSourcesPanel-DGhnRpUj.js         22.74 kB │ gzip:   3.43 kB
+apps/web build: dist/assets/TechProfilePage-DD2QTD9T.js            23.41 kB │ gzip:   3.77 kB
+apps/web build: dist/assets/publicCopy-CiEddg3D.js                 24.91 kB │ gzip:  11.33 kB
+apps/web build: dist/assets/DeliveryHistory-BFMY2QtK.js            27.00 kB │ gzip:   8.04 kB
+apps/web build: dist/assets/fuzzySearch-BI07oAlf.js                27.37 kB │ gzip:   9.88 kB
+apps/web build: dist/assets/ServiceBriefPrint-Ba_Et4Si.js          27.41 kB │ gzip:   4.54 kB
+apps/web build: dist/assets/depositCopy-Dc0tRN6q.js                28.89 kB │ gzip:   9.75 kB
+apps/web build: dist/assets/bundles-ecmQ1sL5.js                    29.00 kB │ gzip:  10.56 kB
+apps/web build: dist/assets/tech-Ddfetcw4.js                       29.01 kB │ gzip:  11.71 kB
+apps/web build: dist/assets/SetupWizard-CHREZnsX.js                30.18 kB │ gzip:   5.25 kB
+apps/web build: dist/assets/membershipCopy-mbbZ_maW.js             30.19 kB │ gzip:  10.07 kB
+apps/web build: dist/assets/commerceCopy-DUeJxvWM.js               30.25 kB │ gzip:  11.16 kB
+apps/web build: dist/assets/Notifications-h3IocPHo.js              31.34 kB │ gzip:   6.00 kB
+apps/web build: dist/assets/CommunicationLogs-pTwJwLKz.js          33.46 kB │ gzip:   5.16 kB
+apps/web build: dist/assets/react-Dwlqabhl.js                      33.55 kB │ gzip:  11.73 kB
+apps/web build: dist/assets/TechTodayPage-Bj9f7MTI.js              35.37 kB │ gzip:   5.73 kB
+apps/web build: dist/assets/voiceSettings-D8p7UVEr.js              41.37 kB │ gzip:  15.21 kB
+apps/web build: dist/assets/StaffSettings-CjQtMir3.js              42.24 kB │ gzip:   9.36 kB
+apps/web build: dist/assets/PublicHealthForm-CHr_Z8Vi.js           44.56 kB │ gzip:   7.25 kB
+apps/web build: dist/assets/Layout-DZrRxsCn.js                     46.78 kB │ gzip:  11.11 kB
+apps/web build: dist/assets/vendor-query-QXGs0Or6.js               47.45 kB │ gzip:  14.39 kB
+apps/web build: dist/assets/StorefrontBuilder-BmSEHXFI.js          49.31 kB │ gzip:   7.54 kB
+apps/web build: dist/assets/Messages-C1kD_9YM.js                   50.40 kB │ gzip:   7.30 kB
+apps/web build: dist/assets/healthForms-BBfnpiEv.js                56.55 kB │ gzip:  20.29 kB
+apps/web build: dist/assets/Schedule-DfRut8Wh.js                   57.22 kB │ gzip:  12.36 kB
+apps/web build: dist/assets/BodyMapSelector-Dpg5bcAL.js            62.16 kB │ gzip:  20.26 kB
+apps/web build: dist/assets/HealthForms-DAXBRAL2.js                62.27 kB │ gzip:  10.32 kB
+apps/web build: dist/assets/Profile-mCdtpF4x.js                    62.71 kB │ gzip:   9.60 kB
+apps/web build: dist/assets/Calls-CyZ0kCJ8.js                      65.30 kB │ gzip:  10.40 kB
+apps/web build: dist/assets/EmployeePerformance-Cd8nWLNm.js        67.48 kB │ gzip:  10.84 kB
+apps/web build: dist/assets/vendor-react-CMgR8SLK.js               69.59 kB │ gzip:  23.50 kB
+apps/web build: dist/assets/CreateAppointmentModal-D20vcPwi.js     72.85 kB │ gzip:  12.66 kB
+apps/web build: dist/assets/setup-K3snYEZz.js                      75.08 kB │ gzip:  26.73 kB
+apps/web build: dist/assets/BusinessData-BcBt_EIv.js               76.72 kB │ gzip:   9.47 kB
+apps/web build: dist/assets/CopilotDrawer-ZhAJZXGS.js              84.94 kB │ gzip:  16.36 kB
+apps/web build: dist/assets/rotation-BA-5dUb2.js                   91.25 kB │ gzip:  29.95 kB
+apps/web build: dist/assets/Dashboard-0re02Kty.js                  93.57 kB │ gzip:  12.30 kB
+apps/web build: dist/assets/Customers-DLx05Pux.js                  94.52 kB │ gzip:  14.88 kB
+apps/web build: dist/assets/finance-BpHkxLxb.js                    95.23 kB │ gzip:  33.34 kB
+apps/web build: dist/assets/Rooms-Dc7iUjDf.js                      95.26 kB │ gzip:  13.48 kB
+apps/web build: dist/assets/Rotation-CgJl8Wv9.js                   98.92 kB │ gzip:  13.54 kB
+apps/web build: dist/assets/Marketing-BMpIp7AH.js                 115.06 kB │ gzip:  15.72 kB
+apps/web build: dist/assets/Tickets-CXuTkrtB.js                   116.48 kB │ gzip:  19.59 kB
+apps/web build: dist/assets/DayClose-CyL4_Vcz.js                  120.54 kB │ gzip:  14.32 kB
+apps/web build: dist/assets/Checkout-DjGF5qaL.js                  123.72 kB │ gzip:  23.58 kB
+apps/web build: dist/assets/Commerce-BrEBEdb1.js                  123.83 kB │ gzip:  23.30 kB
+apps/web build: dist/assets/steps-BNNhlm1O.js                     124.33 kB │ gzip:  22.97 kB
+apps/web build: dist/assets/schedule-C7tBPSN6.js                  129.54 kB │ gzip:  44.66 kB
+apps/web build: dist/assets/checkout-BVGrakZ2.js                  134.18 kB │ gzip:  43.82 kB
+apps/web build: dist/assets/crm-BIoCfH1b.js                       183.27 kB │ gzip:  63.14 kB
+apps/web build: dist/assets/AppointmentDrawer-BDkuedtR.js         183.51 kB │ gzip:  31.77 kB
+apps/web build: dist/assets/queue-CitS_ZQA.js                     185.90 kB │ gzip:  64.27 kB
+apps/web build: dist/assets/vendor-supabase-CSIM0fnT.js           219.90 kB │ gzip:  57.42 kB
+apps/web build: dist/assets/Queue-9ovA1YRl.js                     283.21 kB │ gzip:  44.57 kB
+apps/web build: dist/assets/settings-BB65XWlB.js                  313.55 kB │ gzip: 115.57 kB
+apps/web build: dist/assets/Settings-kc82AiAn.js                  356.39 kB │ gzip:  54.65 kB
+apps/web build: dist/assets/vendor-charts-D5gXUWP1.js             402.36 kB │ gzip: 117.53 kB
+apps/web build: dist/assets/vendor-ui-BhyTaIzQ.js                 411.56 kB │ gzip: 132.15 kB
+apps/web build: dist/assets/index-B3EQ7rQP.js                   1,043.14 kB │ gzip: 295.86 kB
+apps/web build: ✓ built in 7.11s
+apps/web build: (!) Some chunks are larger than 700 kB after minification. Consider:
+apps/web build: - Using dynamic import() to code-split the application
+apps/web build: - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+apps/web build: - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+apps/web build: Done

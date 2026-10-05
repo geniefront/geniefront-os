@@ -1,0 +1,106 @@
+{
+  "access": [
+    {
+      "id": "0ef40a69-adf7-4425-a928-72ae89bc470e",
+      "manage_token_expires_at": "2028-03-02T14:19:58.000Z",
+      "manage_access_version": 1,
+      "revoked": false,
+      "coverage_access_end": "2028-03-02T14:19:58.000Z"
+    },
+    {
+      "id": "3e8f3fc2-7486-4171-a8b9-94a4c9d9959b",
+      "manage_token_expires_at": "2026-12-02T01:27:17.000Z",
+      "manage_access_version": 1,
+      "revoked": false,
+      "coverage_access_end": "2026-12-02T01:27:17.000Z"
+    },
+    {
+      "id": "ed6bb876-4545-4333-810b-2ed8829039d3",
+      "manage_token_expires_at": "2028-10-31T14:25:36.000Z",
+      "manage_access_version": 1,
+      "revoked": false,
+      "coverage_access_end": "2028-10-31T14:25:36.000Z"
+    }
+  ],
+  "onlyExpiryAndNewVersionExcluded": true,
+  "at": "2026-10-02T22:33:50.359Z",
+  "migrationsBefore": 185,
+  "migrationsAfter": 186,
+  "allFinancialRowsUnchanged": true,
+  "facts": {
+    "customer_membership_plan_changes": {
+      "count": 3,
+      "hash": "98aa7b122faa5418ec13b20bd5d5978b"
+    },
+    "commerce_payments": {
+      "count": 16,
+      "hash": "9901fc78e52eee7370a0b4d8b718d5b4"
+    },
+    "commerce_refunds": {
+      "count": 9,
+      "hash": "539296b86eef2820e3498848f8a8f638"
+    },
+    "customer_credit_ledger": {
+      "count": 19,
+      "hash": "7a587bb0d0b51984524e1544f6f3ce26"
+    },
+    "customer_package_ledger": {
+      "count": 14,
+      "hash": "b750433da6046649e02e128b01f6fa0e"
+    },
+    "customer_membership_ledger": {
+      "count": 34,
+      "hash": "f4fbd8f708a8d744f2f5c45f26d04066"
+    },
+    "ticket_refunds": {
+      "count": 15,
+      "hash": "1dc2b6ce2043f7a6181a950d0874eb11"
+    },
+    "payments": {
+      "count": 111,
+      "hash": "31a293012059ac1bdfa8b5259ca4a878"
+    },
+    "earnings": {
+      "count": 137,
+      "hash": "ca930b0d6ee8c1fdd64e44b0aa9dc258"
+    },
+    "tip_allocations": {
+      "count": 68,
+      "hash": "ac60b8a79bde3e8eb76b7b2d3389b791"
+    },
+    "commerce_orders": {
+      "count": 16,
+      "hash": "94ee58a37f681e29ab7fb291f0d46fb0"
+    },
+    "customer_paid_memberships": {
+      "count": 3,
+      "hash": "75255cb2e289d31259a311fca1a96b37"
+    },
+    "customer_membership_invoices": {
+      "count": 8,
+      "hash": "ccecc76b479291c7407133cae44a8679"
+    },
+    "customer_membership_cycles": {
+      "count": 41,
+      "hash": "e05825ef94f9c00adff79e668c82fa5b"
+    },
+    "customer_packages": {
+      "count": 2,
+      "hash": "c0feecb12257d49d9ee428de75270f2e"
+    },
+    "gift_cards": {
+      "count": 6,
+      "hash": "efb5b893e77b972cd819a1a803a07062"
+    },
+    "appointments": {
+      "count": 183,
+      "hash": "5cb0d5549eb5ca0d8fa5f0eca359840b"
+    },
+    "tickets": {
+      "count": 115,
+      "hash": "95898123b8365132a1c9c5b16effd500"
+    }
+  },
+  "reset": false,
+  "productionChanged": false
+}

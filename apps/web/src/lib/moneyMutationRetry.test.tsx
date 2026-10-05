@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { runCommand } from './api';
 import { useRecordCashMovement, usePayCashTips } from '../features/dayclose/api';
-import { useIssuePackage, useRedeemPackage, useAdjustLoyaltyPoints, useIssueGiftCard, useAdjustGiftCard } from '../features/marketing/api';
+import { useRedeemPackage, useAdjustLoyaltyPoints, useAdjustGiftCard } from '../features/marketing/api';
 import { useTechDirectCashTipMutation } from '../features/tech/api';
 
 const session = vi.hoisted(() => ({ membershipId: 'member-A' }));
@@ -14,10 +14,8 @@ beforeEach(() => { vi.mocked(runCommand).mockReset(); session.membershipId = 'me
 const cases = [
   ['cash movement', useRecordCashMovement, { kind: 'other', amountCents: 1000 }],
   ['cash payout', usePayCashTips, { businessDate: '2026-09-12' }],
-  ['package issue', useIssuePackage, { templateId: 'template', customerId: 'customer' }],
   ['package redemption', useRedeemPackage, { customerPackageId: 'package', units: 1 }],
   ['loyalty', useAdjustLoyaltyPoints, { customerId: 'customer', pointsDelta: 10, reason: 'adjustment' }],
-  ['gift card issue', useIssueGiftCard, { faceValueCents: 1000 }],
   ['gift card adjustment', useAdjustGiftCard, { giftCardId: 'card', amountCents: 1000, reason: 'adjustment' }],
   ['direct cash tip', useTechDirectCashTipMutation, { ticketItemId: 'ticket-A', amountCents: 1000 }],
 ] as const;

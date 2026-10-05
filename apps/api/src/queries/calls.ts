@@ -35,6 +35,7 @@ export interface CallView {
   startedAt: string | null;
   durationSeconds: number | null;
   aiDurationSeconds: number | null;
+  unansweredGreeting: boolean;
   outcome: string | null;
   /** Tools attempted during the call; not evidence of a committed booking. */
   toolsUsed: string[];
@@ -68,11 +69,11 @@ export async function loadCalls(
 
   const rows = await tx<{
     total: number; appointment_ids: string[]; appointment_actions: CallView["appointmentActions"]; id: string; from_e164: string | null; started_at: string | Date | null;
-    ai_duration: unknown; duration_seconds: number | null; outcome: string | null;
+    unanswered_greeting: boolean; ai_duration: unknown; duration_seconds: number | null; outcome: string | null;
     recording_id: string | null; voice_billing_status: string; billable_seconds: number | null;
     tools_used: string[] | null; recording_url: string | null; transcript: unknown; summary: string | null;
   }[]>`
-    select count(*) over()::int as total, id, from_e164, started_at, duration_seconds, outcome,
+    select coalesce(billing_analysis->'unansweredGreeting','false'::jsonb) = 'true'::jsonb as unanswered_greeting, count(*) over()::int as total, id, from_e164, started_at, duration_seconds, outcome,
            coalesce(billing_analysis->'aiDurationSeconds',
              (select j.payload->'aiDurationSeconds' from voice_processing_jobs j
               where j.location_id=phone_calls.location_id and j.provider_call_id=phone_calls.provider_call_id limit 1)) as ai_duration,
@@ -103,6 +104,7 @@ export async function loadCalls(
         ? Math.min(Math.ceil(r.ai_duration), r.duration_seconds ?? Infinity)
         : r.outcome === 'transferred_to_human' || tools.includes('telephony.forwardToHuman') ? null : r.duration_seconds,
       outcome: r.outcome,
+      unansweredGreeting: r.unanswered_greeting,
       toolsUsed: tools,
       booked: r.appointment_ids.length > 0,
       appointmentIds: [...new Set([...r.appointment_ids,...r.appointment_actions.map(a=>a.appointmentId)])],
@@ -124,6 +126,6 @@ export async function loadCalls(
     /** 这段时间有几通真的订上了单 —— 老板问「这东西值不值」问的就是它 */
     bookedCount: calls.filter((c) => c.booked).length,
     /** 计费口径：每通向上取整到分钟（和 `call.record` 一致） */
-    totalMinutes: calls.reduce((n, c) => n + Math.ceil((c.aiDurationSeconds ?? 0) / 60), 0),
+    totalMinutes: calls.reduce((n, c) => n + Math.ceil((c.billableSeconds ?? c.aiDurationSeconds ?? 0) / 60), 0),
   };
 }

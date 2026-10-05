@@ -1,0 +1,67 @@
+{
+  "at": "2026-10-02T10:24:59.996Z",
+  "scope": "Partial original package service return without fractional quota",
+  "actualSandboxPurchaseReused": true,
+  "nativeCashier": true,
+  "productionChanged": false,
+  "ticketId": "263324a7-9a28-4af1-af90-dbee2b0ba794",
+  "facts": {
+    "status": "closed",
+    "refund_cents": 4000,
+    "total_sessions": 10,
+    "remaining_sessions": 0,
+    "reserved_sessions": 0,
+    "available_units": "{}",
+    "purchase_snapshot": {
+      "kind": "package",
+      "name": "QA 10 service package",
+      "scope": "location",
+      "reason": null,
+      "version": 1,
+      "currency": "usd",
+      "sessions": 10,
+      "consentAt": "2026-10-02T06:00:45.248Z",
+      "validDays": 365,
+      "serviceIds": [
+        "a23e999b-79c5-4fe7-807e-46e085f469a5"
+      ],
+      "templateId": "c7d1eca6-a1c8-4926-bedf-6f080913950d",
+      "amountCents": 50000,
+      "coverageMode": "any_included",
+      "recipientName": "",
+      "recipientNote": "",
+      "consentVersion": "commerce-v1",
+      "faceValueCents": 0,
+      "recipientEmail": null,
+      "commissionBasis": "sale_price",
+      "unitAllocationVersion": 2
+    },
+    "original_paid_cents": 50000,
+    "payment_status": "paid",
+    "original_purchase_refund": 45000,
+    "net_commission": 3000,
+    "legacy_receipts": 1,
+    "new_money": 0,
+    "restores": 0,
+    "remaining_ledger_units": 0,
+    "remaining_ledger_value": 0
+  },
+  "sources": [
+    {
+      "kind": "package",
+      "amount_cents": 10000,
+      "funded_value_cents": 5000,
+      "item_ids": [
+        "9a39dc16-913f-4512-9852-ce39656f59dc"
+      ],
+      "returned": 4000
+    }
+  ],
+  "slices": [
+    {
+      "amount_cents": 4000,
+      "tip_cents": 0,
+      "destination": "package"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+/tmp/commerce-checkout-quote-types-final.txt
+ Tasks:    16 successful, 16 total
+  Time:    34.899s 

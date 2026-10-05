@@ -1,0 +1,42 @@
+{
+  "at": "2026-10-03T02:23:57.383Z",
+  "ticketId": "bcf74933-2a98-4105-83bb-003da2c3840b",
+  "payments": [
+    {
+      "method": "cash",
+      "amount_cents": 8000,
+      "deposit_commerce_payment_id": null
+    },
+    {
+      "method": "deposit",
+      "amount_cents": 200,
+      "deposit_commerce_payment_id": "b9580da7-0ff9-485b-b44a-57e8961254e4"
+    },
+    {
+      "method": "deposit",
+      "amount_cents": 1800,
+      "deposit_commerce_payment_id": "7be2657b-92f7-48cc-ac09-d362f8f213ed"
+    }
+  ],
+  "refunds": [
+    {
+      "amount_cents": 4000,
+      "cash_cents": 3200,
+      "deposit_cents": 800,
+      "tip_cents": 0
+    }
+  ],
+  "restored": [
+    {
+      "payment_id": "b9580da7-0ff9-485b-b44a-57e8961254e4",
+      "amount_cents": 80
+    },
+    {
+      "payment_id": "7be2657b-92f7-48cc-ac09-d362f8f213ed",
+      "amount_cents": 720
+    }
+  ],
+  "nativeUi": true,
+  "physicalCashTransferred": false,
+  "productionPublished": false
+}

@@ -5,6 +5,7 @@ import { AppError, ERROR_CODES } from '@gf/contracts';
 export async function canonicalCustomer(
   tx: postgres.TransactionSql, customerId: string, lock = false,
 ): Promise<string> {
+  await lockCustomerIdentity(tx);
   const seen = new Set<string>();
   let id = customerId;
   while (!seen.has(id)) {
@@ -25,4 +26,26 @@ export function customerAssetIds(tx: postgres.TransactionSql, root: string) {
     union
     select c.id from customers c join family f on c.merged_into_id = f.id
   ) select id from family)`;
+}
+
+/** RLS-scoped identity families; asset/financial rows retain their original customer ids. */
+export function customerFamilies(tx:postgres.TransactionSql,roots?:readonly string[]){
+ return tx`(with recursive family as(
+  select id,org_id,id as root_id from customers where merged_into_id is null ${roots?tx`and id=any(${[...roots]}::uuid[])`:tx``}
+  union
+  select c.id,c.org_id,f.root_id from customers c join family f on c.merged_into_id=f.id and c.org_id=f.org_id
+ )select id,root_id from family)`;
+}
+/** Readers and asset writers share this lock; an explicit merge takes its exclusive counterpart. */
+export async function lockCustomerIdentity(tx:postgres.TransactionSql){
+ await tx`select pg_advisory_xact_lock_shared(hashtext(app_org_id()::text),hashtext('customer.merge'))`;
+}
+export async function canonicalCustomerMap(tx:postgres.TransactionSql,ids:readonly string[]){
+ await lockCustomerIdentity(tx);if(!ids.length)return new Map<string,string>();
+ const rows=await tx<{id:string;root_id:string}[]>`with recursive paths as(
+  select id,org_id,id as original_id,merged_into_id,array[id] as path from customers where id=any(${[...new Set(ids)]}::uuid[])
+  union all select c.id,c.org_id,p.original_id,c.merged_into_id,p.path||c.id from paths p join customers c on c.id=p.merged_into_id and c.org_id=p.org_id where not c.id=any(p.path)
+ )select original_id as id,id as root_id from paths where merged_into_id is null`;
+ if(rows.length!==new Set(ids).size)throw new AppError(ERROR_CODES.NOT_FOUND,{details:{entity:'customer'}});
+ return new Map(rows.map(r=>[r.id,r.root_id]));
 }

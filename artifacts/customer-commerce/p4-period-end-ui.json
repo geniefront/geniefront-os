@@ -1,0 +1,18 @@
+{
+  "at": "2026-10-02T22:17:24.535035+00:00",
+  "screenshotsReviewed": [
+    "p4-period-end-cancel-confirm-en.png",
+    "p4-period-end-canceled-mobile-en.png",
+    "p4-period-end-resume-confirm-mobile-en.png",
+    "p4-period-end-resumed-portal-mobile-en.png",
+    "p4-period-end-ended-mobile-zh.png",
+    "p4-period-end-ended-portal-zh.png"
+  ],
+  "customerWidth": 390,
+  "customerScrollWidth": 390,
+  "nativeCancelAndResume": true,
+  "endedPageAndInvoicePortalReadable": true,
+  "originalTokenReused": true,
+  "applicationClockExplainsCurrentUnitStillAvailable": true,
+  "fullCalendarAcceptance": false
+}

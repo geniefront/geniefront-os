@@ -1,0 +1,230 @@
+{
+  "at": "2026-10-02T15:22:28.818Z",
+  "businessDate": "2026-10-02",
+  "httpStatus": 200,
+  "originalPaymentCount": 14,
+  "originalPaymentsUnchanged": true,
+  "independentCalendarSqlMatches": true,
+  "readonly": true,
+  "productionChanged": false,
+  "status": "open",
+  "openingFloatCents": 0,
+  "closingFloatCents": 20000,
+  "safeDropCents": 0,
+  "countBreakdown": {
+    "bill_100": 0,
+    "bill_50": 0,
+    "bill_20": 0,
+    "bill_10": 0,
+    "bill_5": 0,
+    "bill_2": 0,
+    "bill_1": 0,
+    "coin_25": 0,
+    "coin_10": 0,
+    "coin_5": 0,
+    "coin_1": 0
+  },
+  "countedCashCents": null,
+  "expectedCashCents": 0,
+  "cashVarianceCents": 0,
+  "cashVarianceReason": null,
+  "cardExpectedCents": 0,
+  "cardTerminalCents": null,
+  "cardVarianceCents": null,
+  "cardVarianceReason": null,
+  "money": {
+    "commerce": {
+      "version": 1,
+      "businessDate": "2026-10-02",
+      "throughDate": "2026-10-02",
+      "timezone": "America/Los_Angeles",
+      "cutoff": "03:00:00",
+      "from": "2026-10-02T10:00:00.000Z",
+      "to": "2026-10-03T10:00:00.000Z",
+      "currencies": [
+        {
+          "currency": "usd",
+          "sales": [],
+          "offlineCashReceivedCents": 0,
+          "offlineCashRefundedCents": 0,
+          "offlineCardReceivedCents": 0,
+          "offlineCardRefundedCents": 0,
+          "stripeReceivedCents": 0,
+          "stripeRefundedCents": 0,
+          "redemptions": [
+            {
+              "kind": "gift_card",
+              "appliedCents": 3000,
+              "returnedCents": 6000
+            },
+            {
+              "kind": "package",
+              "appliedCents": 50000,
+              "returnedCents": 60000
+            }
+          ],
+          "giftFaceRemainingCents": 3000,
+          "packageUnitsRemaining": 1,
+          "unlimitedPackageCount": 0,
+          "packageFundedRemainingCents": 5000,
+          "membershipUnitsRemaining": 1,
+          "membershipPlannedUnits": 2,
+          "membershipPlannedValueCents": 19800,
+          "depositRemainingCents": 5648,
+          "depositRetainedCents": 0,
+          "serviceRefundCreditIssuedCents": 0
+        }
+      ],
+      "settlements": [],
+      "unclassifiedRedemptionCount": 0,
+      "pendingSettlementCount": 0,
+      "payouts": []
+    },
+    "serviceCashReceivedCents": 102000,
+    "serviceCardReceivedCents": 0,
+    "cashTakeCents": 102000,
+    "cashTenderedCents": 20000,
+    "cashChangeCents": 2000,
+    "cashRefundCents": 102000,
+    "cardTakeCents": 0,
+    "cardGrossCents": 0,
+    "cardRefundCents": 0,
+    "giftCardPaidCents": -3000,
+    "customerCreditPaidCents": 0,
+    "grossCents": 150000,
+    "discountCents": 0,
+    "netCents": -13000,
+    "taxCents": 0,
+    "feeRefundCents": 0,
+    "netFeeCents": 0,
+    "surchargeCents": 0,
+    "serviceChargeCents": 0,
+    "tipCashCents": 0,
+    "tipCardCents": 0,
+    "movementsCents": -102000,
+    "tipPaidOutCents": 0,
+    "openTicketCount": 0
+  },
+  "latestMoney": {
+    "commerce": {
+      "version": 1,
+      "businessDate": "2026-10-02",
+      "throughDate": "2026-10-02",
+      "timezone": "America/Los_Angeles",
+      "cutoff": "03:00:00",
+      "from": "2026-10-02T10:00:00.000Z",
+      "to": "2026-10-03T10:00:00.000Z",
+      "currencies": [
+        {
+          "currency": "usd",
+          "sales": [],
+          "offlineCashReceivedCents": 0,
+          "offlineCashRefundedCents": 0,
+          "offlineCardReceivedCents": 0,
+          "offlineCardRefundedCents": 0,
+          "stripeReceivedCents": 0,
+          "stripeRefundedCents": 0,
+          "redemptions": [
+            {
+              "kind": "gift_card",
+              "appliedCents": 3000,
+              "returnedCents": 6000
+            },
+            {
+              "kind": "package",
+              "appliedCents": 50000,
+              "returnedCents": 60000
+            }
+          ],
+          "giftFaceRemainingCents": 3000,
+          "packageUnitsRemaining": 1,
+          "unlimitedPackageCount": 0,
+          "packageFundedRemainingCents": 5000,
+          "membershipUnitsRemaining": 1,
+          "membershipPlannedUnits": 2,
+          "membershipPlannedValueCents": 19800,
+          "depositRemainingCents": 5648,
+          "depositRetainedCents": 0,
+          "serviceRefundCreditIssuedCents": 0
+        }
+      ],
+      "settlements": [],
+      "unclassifiedRedemptionCount": 0,
+      "pendingSettlementCount": 0,
+      "payouts": []
+    },
+    "serviceCashReceivedCents": 102000,
+    "serviceCardReceivedCents": 0,
+    "cashTakeCents": 102000,
+    "cashTenderedCents": 20000,
+    "cashChangeCents": 2000,
+    "cashRefundCents": 102000,
+    "cardTakeCents": 0,
+    "cardGrossCents": 0,
+    "cardRefundCents": 0,
+    "giftCardPaidCents": -3000,
+    "customerCreditPaidCents": 0,
+    "grossCents": 150000,
+    "discountCents": 0,
+    "netCents": -13000,
+    "taxCents": 0,
+    "feeRefundCents": 0,
+    "netFeeCents": 0,
+    "surchargeCents": 0,
+    "serviceChargeCents": 0,
+    "tipCashCents": 0,
+    "tipCardCents": 0,
+    "movementsCents": -102000,
+    "tipPaidOutCents": 0,
+    "openTicketCount": 0
+  },
+  "closedSnapshotAvailable": false,
+  "hasPostCloseChanges": false,
+  "openTicketCount": 0,
+  "movements": [
+    {
+      "id": "b77ae3cb-8b9a-4049-9d2f-9fcfe4bdaf5b",
+      "kind": "refund",
+      "amountCents": -8000,
+      "note": "Refund 080aa2a1-fa83-4be9-8d77-c5a8ed93d8a8",
+      "at": "2026-10-02 12:43:39.72006+00"
+    },
+    {
+      "id": "cb928d29-011c-4db0-9ec3-2ac926579e12",
+      "kind": "refund",
+      "amountCents": -13000,
+      "note": "Refund ce8046f3-f459-4e61-a86b-aea32f472709",
+      "at": "2026-10-02 12:45:13.741777+00"
+    },
+    {
+      "id": "3adc6ce5-e245-4842-a8c1-9a1ca376d7fc",
+      "kind": "refund",
+      "amountCents": -21000,
+      "note": "Refund e38760e0-27ce-4acd-93ac-c3c68a2acd80",
+      "at": "2026-10-02 13:08:42.7155+00"
+    },
+    {
+      "id": "d15eb6d5-9831-4188-9ae4-ebf6812a1351",
+      "kind": "refund",
+      "amountCents": -21000,
+      "note": "Refund 9093a033-0366-49a7-b83e-e112abe31001",
+      "at": "2026-10-02 13:20:11.066936+00"
+    },
+    {
+      "id": "9698c84d-d141-4282-aadf-5b8683a3d785",
+      "kind": "refund",
+      "amountCents": -21000,
+      "note": "Refund a8562063-25bd-46f6-8770-a502d68b61ae",
+      "at": "2026-10-02 13:37:36.060756+00"
+    },
+    {
+      "id": "d56e7ec5-8f70-4fdf-bf6d-75aa532193f6",
+      "kind": "refund",
+      "amountCents": -18000,
+      "note": "Refund c53af945-c6f6-4edf-b0a8-c6fb33c857a7",
+      "at": "2026-10-02 14:38:16.958493+00"
+    }
+  ],
+  "tipPayouts": [],
+  "varianceThresholdCents": 200
+}

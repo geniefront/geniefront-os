@@ -1,0 +1,53 @@
+{
+  "at": "2026-10-02T08:41:20.800Z",
+  "scope": "Original actual $500 package: one service consumed, nine unused visits refunded for $450",
+  "actualStripeSandbox": true,
+  "originalOrderId": "d3823deb-12f8-456a-bcae-0c90a0b0c6c8",
+  "refundId": "d6dabae8-bebd-4719-8926-335498e7d22d",
+  "remainingSessions": 0,
+  "assetQuantityRetired": 9,
+  "refundCents": 45000,
+  "status": "succeeded",
+  "balanceGrossCents": -45000,
+  "balanceFeeCents": 0,
+  "balanceNetCents": -45000,
+  "originalPurchasedSnapshotPreserved": true,
+  "originalExpiry": "2027-10-02 06:02:28.067361+00",
+  "originalValidityDays": 365,
+  "originalService": {
+    "status": "closed",
+    "total_cents": 10000,
+    "refund_cents": 0,
+    "commission_base_cents": 5000
+  },
+  "ledger": [
+    {
+      "entry": "issue",
+      "quantity": 10,
+      "value_cents": 50000
+    },
+    {
+      "entry": "redeem",
+      "quantity": -1,
+      "value_cents": -5000
+    },
+    {
+      "entry": "purchase_refund",
+      "quantity": -9,
+      "value_cents": -45000
+    }
+  ],
+  "signedEvents": [
+    {
+      "event_type": "refund.created",
+      "n": 1
+    },
+    {
+      "event_type": "refund.updated",
+      "n": 1
+    }
+  ],
+  "sdkObservationRows": 5,
+  "manualSdkReconciliationRuns": 3,
+  "productionChanged": false
+}

@@ -1,4 +1,5 @@
-import { useAttemptKey } from '@/lib/idempotency';
+import { useEffect, useState } from 'react';
+import { TicketRefund } from '@gf/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
@@ -10,6 +11,7 @@ import type {
   OrdersQueryResponse,
   OrdersQueryParams,
   RefundTicketInput,
+  TicketRefundPreview,
 } from './types';
 
 export const ticketKeys = {
@@ -278,10 +280,21 @@ export function useVoidTicket() {
 export function useRefundTicket() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();
-  const attempt = useAttemptKey();
-
-  return useMutation({
+  const storageKey=`gf-service-refund:${membershipId}`;
+  type Pending={key:string;input:RefundTicketInput};
+  const readPending=():Pending|null=>{try{const p=JSON.parse(sessionStorage.getItem(storageKey)??'null') as Pending|null;
+    return p&&typeof p.key==='string'&&TicketRefund.input.safeParse({ticketId:p.input.ticketId,refundAmountCents:p.input.amountCents,refundTipCents:p.input.refundTipCents??0,refundMethod:p.input.method,reason:p.input.reason==='duplicate'?'accidental_duplicate':p.input.reason,notes:p.input.notes,reviewHash:p.input.reviewHash,refundItems:p.input.refundItems}).success?p:null;
+  }catch{return null;}};
+  const [stored,setStored]=useState(()=>({storageKey,value:readPending()}));
+  const pending=stored.storageKey===storageKey?stored.value:null;
+  useEffect(()=>{setStored({storageKey,value:readPending()});},[storageKey]);
+  function preserve(value:Pending|null){if(value)sessionStorage.setItem(storageKey,JSON.stringify(value));else sessionStorage.removeItem(storageKey);setStored({storageKey,value});}
+  const mutation=useMutation({
     mutationFn: async (input: RefundTicketInput) => {
+      const saved=readPending()??pending;
+      if(saved&&JSON.stringify(saved.input)!==JSON.stringify(input))throw new ApiError('VALIDATION_FAILED',{reason:'refund_result_unknown'},false,409);
+      const attempt=saved??{key:crypto.randomUUID(),input};preserve(attempt);
+      try{
       const res = await runCommand<{ ticketId: string; status: string }>(
         'ticket.refund',
         {
@@ -291,19 +304,28 @@ export function useRefundTicket() {
           reason: input.reason === 'duplicate' ? 'accidental_duplicate' : input.reason,
           refundMethod: input.method,
           notes: input.notes,
+          reviewHash: input.reviewHash,
+          ...(input.refundItems?{refundItems:input.refundItems}:{}),
         },
         membershipId!,
-        attempt.take([membershipId, input]),
+        attempt.key,
       );
+      preserve(null);
       return res;
+      }catch(e){if(e instanceof ApiError&&e.status>0&&e.status<500&&(!saved||(![401,403,429].includes(e.status)&&e.code!=='IDEMPOTENCY_KEY_REUSED')))preserve(null);throw e;}
     },
     onSuccess: (_, input) => {
-      attempt.settle([membershipId, input]);
       queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
       queryClient.invalidateQueries({ queryKey: ['desk', 'orders'] });
       queryClient.invalidateQueries({ queryKey: ['desk', 'dayclose'] });
       queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
     },
   });
+  return {...mutation,pendingRefund:pending?.input??null};
 }
 
+export function useTicketRefundReview(input:Pick<RefundTicketInput,'ticketId'|'amountCents'|'refundTipCents'|'method'|'refundItems'>|null){
+ const {membershipId,status,isOnline}=useSession();
+ return useQuery({queryKey:['desk','ticket-refund-review',membershipId,input],enabled:status==='ready'&&!!membershipId&&isOnline&&!!input&&input.amountCents>0,
+  queryFn:async()=>{const response=await runCommand<TicketRefundPreview>('ticket.reviewRefund',{ticketId:input!.ticketId,refundAmountCents:input!.amountCents,refundTipCents:input!.refundTipCents??0,refundMethod:input!.method,...(input!.refundItems?{refundItems:input!.refundItems}:{})},membershipId!);return response.result;},staleTime:15_000,retry:false});
+}

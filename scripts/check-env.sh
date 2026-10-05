@@ -254,10 +254,20 @@ echo
 
 # ─────────────────────────────────────────────────────────── 邮件
 PROVIDER="$(printf '%s' "${EMAIL_PROVIDER:-resend}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
-[[ "$PROVIDER" == "ses" ]] || PROVIDER="resend"   # 认不出的值回退 resend（与代码一致）
+case "$PROVIDER" in maileroo|resend|ses|elasticemail) ;; elastic) PROVIDER=elasticemail ;; *) bad "Unknown EMAIL_PROVIDER: ${PROVIDER}"; exit 1 ;; esac
 echo "${B}A4 · 邮件（供应商：${PROVIDER}）${N}"
 
-if [[ "$PROVIDER" == "resend" ]]; then
+if [[ "$PROVIDER" == "maileroo" ]]; then
+  [[ -n "${MAILEROO_API_KEY:-}" ]] || bad "MAILEROO_API_KEY is required"
+  [[ -n "${MAILEROO_WEBHOOK_SECRET:-}" ]] || bad "MAILEROO_WEBHOOK_SECRET is required"
+  if [[ -n "${MAILEROO_ACCOUNT_API_KEY:-}" ]]; then
+    api_check "Maileroo domain API" -H "Authorization: Bearer ${MAILEROO_ACCOUNT_API_KEY}" https://api.maileroo.com/v1/domains
+  else
+    warn "MAILEROO_ACCOUNT_API_KEY is missing; domain management is unavailable"
+  fi
+elif [[ "$PROVIDER" == "elasticemail" ]]; then
+  [[ -n "${ELASTICEMAIL_SEND_API_KEY:-${ELASTICEMAIL_API_KEY:-}}" ]] || bad "Elastic Email sending credential is required"
+elif [[ "$PROVIDER" == "resend" ]]; then
   if check_format RESEND_API_KEY '^re_[A-Za-z0-9_-]{20,}$' \
     're_ 开头，后面约 30 字符'; then
     api_check "Resend API" -H "Authorization: Bearer ${RESEND_API_KEY}" \

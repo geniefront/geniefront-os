@@ -1,0 +1,14 @@
+{
+  "at": "2026-09-30T22:57:44.962Z",
+  "fixtureOnly": true,
+  "stripePaymentVerified": false,
+  "paidCents": 8000,
+  "faceBalanceCents": 10000,
+  "ledgerRows": 1,
+  "credentialVersion": 2,
+  "credentialDisabled": false,
+  "oldCredentialStatus": 404,
+  "currentCredentialStatus": 200,
+  "currentAvailableBalanceCents": 10000,
+  "activePrivateLinks": 1
+}

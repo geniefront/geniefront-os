@@ -1,0 +1,145 @@
+{
+  "at": "2026-10-02T03:49:01.134Z",
+  "family": "discount",
+  "actualStripeSandbox": true,
+  "originalPurchaseReused": true,
+  "productionChanged": false,
+  "db": {
+    "provider_status": "canceled",
+    "terminated_at": "2026-10-02 03:31:27.364895+00",
+    "commerce_frozen": false,
+    "termination_id": "6f5b3d93-a7fd-46c8-9aa1-107461c7d3f1",
+    "termination_status": "complete",
+    "unused_benefits": "revoke_all",
+    "provider_canceled_at": "2026-10-02 03:31:27+00",
+    "paid_invoices": 1,
+    "original_paid_cents": 4900,
+    "stopped_cycles": 1,
+    "remaining_active_cycles": 0,
+    "available_quantity": 0,
+    "signed_cancellation_events": 1
+  },
+  "provider": {
+    "status": "canceled",
+    "canceledAt": "2026-10-02T03:31:27.000Z"
+  },
+  "refund": {
+    "id": "re_3ULvFqJDnwwxW56m0L7Y0E9Z",
+    "status": "succeeded",
+    "amountCents": 4900,
+    "balanceGrossCents": -4900,
+    "balanceFeeCents": 0,
+    "balanceNetCents": -4900,
+    "signedEvents": 2
+  },
+  "ledger": [
+    {
+      "entry": "issue",
+      "rows": 1,
+      "quantity": 1,
+      "value_cents": 4900
+    },
+    {
+      "entry": "redeem",
+      "rows": 1,
+      "quantity": -1,
+      "value_cents": -4900
+    },
+    {
+      "entry": "restore",
+      "rows": 1,
+      "quantity": 1,
+      "value_cents": 4900
+    },
+    {
+      "entry": "revoke",
+      "rows": 1,
+      "quantity": -1,
+      "value_cents": -4900
+    }
+  ],
+  "notices": [
+    {
+      "entity_type": "commerce_refund_buyer",
+      "n": 1,
+      "status": "captured"
+    },
+    {
+      "entity_type": "customer_membership_termination",
+      "n": 1,
+      "status": "captured"
+    }
+  ],
+  "security": [
+    {
+      "relname": "customer_membership_refund_requests",
+      "relrowsecurity": true,
+      "relforcerowsecurity": true,
+      "app_update": false,
+      "app_delete": false,
+      "anon_select": false
+    },
+    {
+      "relname": "customer_membership_termination_cycles",
+      "relrowsecurity": true,
+      "relforcerowsecurity": true,
+      "app_update": false,
+      "app_delete": false,
+      "anon_select": false
+    },
+    {
+      "relname": "customer_membership_terminations",
+      "relrowsecurity": true,
+      "relforcerowsecurity": true,
+      "app_update": true,
+      "app_delete": false,
+      "anon_select": false
+    }
+  ],
+  "foreignDecisionRows": 0,
+  "originalService": {
+    "ticketId": "1b199538-5dff-4a49-85ff-cee0e63de57a",
+    "prices": [
+      {
+        "kind": "manual",
+        "original_cents": 4000,
+        "discount_cents": 1000,
+        "cycle_id": null,
+        "plan_version_id": null,
+        "rule_snapshot": {
+          "allocation": "uncovered_unpriced_lines",
+          "manualAuthorized": true
+        }
+      },
+      {
+        "kind": "membership",
+        "original_cents": 5000,
+        "discount_cents": 500,
+        "cycle_id": "37522966-3381-4ba9-b14a-1c7d7cbd3364",
+        "plan_version_id": "0b3051b8-1577-45db-a801-646949734f78",
+        "rule_snapshot": {
+          "rounding": "half_up_per_line",
+          "expiresAt": "2026-11-02 01:27:17+00",
+          "discountBps": 1000,
+          "commissionPolicy": "staff_gross_or_net"
+        }
+      }
+    ],
+    "financial": {
+      "subtotal_cents": 19000,
+      "discount_cents": 1500,
+      "total_cents": 18500,
+      "tip_cents": 1000,
+      "refund_cents": 18500,
+      "remaining_commission_base": 0,
+      "remaining_tip_earnings": 0,
+      "returned_membership": 10000,
+      "returned_cash": 8500
+    },
+    "unchangedFromBeforeTermination": true,
+    "offlineCashOnlyQaRecording": true
+  },
+  "replayRuns": 2,
+  "reconcileRuns": 3,
+  "clockTimeNotCopiedToDatabase": true
+}

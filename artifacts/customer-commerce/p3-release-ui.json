@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-02T16:28:56.529123+00:00",
+  "actualDeskReleaseAndReloadReplay": true,
+  "englishMobileConfirmationReviewed": true,
+  "chineseCustomerPageReviewed": true,
+  "state": {
+    "width": 390,
+    "height": 844,
+    "horizontalOverflow": false,
+    "refunded": true,
+    "fullRefund": true
+  },
+  "errors": [],
+  "allLocalesPassed": false,
+  "realMessagesSent": false
+}

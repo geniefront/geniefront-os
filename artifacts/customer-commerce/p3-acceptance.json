@@ -1,0 +1,203 @@
+{
+  "at": "2026-10-01T12:39:28.532033+00:00",
+  "scope": "P3 reasoned deposit retention, immutable policy/cancellation time, original refund and recovery checkpoint; full acceptance pending",
+  "migrations": 171,
+  "apiTests": {
+    "files": 9,
+    "passed": 232,
+    "depositTests": 29,
+    "publicDepositTests": 4,
+    "commerceTests": 37,
+    "publicRegressionTests": 98,
+    "guestCancellationTests": 10,
+    "voiceRegressionTests": 36,
+    "voiceDepositTests": 8,
+    "retentionTests": 10
+  },
+  "pureAllocationTests": 15,
+  "typecheckPackages": 16,
+  "holds": {
+    "databaseDeadlineMinutes": 15,
+    "sameSlotSuccesses": 1,
+    "expiryReleasesResource": true,
+    "manualCancellationPreserved": true,
+    "expiryWithoutStripeKey": true,
+    "expiryDuringSaasFreeze": true,
+    "doubleWorkerExactlyOnce": true
+  },
+  "offlineDeposit": {
+    "serviceTotalCents": 10000,
+    "collectedCents": 2000,
+    "uniqueCollectionRows": 1,
+    "refundsCents": [
+      1200,
+      800
+    ],
+    "remainingAfterRefundsCents": 0,
+    "originalLedgerImmutable": true,
+    "stripeVerified": false
+  },
+  "notifications": {
+    "guestConfirmationBeforePayment": 0,
+    "guestConfirmationAfterPayment": 1,
+    "deliveryMode": "capture"
+  },
+  "acceptance": {
+    "A07": "partial: actual hosted $20 deposit, signed confirmation, browser $80 cash checkout, $100 service/commission base and receipt source separation verified; all entrypoints and dayclose pending",
+    "A08": "partial: timeout/capacity/late confirmation-refund isolated tests passed; actual normal hosted deposit checkout verified; real late-payment matrix pending",
+    "A09": "partial: actual browser waiver, staff/customer guest cancellation, voice sandbox/cash and original-policy retention $8 with actual original refund $12 verified; pending revision, reschedule supplements, full entrypoints, physical voice conversation and full failure/provider matrix pending",
+    "A15": "partial: actual $20 service refund records $16 cash returned and restores $4 deposit, followed by actual Stripe $4 original-purchase refund; combined four-module graph pending"
+  },
+  "browserDepositVerified": true,
+  "onlineDepositVerified": true,
+  "goalComplete": false,
+  "productionPublished": false,
+  "verificationOrigin": "Isolated app_user command/SQL and UI tests prove invariants; actual hosted sandbox payment and staff-recorded cash browser stories have separate evidence and limitations",
+  "publicRegressionTests": {
+    "files": 2,
+    "passed": 102,
+    "includedInApiTests": true
+  },
+  "bookingTests": {
+    "files": 14,
+    "passed": 65,
+    "serial": true
+  },
+  "checkoutTests": {
+    "files": 7,
+    "passed": 30,
+    "scope": "Checkout, receipt, drawer, waiver, guest cancellation, deposit payment and retention actions"
+  },
+  "serviceApplication": {
+    "serviceCents": 10000,
+    "paidDepositCents": 2000,
+    "newCashCents": 8000,
+    "commissionBaseCents": 10000,
+    "partialRefundRestorationVerified": true,
+    "tipsExcluded": true,
+    "verificationOrigin": "Actual isolated command/SQL assertions"
+  },
+  "cancellation": {
+    "purchasedCutoffPreserved": true,
+    "refundReservedBeforeCutoff": true,
+    "offlineCashReturnedRequiresReceipt": true,
+    "lateAndNoShowReviewWithoutForfeiture": true,
+    "failedRefundReviewAndRetry": true,
+    "verificationOrigin": "Actual isolated API/SQL assertions; sandbox original refund verified separately"
+  },
+  "sandboxDeposit": {
+    "pendingEvidence": "stripe-deposit-pending.json",
+    "confirmationEvidence": "stripe-deposit-confirmed.json",
+    "serviceEvidence": "stripe-deposit-service.json",
+    "refundEvidence": "stripe-deposit-refunded.json",
+    "serviceCents": 10000,
+    "collectedDepositCents": 2000,
+    "newCashRecordedCents": 8000,
+    "serviceRefundCents": 2000,
+    "cashRefundRecordedCents": 1600,
+    "depositRestoredCents": 400,
+    "actualStripeRefundCents": 400,
+    "businessDate": "2026-09-30",
+    "venueTimezone": "America/Los_Angeles",
+    "cashEvidence": "staff-recorded QA cash, not Stripe verified",
+    "messages": "capture",
+    "bankPayoutVerified": false
+  },
+  "waiver": {
+    "browserEvidence": "browser-deposit-waiver.json",
+    "uiEvidence": "browser-deposit-waiver-ui.json",
+    "permission": "commerce.waiveDeposit",
+    "reasonAndActorImmutable": true,
+    "collectedMoneyRows": 0,
+    "confirmedNotifications": 1,
+    "retainsOriginalServicePrice": true,
+    "expiryPreservesBooking": true,
+    "latePaymentRefundPreservesBookingIsolated": true,
+    "partialRefundCannotEnableWaivedCredit": true,
+    "inFlightProviderRefundSandboxVerified": false
+  },
+  "managedRecovery": {
+    "temporaryNetworkAnd503Retry": true,
+    "invalidTokenRemainsGeneric": true,
+    "verificationOrigin": "failure-injection component tests; actual normal mobile UI/managed API verified"
+  },
+  "guestCancellation": {
+    "apiCommand": "appointment.cancelGuests",
+    "publicRoute": "/public/v1/bookings/:id/cancel-guests",
+    "staffBrowserEvidence": "browser-guest-cancellation.json",
+    "customerBrowserEvidence": "browser-guest-self-cancellation.json",
+    "originalGuestServicesCents": [
+      10000,
+      7000
+    ],
+    "originalDepositCents": 2000,
+    "cancelledGuestRefundCents": 1176,
+    "remainingGuestServiceCents": 7000,
+    "remainingGuestDepositCents": 824,
+    "remainingServiceCents": 6176,
+    "guestMappingRequired": true,
+    "sharedServiceRequiresAllParticipants": true,
+    "originalPurchasePolicyUnchanged": true,
+    "lateRefundRequiresStaffReasonedApproval": true,
+    "failedGuestRefundRemainsReservedForReview": true,
+    "customerTokenAndLast4Verified": true,
+    "authorizationRecheckedUnderLocks": true,
+    "customerCreatedByIsNull": true,
+    "finalCancellationNoticeDeduplicated": true,
+    "cashEvidence": "Staff-recorded QA cash collection and return",
+    "partialRefundStripeSandboxVerified": false,
+    "serviceApplicationAndRestorationOrigin": "Actual isolated API/DB tests",
+    "pendingPartialCheckoutSupported": false,
+    "rescheduleSupplementSupported": false,
+    "uiEvidence": "browser-guest-cancellation-ui.json"
+  },
+  "voiceDeposit": {
+    "quoteAndExplicitConsentRequired": true,
+    "voiceConsentRecordedFromApiInput": true,
+    "spokenConsentVerified": false,
+    "xaiV1AndV2HttpTested": true,
+    "signedTelnyxToolHttpTested": true,
+    "sharedAndRequestedStaffCapacityRegressionTested": true,
+    "pendingNotificationKind": "appointment_deposit_pending",
+    "emailDeliveryMode": "capture",
+    "expiredRequestSuppressionTested": true,
+    "paidRequestSuppressionTested": true,
+    "replayReadsCurrentStatus": true,
+    "missingEmailKeepsCashChannelAvailable": true,
+    "onlineEvidence": "browser-voice-deposit-online.json",
+    "onlinePendingEvidence": "browser-voice-deposit-online-pending.json",
+    "offlineEvidence": "browser-voice-deposit-offline.json",
+    "offlinePendingEvidence": "browser-voice-deposit-offline-pending.json",
+    "uiEvidence": "browser-voice-deposit-ui.json",
+    "actualStripeSandboxVerified": true,
+    "physicalCashVerified": false,
+    "realEmailDeliveryVerified": false,
+    "externalAgentToolDefinitionsApplied": false,
+    "productionAgentConfigApplied": false
+  },
+  "retention": {
+    "command": "commerce.retainAppointmentDeposit",
+    "permission": "commerce.retainDeposit",
+    "policyConsentRequired": true,
+    "noAutomaticForfeiture": true,
+    "cancelledGuestsOnly": true,
+    "originalGuestCancellationTimePreserved": true,
+    "partialRetentionAndReviewRemainderTested": true,
+    "submittedRefundUntouched": true,
+    "immutableHistoryAndDecline": true,
+    "reservationRaceTested": true,
+    "frontendSessionSnapshotPersistsBeforeRequest": true,
+    "recoveryOnChangedBalanceAndRemountTested": true,
+    "browserEvidence": "browser-deposit-retention-refunded.json",
+    "uiEvidence": "browser-deposit-retention-ui.json",
+    "purchasedCutoffHours": 48,
+    "retainedCents": 800,
+    "originalStripeRefundCents": 1200,
+    "currentStoreSettingsRestored": true,
+    "providerSettlementVerified": true,
+    "bankPayoutVerified": false,
+    "realEmailDeliveryVerified": false,
+    "postRetentionReversalImplemented": false,
+    "activeZeroPriceGuestRemainsConfirmed": true
+  }
+}

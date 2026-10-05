@@ -1,0 +1,11 @@
+$ vitest run --passWithNoTests src/lib/experience.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/booking
+
+ ✓ src/lib/experience.test.ts (4 tests) 11ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  00:07:18
+   Duration  579ms (transform 62ms, setup 73ms, collect 63ms, tests 11ms, environment 239ms, prepare 26ms)
+

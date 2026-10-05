@@ -1,5 +1,8 @@
 # 14 · AI 电话工具接口
 
+> **2026-09-27 账号清理更新：** 当前环境账号和 seed 命令以[环境账号清单](qa/TEST_ACCOUNTS.md)为准。下文旧账号、演示店及旧密码仅适用于历史记录或隔离测试 fixture，不能作为现行 local/staging/prod 登录配置；原 `ops` 管理员保留。
+
+
 > Telnyx AI Assistant 通过 webhook 调用这些工具。实现在
 > `apps/api/src/telnyx/routes.ts`，assistant 侧的定义在仓库根的
 > `create_assistant.json`。**改了这里必须同步那边** —— 用脚本推，别在控制台里手敲：
@@ -451,6 +454,8 @@ POST /v1/telnyx/tools/book_appointment
 | `party_size` | integer | | 默认 1。>1 时**每位客人各配一位技师** |
 | `duration_min` | integer | | 只在项目没匹配上时用 |
 | `health_notes` | string | | 如 `Pregnant - 5 months` |
+| `email` | string | | 需付定金时可选的支付通知地址；缺少地址转前台处理 |
+| `depositConsent` | object | 定金必需 | 客人明确同意后，原样提交报价的 `policyVersion`、`amountCents`、`serviceTotalCents` 和 `accepted:true` |
 
 \* `services` 与 `service_heard` 至少给一个，且必须至少匹配上**一个主项目**。
 
@@ -464,7 +469,17 @@ POST /v1/telnyx/tools/book_appointment
   只把 `party_size: 2` 记在预约头上而底下一条 item 的话，日程表上只占掉一个人 ——
   到店来了两位，第二位没有技师。凑不齐则回 `RESOURCE_CONFLICT`，让 AI 重新报时间。
 
-### 成功
+### 定金预约的待付款状态（2026-10-01）
+
+启用商业定金时，xAI v1 的 context、v2 的 offer，以及 Telnyx `find_slots` 返回 `deposit` 报价。报价包含原政策版本、定金和服务总价（整数分）、币种、取消截止小时数、截止后处理规则、政策说明和 15 分钟占位期限。模型须先说明这些条款并取得明确同意；后端重新验证报价和容量，不能由模型静默补同意字段。
+
+`submit_booking` 和定金分支的 `book_appointment` 返回 `status`、`bookingConfirmed` 和 `deposit`。`ok:true` 及预约 ID 只说明写入成功；`status:pending_deposit, bookingConfirmed:false` 是待付款占位，不发预约确认。`deposit.paymentAction` 为 `email_link`、`frontdesk` 或 `none`，`emailDelivery` 独立标记 `queued/sent/captured/failed/unavailable`。排队和测试捕获均不能说成已送达。
+
+有邮箱且门店测试／正式收款配置可用时，在同一预约事务建立支付尝试并入队 `appointment_deposit_pending`，邮件使用既有受保护的预约管理链接。缺少邮箱或收款配置时保留可由前台处理的占位；前台通过 `commerce.recordOfflineDeposit` 记录真实线下已收定金并填写渠道和参考号，也可准备在线支付链接或用 `commerce.sendDepositNotice` 重发到该顾客已有邮箱。未付款通知不等于确认；付款事实或有权限的免收定金才触发确认。重放相同提交读取当前付款状态，不一直返回旧的待付款结果。
+
+仓库中的 xAI 提示词已适配此合同；外部工具参数定义、非生产语音通话中实际口头同意、真实邮件送达须另行验收。本地 HTTP 集成和 Stripe sandbox 付款不能代替真实电话对话证据。旧 Telnyx 的 20 人上限与现代语音合同的 10 人上限仍需统一后才能宣称所有电话入口覆盖完成。未修改生产 agent 配置。
+
+### 无需定金的成功
 
 ```jsonc
 {

@@ -1,5 +1,8 @@
 # 房态与员工中心重构交接
 
+> **2026-09-27 账号清理更新：** 当前环境账号和 seed 命令以[环境账号清单](qa/TEST_ACCOUNTS.md)为准。下文旧账号、演示店及旧密码仅适用于历史记录或隔离测试 fixture，不能作为现行 local/staging/prod 登录配置；原 `ops` 管理员保留。
+
+
 更新：2026-09-06。状态：P0–P3 本机浏览器验收通过；commit `13eeaa3` 已部署 staging，迁移 0109 已在 staging 应用并核对，staging API 健康。交接项 1–5 全部落地；仅剩 staging 真人冒烟与（可选）生产迁移。
 
 ## 用户目标
@@ -66,7 +69,7 @@
 
 ## 浏览器验收（2026-09-06，本机 api-local + web，均连 55322 隔离库 / 55321 本地 Supabase）
 
-登录 `owner@maildrop.cc` / `GenieDev!2026`（需先跑一次不带 `SEED_SKIP_AUTH` 的 `bash scripts/run-env.sh local pnpm --filter @gf/db seed` 建 Auth 用户）。验收后已重新 seed 复位。
+历史验收使用旧 owner fixture，现已清理。当前手工验收运行 `pnpm db:seed local`，使用 `qa-local-owner@example.test`，密码见 `.env.local` 的 `GF_BASELINE_PASSWORD`。
 
 **交接项 2 — 员工新增 + 目录改名/停用 + 全技能派单门槛：全部通过**
 - 新增「验收测试员工」（工号 EMP-QA01、电话、邮箱 `qa.staff@maildrop.cc`、岗位「前台接待」、技能仅「深层经络」、开启接单）。二次确认弹窗生效；保存后整页刷新，编辑弹窗回读电话、邮箱、岗位、技能、接单开关全部正确 —— 接口失败不伪造成功、联系方式持久化确认。

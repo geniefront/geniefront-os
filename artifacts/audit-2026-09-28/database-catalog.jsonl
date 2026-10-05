@@ -1,0 +1,4 @@
+{"tables" : 132, "force_rls" : 132}
+{"name" : "user_in_location(uuid)", "anon_exec" : false, "authenticated_exec" : true, "config" : ["search_path=public"]}
+{"view" : "staff_directory_legacy_audit", "options" : ["security_invoker=true"], "anon_select" : false, "authenticated_select" : false}
+{"role" : "app_user", "superuser" : false, "bypassrls" : false}

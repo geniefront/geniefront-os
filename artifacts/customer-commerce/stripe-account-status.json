@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-01T08:25:48.209Z",
+  "stripeVerified": true,
+  "operation": "retrieve_existing_account",
+  "liveMode": false,
+  "apiVersion": "v2",
+  "connectedAccountId": "acct_1ULVaEJDnwwxW56m",
+  "closed": false,
+  "merchantApplied": true,
+  "cardPayments": "active",
+  "payouts": "active",
+  "requirementStatus": null,
+  "checkoutVerified": false
+}

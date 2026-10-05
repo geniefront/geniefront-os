@@ -1,3 +1,4 @@
+import {CommerceDayPanel} from '@/features/dayclose/CommerceDayPanel';
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@heroui/react";
@@ -41,7 +42,7 @@ import { centsToDollars, toDisplayDollars } from "@/features/checkout/api";
 import { useCan } from "@/lib/permissions";
 import { useErrorMessage } from "@/lib/errorMessage";
 import {
-  useRevenueTrendsQuery,
+  useRevenueTrendsQuery,useCommerceReportQuery,
   useCustomerRetentionQuery,
   useStaffAnalyticsQuery,
   useReviewsSummaryQuery,
@@ -100,6 +101,7 @@ export function BusinessData() {
   }, [rangePreset, businessToday]);
 
   const revenueQ = useRevenueTrendsQuery(from, to, "day");
+  const commerceQ=useCommerceReportQuery(from,to);
   const customersQ = useCustomerRetentionQuery(from, to);
   const staffQ = useStaffAnalyticsQuery(from, to);
   const reviewsQ = useReviewsSummaryQuery();
@@ -460,6 +462,8 @@ export function BusinessData() {
         </div>
 
         {/* TAB 1: 营收与趋势走势 + 7x24h 营业高峰Heatmap */}
+        {activeTab==='revenue'&&commerceQ.error&&<div role="alert" className="rounded-lg border border-red-200 p-3">{errorMessage(commerceQ.error)}<Button onClick={()=>void commerceQ.refetch()}>{t('refresh')}</Button></div>}
+        {activeTab==='revenue'&&commerceQ.data?.commerce&&<CommerceDayPanel summary={commerceQ.data.commerce}/>}
         {activeTab === "revenue" && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

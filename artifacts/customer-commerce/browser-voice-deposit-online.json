@@ -1,0 +1,48 @@
+{
+  "at": "2026-10-01T10:12:37.774Z",
+  "scenario": "online",
+  "actualVoiceToolHttp": true,
+  "browserPaymentVerified": true,
+  "physicalPhoneConversationVerified": false,
+  "realEmailDeliveryVerified": false,
+  "physicalCashVerified": false,
+  "deliveryMode": "capture",
+  "stripeVerified": true,
+  "appointmentId": "c300942f-6833-40db-9be3-06392771930d",
+  "holdId": "4005ee2d-150d-4ac6-89c4-63ea15a98a6f",
+  "facts": {
+    "source": "phone_ai",
+    "status": "booked",
+    "deposit_status": "paid",
+    "hold_status": "paid",
+    "amount_cents": 2000,
+    "service_total_cents": 10000,
+    "consent": {
+      "at": "2026-10-01 10:06:49.864397+00",
+      "locale": "en",
+      "method": "voice_confirmation",
+      "accepted": true
+    },
+    "provider": "stripe",
+    "external_reference": null,
+    "recorded_by": null,
+    "checkout_session_id": "cs_test_a1ZGvgKtBHCIMcnYpv6O0nLejaBIz67SFL5whfFJn2knKc5umf4IvMMAGK",
+    "stripe_account_id": "acct_1ULVaEJDnwwxW56m",
+    "fee_cents": 88,
+    "net_cents": 1912,
+    "balance_transaction_id": "txn_3ULgvLJDnwwxW56m0QwaLBIv",
+    "signed_checkout_events": 1,
+    "collected_rows": 1,
+    "deposit_balance_cents": 2000,
+    "confirmation_rows": 1,
+    "request_rows": 1,
+    "captured_request_rows": 1
+  },
+  "authoritativeReplay": {
+    "status": "confirmed",
+    "bookingConfirmed": true
+  },
+  "serviceConsumed": false,
+  "bankPayoutVerified": false,
+  "goalComplete": false
+}

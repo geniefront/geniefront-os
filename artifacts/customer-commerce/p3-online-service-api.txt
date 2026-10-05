@@ -1,0 +1,72 @@
+$ vitest run src/appointmentDeposits.test.ts src/commerce.test.ts src/publicDeposits.test.ts src/ticketLifecycle.test.ts src/bundle.test.ts src/v1Issues.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+{"level":30,"time":1790824218632,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","req":{"id":"req-1","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","stripe-signature":"t=1790824218,v1=727e6e89a97f77716afb96739f3d8ac8ab7c01bbce21e37df98d0b0d87cb49b2","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790824218636,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","res":{"statusCode":200},"responseTime":2.64862500000163,"msg":"request completed"}
+{"level":30,"time":1790824218636,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","req":{"id":"req-2","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790824218646,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790824218647,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","res":{"statusCode":401},"responseTime":10.590457999998762,"msg":"request completed"}
+{"level":30,"time":1790824218648,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","req":{"id":"req-3","method":"POST","url":"/v1/commerce/accounts/refresh","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"57"}},"msg":"incoming request"}
+{"level":30,"time":1790824218649,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790824218649,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","res":{"statusCode":401},"responseTime":0.8648749999993015,"msg":"request completed"}
+ ✓ src/commerce.test.ts (37 tests) 11986ms
+   ✓ disables and replaces lost credentials without duplicating value, revokes old access, and delivers only the current card 774ms
+   ✓ accepts signed thin events through the complete server auth stack and keeps account administration protected 2565ms
+   ✓ limits purchase refunds to unused paid value and freezes it against concurrent redemption 308ms
+   ✓ restores reserved assets when Stripe refund fails and ignores a later payment replay after refund 427ms
+   ✓ records known-refund webhook receipts without double reversing value through duplicates and stale pending events 321ms
+   ✓ preserves package purchase rules and price after catalog changes and refunds exactly unused value 355ms
+   ✓ conserves original cents and quantities through package consume, purchase refund, restore and reconsume 508ms
+   ✓ never restores historical unidentified or financially frozen package redemptions 546ms
+   ✓ routes disputes without metadata by account/payment, freezes remaining value, and keeps terminal results through stale events 424ms
+   ✓ captures Dashboard refunds with no commerce metadata and prevents spending or another purchase refund 436ms
+   ✓ reconciles a missed paid webhook only after inspecting a pre-existing provider refund (failure injection, not Stripe sandbox) 340ms
+   ✓ retains existing v1 onboarding and uses verified v2 capabilities and thin events without crossing modes 502ms
+   ✓ keeps gift promotional-value cent rounding consistent across multiple purchase refunds 512ms
+   ✓ freezes the whole package while a partial purchase refund is pending, preserving cent allocation 353ms
+ ✓ src/bundle.test.ts (34 tests) 6689ms
+   ✓ P5 结账 / 退款 / 提成对组合套餐安全 > 结账：收款额 = 分摊净额 + 税，提成基数按分摊实售额（B25 / B29） 1007ms
+   ✓ P5 结账 / 退款 / 提成对组合套餐安全 > 次卡：只核销散项，不覆盖套餐子项（B17） 1144ms
+   ✓ P5 结账 / 退款 / 提成对组合套餐安全 > 次卡：service_id 命中的仅是套餐子项时，核销被拒（不二次全额覆盖，§4.5） 431ms
+   ✓ P5 结账 / 退款 / 提成对组合套餐安全 > 全额退款：提成按原政策冲销，父子不重复（B23） 395ms
+   ✓ ticket.open 直接选组合套餐（walk-in） > 结账走通：收款 = 分摊净额 + 税（B26 walk-in 与前台同口径） 314ms
+ ✓ src/appointmentDeposits.test.ts (20 tests) 6036ms
+   ✓ allows at most one same-slot hold and releases the real capacity for a subsequent booking 392ms
+   ✓ cancels before the saved cutoff with one reserved offline refund and leaves cash unchanged until actually returned 365ms
+   ✓ leaves late cancellations and no-shows for frontdesk review without automatically forfeiting or refunding money 528ms
+   ✓ reserves unused deposit cash across concurrent refunds and appends each confirmed refund once 335ms
+   ✓ keeps expiry operational with new sales disabled, a frozen SaaS plan, and no Stripe key; concurrent workers finish once 330ms
+   ✓ locks one online payment to the original hold and confirms only the verified paid fact 385ms
+   ✓ reacquires a released slot with the same appointment and unchanged price after late payment 322ms
+   ✓ keeps late collected money but queues a full refund when another booking owns the released capacity 470ms
+   ✓ applies $20 already-paid deposit to a $100 service without discounting it, and restores the original deposit on service refunds 639ms
+ ✓ src/v1Issues.test.ts (13 tests) 1387ms
+   ✓ v1 issues regression > #16 merges assets without updating ledger identity or amounts 308ms
+{"level":30,"time":1790824265808,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","req":{"id":"req-1","method":"POST","url":"/public/v1/bookings","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://deposit-qa.example.test","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","idempotency-key":"cfe957c6-c02b-4924-8c04-5e13344d53eb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"412"}},"msg":"incoming request"}
+{"level":30,"time":1790824266147,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","res":{"statusCode":201},"responseTime":338.5163339999999,"msg":"request completed"}
+{"level":30,"time":1790824266154,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","req":{"id":"req-2","method":"POST","url":"/public/v1/bookings","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://deposit-qa.example.test","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","idempotency-key":"cfe957c6-c02b-4924-8c04-5e13344d53eb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"412"}},"msg":"incoming request"}
+{"level":30,"time":1790824266201,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","res":{"statusCode":200},"responseTime":47.01708399999916,"msg":"request completed"}
+{"level":30,"time":1790824266452,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","req":{"id":"req-3","method":"POST","url":"/public/v1/hosted/manage","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://deposit-qa.example.test","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"99"}},"msg":"incoming request"}
+{"level":30,"time":1790824266504,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","res":{"statusCode":200},"responseTime":51.5344169999953,"msg":"request completed"}
+{"level":30,"time":1790824266513,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-4","req":{"id":"req-4","method":"POST","url":"/public/v1/bookings","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://deposit-qa.example.test","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","idempotency-key":"47f97542-2444-4754-93dc-ae468ac6b6a9","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"412"}},"msg":"incoming request"}
+{"level":30,"time":1790824266810,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-4","res":{"statusCode":201},"responseTime":296.7148329999982,"msg":"request completed"}
+{"level":30,"time":1790824267016,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-5","req":{"id":"req-5","method":"POST","url":"/public/v1/hosted/manage","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://deposit-qa.example.test","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"99"}},"msg":"incoming request"}
+{"level":30,"time":1790824267059,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-5","res":{"statusCode":200},"responseTime":42.21562499999709,"msg":"request completed"}
+{"level":30,"time":1790824267059,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-6","req":{"id":"req-6","method":"POST","url":"/public/v1/bookings/f8ed356b-4f14-4f8f-ad8b-8f734bb2e584/cancel","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://deposit-qa.example.test","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"79"}},"msg":"incoming request"}
+{"level":30,"time":1790824267289,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-6","res":{"statusCode":200},"responseTime":229.39320900000166,"msg":"request completed"}
+{"level":30,"time":1790824267289,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-7","req":{"id":"req-7","method":"POST","url":"/public/v1/bookings/f8ed356b-4f14-4f8f-ad8b-8f734bb2e584/cancel","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://deposit-qa.example.test","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"79"}},"msg":"incoming request"}
+{"level":30,"time":1790824267325,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-7","res":{"statusCode":200},"responseTime":35.05791699999827,"msg":"request completed"}
+{"level":30,"time":1790824267362,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-8","req":{"id":"req-8","method":"POST","url":"/public/v1/bookings","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://deposit-qa.example.test","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","idempotency-key":"143c0a55-79f6-41ee-894b-b6e3b2c6f527","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"412"}},"msg":"incoming request"}
+{"level":50,"time":1790824267605,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-8","err":{"type":"AppError","message":"UPSTREAM_UNAVAILABLE","stack":"AppError: UPSTREAM_UNAVAILABLE\n    at startDepositCheckoutInTransaction (/Users/naiyouzhu/siteadmin/geniefront-os/apps/api/src/handlers/appointmentDeposits.ts:82:21)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/naiyouzhu/siteadmin/geniefront-os/apps/api/src/handlers/appointmentDeposits.ts:108:15\n    at /Users/naiyouzhu/siteadmin/geniefront-os/apps/api/src/bus.ts:217:22\n    at scope (file:///Users/naiyouzhu/siteadmin/geniefront-os/node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/index.js:260:18)\n    at sql.begin (file:///Users/naiyouzhu/siteadmin/geniefront-os/node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/index.js:243:14)\n    at Object.<anonymous> (/Users/naiyouzhu/siteadmin/geniefront-os/apps/api/src/public/routes.ts:717:17)","code":"UPSTREAM_UNAVAILABLE","details":{"reason":"merchant_payments_unavailable"},"messageKey":"error.UPSTREAM_UNAVAILABLE","overridable":false,"name":"AppError"},"msg":"UPSTREAM_UNAVAILABLE"}
+{"level":30,"time":1790824267611,"pid":330,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-8","res":{"statusCode":503},"responseTime":248.50645899999654,"msg":"request completed"}
+ ✓ src/publicDeposits.test.ts (3 tests) 2120ms
+   ✓ returns a protected pending-deposit reservation and the real Checkout adapter result without sending a booking confirmation 699ms
+   ✓ keeps public cancellation actions and the automatic refund on the original purchased cutoff after settings change 827ms
+ ✓ src/ticketLifecycle.test.ts (2 tests) 1ms
+
+ Test Files  6 passed (6)
+      Tests  109 passed (109)
+   Start at  23:10:02
+   Duration  71.47s (transform 3.23s, setup 37.83s, collect 4.82s, tests 28.22s, environment 0ms, prepare 137ms)
+

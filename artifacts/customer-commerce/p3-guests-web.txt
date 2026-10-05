@@ -1,0 +1,15 @@
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/features/printing/ReceiptDocument.test.tsx (3 tests) 43ms
+ ✓ src/features/commerce/AppointmentDepositPanel.test.tsx (2 tests) 290ms
+ ✓ src/features/commerce/GuestCancellationPanel.test.tsx (2 tests) 339ms
+   ✓ confirms only selected guests and their exact refund quote, reusing the command key after an interruption 302ms
+ ✓ src/components/AppointmentDrawer.test.tsx (7 tests) 334ms
+ ✓ src/pages/Checkout.tips.test.tsx (4 tests) 293ms
+
+ Test Files  5 passed (5)
+      Tests  18 passed (18)
+   Start at  03:54:53
+   Duration  2.34s (transform 719ms, setup 2.28s, collect 3.75s, tests 1.30s, environment 1.63s, prepare 221ms)
+

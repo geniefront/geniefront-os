@@ -45,6 +45,12 @@ it('waits for missing, ambiguous or still-settling provider records', () => {
   expect(directRecordingBoundary(recording, [inbound], at + 90000)).toBeNull();
   expect(directRecordingBoundary(recording, [{ ...inbound, cli: '+12025550999' }], now)).toBeNull();
 });
+it('matches withheld caller markers without mixing different real callers', () => {
+  expect(directRecordingBoundary({ ...recording, from: 'Anonymous' },
+    [{ ...inbound, cli: null }, { ...transferred, cli: 'restricted' }], now))
+    .toMatchObject({ aiDurationSeconds: 13, outcome: 'transferred_to_human' });
+  expect(directRecordingBoundary({ ...recording, from: 'Anonymous' }, [inbound], now)).toBeNull();
+});
 it('does not bill an AI-disabled call forwarded directly to staff', () => {
   expect(directRecordingBoundary(recording, [{ ...inbound, cf_number: staff }], now)?.aiDurationSeconds).toBe(0);
 });

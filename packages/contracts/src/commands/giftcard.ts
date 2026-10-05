@@ -8,6 +8,7 @@
 
 import { z } from 'zod';
 import { defineCommand } from '../command.js';
+import {legacyCommerceSaleFields} from './commerce.js';
 
 const uuid = z.string().uuid();
 const cents = z.number().int();
@@ -38,7 +39,7 @@ export const SaveGiftCardTemplate = defineCommand({
     active: z.boolean().default(true),
   }),
   output: z.object({ templateId: uuid }),
-  permission: 'settings.manage',
+  permission: 'commerce.configure',
   ai: { description: '新建或修改一种礼品卡（面值、售价、有效期）。', confirm: 'always' },
   reversible: true,
   idempotency: 'optional',
@@ -47,6 +48,7 @@ export const SaveGiftCardTemplate = defineCommand({
 export const IssueGiftCard = defineCommand({
   name: 'giftcard.issue',
   input: z.object({
+    ...legacyCommerceSaleFields,
     templateId: uuid.optional(),
     /** 不用模板时直接给面值与售价 */
     faceValueCents: cents.positive().optional(),
@@ -68,9 +70,12 @@ export const IssueGiftCard = defineCommand({
     salePriceCents: cents,
     expiresAt: z.string().nullable(),
   }),
-  permission: 'ticket.write',
-  ai: { description: '发一张礼品卡。', confirm: 'always' },
-  reversible: true,
+  permission: 'commerce.sell',
+  fieldPermissions:[{field:'channel',used:v=>v.channel==='complimentary',need:'commerce.gift'},
+    {field:'scope',used:v=>v.scope==='org',need:'commerce.configure'}],
+  ai: { description: '发一张礼品卡。', confirm: 'always', exposed:false },
+  auditRedact:['faceValueCents','salePriceCents','balanceCents','amountCents'],
+  reversible: false,
   idempotency: 'required',
 });
 
@@ -93,7 +98,7 @@ export const RedeemGiftCard = defineCommand({
     /** 这次用卡付的部分，技师提成该按多少算（老板设的口径） */
     commissionBaseCents: cents,
   }),
-  permission: 'ticket.write',
+  permission: 'commerce.sell',
   ai: { description: '用礼品卡抵扣一笔金额。', confirm: 'always' },
   reversible: true,
   idempotency: 'required',
@@ -111,7 +116,7 @@ export const RefundGiftCard = defineCommand({
     reversalOfId: uuid.optional(),
   }),
   output: z.object({ giftCardId: uuid, refundedCents: cents, balanceCents: cents }),
-  permission: 'ticket.void',
+  permission: 'commerce.refund',
   ai: { description: '把礼品卡上已核销的金额退回卡里。', confirm: 'always' },
   reversible: false,
   idempotency: 'required',
@@ -132,11 +137,21 @@ export const AdjustGiftCard = defineCommand({
    * 前者只有能封账的人（老板/店长）该有。
    */
   permission: 'dayclose.manage',
+  fieldPermissions:[{field:'amountCents',used:v=>v.amountCents>0,need:'commerce.gift'}],
   ai: { description: '人工调整礼品卡余额，必须写原因。', confirm: 'always' },
   reversible: false,
   idempotency: 'required',
 });
 
+const credentialInput=z.object({giftCardId:uuid,expectedVersion:z.number().int().positive(),reason:z.string().trim().min(2).max(200)});
+export const DisableGiftCard=defineCommand({name:'giftcard.disable',input:credentialInput,
+  output:z.object({giftCardId:uuid,credentialVersion:z.number().int(),disabled:z.boolean()}),permission:'commerce.refund',
+  ai:{description:'Disable a lost gift card credential without changing its balance',confirm:'always',exposed:false},
+  reversible:false,idempotency:'required'});
+export const ReissueGiftCard=defineCommand({name:'giftcard.reissue',input:credentialInput,
+  output:z.object({giftCardId:uuid,credentialVersion:z.number().int(),code:z.string()}),permission:'commerce.refund',
+  ai:{description:'Replace a lost gift card credential while preserving its asset and ledger',confirm:'always',exposed:false},
+  auditRedact:['code'],reversible:false,idempotency:'required'});
 export const GIFTCARD_COMMANDS = [
-  SaveGiftCardTemplate, IssueGiftCard, RedeemGiftCard, RefundGiftCard, AdjustGiftCard,
+  SaveGiftCardTemplate, IssueGiftCard, RedeemGiftCard, RefundGiftCard, AdjustGiftCard,DisableGiftCard,ReissueGiftCard,
 ] as const;

@@ -4,14 +4,26 @@
  * 读：`GET /v1/desk/tickets` 未结工单列表。
  * 写：`ticket.close` 结账、`ticket.void` 作废。
  */
+import {useEffect,useState} from 'react';
+import {TicketPay,TicketCloseGroup} from '@gf/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiGet, runCommand } from '@/lib/api';
+import { apiGet, runCommand,ApiError } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import type {MembershipDiscountSelection,TicketQuoteCheckout,TicketQuoteGroup} from '@gf/contracts';
 import type { CloseResult, OpenTicketsView, PaymentLine, PaymentStage } from './types';
 
 export const checkoutKeys = {
   openTickets: (membershipId: string | null) => ['desk', 'tickets', membershipId] as const,
 };
+
+export type CheckoutQuoteInput=typeof TicketQuoteCheckout.input._input;
+export type CheckoutQuote=typeof TicketQuoteCheckout.output._type;
+export function useCheckoutQuote(input:CheckoutQuoteInput|null){
+  const {membershipId,status,isOnline}=useSession();
+  return useQuery({queryKey:['checkout','quote',membershipId,input],
+    queryFn:async()=> (await runCommand<CheckoutQuote>('ticket.quoteCheckout',input!,membershipId!)).result,
+    enabled:status==='ready'&&!!membershipId&&isOnline!==false&&!!input,retry:false,staleTime:0,refetchOnWindowFocus:true});
+}
 
 export function useOpenTickets() {
   const { membershipId, status } = useSession();
@@ -41,59 +53,53 @@ export interface CloseTicketInput {
     percentageBp?: number;
   }>;
   packageRedemptions?: Array<{ customerPackageId: string; units: number }>;
+  membershipRedemptions?:Array<{cycleId:string;ticketItemIds:string[]}>;
+  membershipDiscount?:MembershipDiscountSelection;
+  depositApplication?:{holdId:string;amountCents:number};
   notes?: string;
   idempotencyKey?: string;
   paymentStage?: PaymentStage;
+  expectedQuoteHash?: string;
 }
 
-export function useCloseTicket() {
-  const queryClient = useQueryClient();
-  const { membershipId } = useSession();
-
-  return useMutation({
-    /*
-     * ⚠️ 幂等键为必填。结账是最不能被重复执行的操作 —— 超时后的重试若换了键，
-     * 客人会被扣两次款，而这类错误往往要到对账时才被发现。
-     */
-    mutationFn: async (input: CloseTicketInput) =>
-      (await runCommand<CloseResult>(
-        'ticket.pay',
-        {
-          ticketId: input.ticketId,
-          paymentStage: input.paymentStage ?? 'combined',
-          payments: input.payments.map((p) => ({
-            method: p.method,
-            amountCents: p.amountCents,
-            tipCents: p.tipCents,
-            changeCents: p.changeCents,
-            keepChange: p.keepChange,
-            ...(p.tenderedCents !== undefined ? { tenderedCents: p.tenderedCents } : {}),
-            ...(p.giftCardId ? { giftCardId: p.giftCardId } : {}),
-            ...(p.giftCardCode ? { giftCardCode: p.giftCardCode } : {}),
-          })),
-          discountCents: input.discountCents,
-          taxCents: input.taxCents ?? 0,
-          ...(input.taxRateBp !== undefined ? { taxRateBp: input.taxRateBp } : {}),
-          ...(input.taxCalculationMode ? { taxCalculationMode: input.taxCalculationMode } : {}),
-          surchargeCents: input.surchargeCents ?? 0,
-          ...(input.surchargeRateBp !== undefined ? { surchargeRateBp: input.surchargeRateBp } : {}),
-          ...(input.tipTotalCents !== undefined ? { tipTotalCents: input.tipTotalCents } : {}),
-          ...(input.tipSplits ? { tipSplits: input.tipSplits } : {}),
-          ...(input.packageRedemptions ? { packageRedemptions: input.packageRedemptions } : {}),
-          ...(input.notes ? { notes: input.notes } : {}),
-        },
-        membershipId!,
-        input.idempotencyKey,
-      )).result,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: checkoutKeys.openTickets(membershipId) });
-      void queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
-      void queryClient.invalidateQueries({ queryKey: ['desk', 'orders'] });
-      void queryClient.invalidateQueries({ queryKey: ['desk', 'dayclose'] });
-      void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
-    },
-  });
+export type CloseGroupInput=typeof TicketCloseGroup.input._input&{idempotencyKey?:string};
+export type CloseGroupResult=typeof TicketCloseGroup.output._type;
+export type GroupQuoteInput=typeof TicketQuoteGroup.input._input;
+export type GroupQuote=typeof TicketQuoteGroup.output._type;
+export function useGroupQuote(input:GroupQuoteInput|null){
+ const {membershipId,status,isOnline}=useSession();
+ return useQuery({queryKey:['checkout','group-quote',membershipId,input],enabled:status==='ready'&&!!membershipId&&isOnline!==false&&!!input,retry:false,staleTime:0,
+  queryFn:async()=>(await runCommand<GroupQuote>('ticket.quoteGroup',input!,membershipId!)).result});
 }
+type Command='ticket.pay'|'ticket.closeGroup';
+type Inputs={'ticket.pay':CloseTicketInput;'ticket.closeGroup':CloseGroupInput};
+type Results={'ticket.pay':CloseResult;'ticket.closeGroup':CloseGroupResult};
+type Pending={command:'ticket.pay';key:string;input:CloseTicketInput}|{command:'ticket.closeGroup';key:string;input:CloseGroupInput};
+function paymentPayload(command:Command,input:unknown){return command==='ticket.pay'?TicketPay.input.parse(input):TicketCloseGroup.input.parse(input);}
+function useCheckoutCommand<C extends Command>(command:C){
+ const queryClient=useQueryClient(),{membershipId}=useSession(),storageKey=`gf-ticket-payment:${membershipId}`;
+ const readPending=():Pending|null=>{try{const raw=JSON.parse(sessionStorage.getItem(storageKey)??'null');
+  if(!raw||typeof raw.key!=='string')return null;const command=raw.command??'ticket.pay';if(command!=='ticket.pay'&&command!=='ticket.closeGroup')return null;
+  paymentPayload(command,raw.input);return {...raw,command} as Pending;
+ }catch{return null;}};
+ const [stored,setStored]=useState(()=>({storageKey,value:readPending()}));const pending=stored.storageKey===storageKey?stored.value:null;
+ useEffect(()=>{const sync=()=>setStored({storageKey,value:readPending()});sync();window.addEventListener('gf-ticket-payment-changed',sync);return()=>window.removeEventListener('gf-ticket-payment-changed',sync);},[storageKey]);
+ function preserve(value:Pending|null){if(value)sessionStorage.setItem(storageKey,JSON.stringify(value));else sessionStorage.removeItem(storageKey);setStored({storageKey,value});window.dispatchEvent(new Event('gf-ticket-payment-changed'));}
+ const mutation=useMutation({mutationFn:async(input:Inputs[C]):Promise<Results[C]>=>{
+  const payload=paymentPayload(command,input),saved=readPending()??pending;
+  if(saved&&(saved.command!==command||JSON.stringify(paymentPayload(saved.command,saved.input))!==JSON.stringify(payload)))throw new ApiError('VALIDATION_FAILED',{reason:'checkout_result_unknown'},false,409);
+  const attempt=saved??({command,key:input.idempotencyKey??crypto.randomUUID(),input} as Pending);preserve(attempt);
+  try{const response=await runCommand<Results[C]>(command,payload,membershipId!,attempt.key);
+   if(command==='ticket.pay'&&(response.result as CloseResult).ticketId!==(input as CloseTicketInput).ticketId)throw new Error('CHECKOUT_RESPONSE_MISMATCH');
+   if(command==='ticket.closeGroup'){const result=response.result as CloseGroupResult,request=input as CloseGroupInput;
+    if(result.groupId!==request.groupId||JSON.stringify(result.tickets.map(t=>t.ticketId).sort())!==JSON.stringify([...request.ticketIds].sort()))throw new Error('CHECKOUT_RESPONSE_MISMATCH');}
+   preserve(null);return response.result;
+  }catch(e){if(e instanceof ApiError&&e.status>0&&e.status<500&&(!saved||(![401,403,429].includes(e.status)&&e.code!=='IDEMPOTENCY_KEY_REUSED')))preserve(null);throw e;}
+ },onSuccess:()=>{for(const queryKey of [['desk','tickets'],['desk','orders'],['desk','dayclose'],['desk','day']])void queryClient.invalidateQueries({queryKey});}});
+ return {...mutation,pendingPayment:pending?.command==='ticket.pay'?pending.input:null,pendingGroupPayment:pending?.command==='ticket.closeGroup'?pending.input:null,hasPendingSettlement:!!pending};
+}
+export function useCloseTicket(){return useCheckoutCommand('ticket.pay');}
+export function useCloseGroup(){return useCheckoutCommand('ticket.closeGroup');}
 
 export interface VoidTicketInput {
   ticketId: string;

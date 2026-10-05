@@ -1,0 +1,83 @@
+$ vitest run --passWithNoTests --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/booking
+
+ ✓ src/pages/BookPage.test.tsx (16 tests) 3557ms
+   ✓ BookPage > shows the percentage deposit and saved cancellation policy before accepting an explicit acknowledgement 541ms
+   ✓ BookPage > refreshes a changed deposit quote and requires fresh acknowledgement while keeping the contact details 376ms
+   ✓ BookPage > returns to time selection and reloads slots after a 409 306ms
+   ✓ BookPage > double-click submit sends one request with one idempotency key 307ms
+stderr | src/pages/ManageBookingPage.test.tsx > ManageBookingPage > shows locked and mismatch last-four errors from the mutation
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/ManageBookingPage.test.tsx > ManageBookingPage > becomes read-only and offers rebook after cancellation
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/ManageBookingPage.test.tsx > submits only the selected guest and exact refund quote, retaining its request ID after an interrupted response
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/ManageBookingPage.test.tsx > requires all participants of a shared service before customer cancellation
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+ ✓ src/pages/ManageBookingPage.test.tsx (13 tests) 1111ms
+ ✓ src/pages/MembershipsPage.test.tsx (9 tests) 519ms
+stderr | src/pages/BookingExperiencePage.test.tsx > retains a storefront selection, assigns each guest, reviews before atomic submission
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > retains a storefront selection, assigns each guest, reviews before atomic submission
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > retains a storefront selection, assigns each guest, reviews before atomic submission
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > explains unavailable times and offers another date
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > explains unavailable times and offers another date
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > removes the chosen middle guest and preserves the remaining names and services
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > books Couples Massage once for two guests instead of requiring a second paid selection
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+stderr | src/pages/BookingExperiencePage.test.tsx > books Couples Massage once for two guests instead of requiring a second paid selection
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+ ✓ src/pages/BookingExperiencePage.test.tsx (4 tests) 1829ms
+   ✓ retains a storefront selection, assigns each guest, reviews before atomic submission 917ms
+   ✓ removes the chosen middle guest and preserves the remaining names and services 663ms
+ ✓ src/components/AppointmentDeposit.test.tsx (8 tests) 100ms
+ ✓ src/pages/CommercePage.test.tsx (6 tests) 292ms
+ ✓ src/lib/experience.test.ts (4 tests) 10ms
+ ✓ src/lib/format.test.ts (3 tests) 5ms
+stderr | src/components/ServiceCustomizer.test.tsx > edits the actual variant and add-ons together, without saving on dismiss
+A PressResponder was rendered without a pressable child. Either call the usePress hook, or wrap your DOM node with <Pressable> component.
+
+ ✓ src/components/ServiceCustomizer.test.tsx (1 test) 139ms
+ ✓ src/lib/session.test.ts (2 tests) 1ms
+ ✓ src/lib/partyGuests.test.ts (2 tests) 1ms
+ ✓ src/lib/serviceGroups.test.ts (2 tests) 2ms
+ ✓ src/lib/manageToken.test.ts (2 tests) 1ms
+ ✓ src/lib/apiScope.test.ts (1 test) 3ms
+ ✓ src/lib/embed.test.ts (1 test) 1ms
+
+ Test Files  15 passed (15)
+      Tests  74 passed (74)
+   Start at  23:22:40
+   Duration  18.24s (transform 582ms, setup 1.01s, collect 4.11s, tests 7.57s, environment 3.98s, prepare 371ms)
+

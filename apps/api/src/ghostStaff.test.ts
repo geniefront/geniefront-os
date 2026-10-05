@@ -258,6 +258,7 @@ describe('手机号找人', () => {
      */
     const before = { ...process.env };
     try {
+      delete process.env['STAGING_OTP_CODE'];
       process.env['TWILIO_ACCOUNT_SID'] = 'AC0';
       process.env['TWILIO_AUTH_TOKEN'] = 't';
       process.env['TWILIO_VERIFY_SERVICE_SID'] = 'VA0';
@@ -275,7 +276,7 @@ describe('手机号找人', () => {
       expect(verifyConfigured()).toBe(false);
     } finally {
       for (const k of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_VERIFY_SERVICE_SID',
-                       'TELNYX_API_KEY', 'TELNYX_VERIFY_PROFILE_ID']) {
+                       'TELNYX_API_KEY', 'TELNYX_VERIFY_PROFILE_ID', 'STAGING_OTP_CODE']) {
         if (before[k] === undefined) delete process.env[k];
         else process.env[k] = before[k];
       }

@@ -1,0 +1,17 @@
+$ vitest run --passWithNoTests src/pages/CommercePage.test.tsx
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/booking
+
+ ✓ src/pages/CommercePage.test.tsx (12 tests) 5413ms
+   ✓ shows price separately from gift face value and disables purchasing for an unavailable account 536ms
+   ✓ keeps one purchase key through a failed POST and displays pending after a retry, without claiming completion 1299ms
+   ✓ does not treat a paid-but-unfulfilled order as completed 444ms
+   ✓ shows the purchased service, validity and visit rule and submits the server quote 1197ms
+   ✓ preserves the original request and key after a lost response and remount, even when the catalog changes 820ms
+   ✓ refreshes changed purchase terms for review before allowing another request 665ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  19:32:44
+   Duration  8.50s (transform 676ms, setup 112ms, collect 2.31s, tests 5.41s, environment 413ms, prepare 83ms)
+

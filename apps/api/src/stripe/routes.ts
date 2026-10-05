@@ -694,6 +694,12 @@ export function registerStripeRoutes(
       });
     }
 
+    // Customer direct charges belong only to the commerce endpoint. Even an
+    // accidentally subscribed SaaS webhook must not bill merchants or grant AI credits.
+    if(event.account || (event.data.object as {metadata?:Record<string,string>}).metadata?.gf_domain==='customer_commerce') {
+      return {received:true,result:'ignored_customer_commerce'};
+    }
+
     /**
      * ⭐ 开户（docs/12 §3 A）：**这是唯一一条「事件到达时门店还不存在」的路。**
      *

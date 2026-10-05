@@ -1,0 +1,11 @@
+$ vitest run src/money.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ✓ src/money.test.ts (17 tests) 1099ms
+
+ Test Files  1 passed (1)
+      Tests  17 passed (17)
+   Start at  08:50:22
+   Duration  3.84s (transform 458ms, setup 1.73s, collect 849ms, tests 1.10s, environment 0ms, prepare 31ms)
+

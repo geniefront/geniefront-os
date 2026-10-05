@@ -133,14 +133,17 @@ registerHandler(JoinQueue, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
 
   if (input.appointmentId) {
     const [appointment] = await tx<{
-      id: string; customer_id: string | null; status: string; business_date: string;
+      id: string; customer_id: string | null; status: string; deposit_status:string; business_date: string;
     }[]>`
-      select id, customer_id, status, business_date::text as business_date
+      select id, customer_id, status, deposit_status, business_date::text as business_date
       from appointments
       where id = ${input.appointmentId} and location_id = ${ctx.locationId}
       for update`;
     if (!appointment) {
       throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+    }
+    if(appointment.deposit_status==='pending'||appointment.deposit_status==='review'){
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'deposit_payment_required'}});
     }
     if (appointment.status === 'cancelled' || appointment.status === 'done') {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {

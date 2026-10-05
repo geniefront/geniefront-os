@@ -1,5 +1,8 @@
 # 前台 Web 全页手测记录（只记录，不改代码）
 
+> **2026-09-27 账号清理更新：** 当前环境账号和 seed 命令以[环境账号清单](TEST_ACCOUNTS.md)为准。下文旧账号、演示店及旧密码仅适用于历史记录或隔离测试 fixture，不能作为现行 local/staging/prod 登录配置；原 `ops` 管理员保留。
+
+
 日期：2026-09-05  
 账号：`owner@maildrop.cc` / `GenieDev!2026`（老板 · 金足足疗 / Golden Foot Spa · `America/Los_Angeles`）  
 环境：本机 `http://localhost:5177` + API `:3000` + 本地 Supabase Kong `:55321`  

@@ -247,7 +247,7 @@ describe('系统设置增强模块与全新 REST API 接口测试', () => {
 
   // 4. AI 电话助手高级配置
   describe('4. AI 电话助手高级配置', () => {
-    it('PUT /api/desk/settings/phone-assistant 保存问候语与转接号', async () => {
+    it('旧店家电话助手配置入口明确拒绝运营管理字段', async () => {
       const res = await app.inject({
         method: 'PUT',
         url: '/api/desk/settings/phone-assistant',
@@ -261,8 +261,8 @@ describe('系统设置增强模块与全新 REST API 接口测试', () => {
         },
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.json().saved).toBe(true);
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({code:'PERMISSION_DENIED',details:{reason:'ops_managed_voice_settings'}});
     });
   });
 

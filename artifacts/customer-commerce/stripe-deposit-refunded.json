@@ -1,0 +1,94 @@
+{
+  "at": "2026-10-01T05:07:56.700Z",
+  "liveMode": false,
+  "accountId": "acct_1ULVaEJDnwwxW56m",
+  "orderId": "ade9dfbf-c878-4782-9965-b4f2f6dacb5d",
+  "holdId": "c9ca9729-cef6-4976-85d1-4d305f36f54a",
+  "appointmentId": "0588c8ad-4334-4395-8d49-d0f68469886d",
+  "stripeVerified": true,
+  "sessionStatus": "complete",
+  "paymentStatus": "paid",
+  "checkoutPaid": true,
+  "bookingConfirmed": false,
+  "facts": {
+    "hold_status": "paid",
+    "amount_cents": 2000,
+    "service_total_cents": 10000,
+    "reserved_cents": 0,
+    "expires_at": "2026-10-01 04:25:26.817605+00",
+    "hold_unexpired": false,
+    "policy_snapshot": {
+      "method": "percentage",
+      "consent": {
+        "at": "2026-10-01 04:10:26.817605+00",
+        "locale": "zh-Hans",
+        "method": "customer_confirmation",
+        "accepted": true
+      },
+      "version": "appointment-deposit-v2:44ffd5323cd826dd78b2614963fff484a39684b65af582feb55703be98703bb6",
+      "percentBps": 2000,
+      "holdMinutes": 15,
+      "guestAllocation": {
+        "guests": [
+          {
+            "guestIndex": 0,
+            "amountCents": 2000,
+            "serviceTotalCents": 10000
+          }
+        ],
+        "method": "service_price"
+      },
+      "fixedAmountCents": null,
+      "cancelCutoffHours": 4,
+      "retainAfterCutoff": false,
+      "cancellationPolicyNotice": "Sandbox QA: unused deposit is refundable before the original cancellation deadline."
+    },
+    "appointment_status": "done",
+    "deposit_status": "paid",
+    "business_date": "2026-09-30",
+    "timezone": "America/Los_Angeles",
+    "order_status": "fulfilled",
+    "payment_status": "paid",
+    "fee_cents": 88,
+    "net_cents": 1912,
+    "balance_transaction_id": "txn_3ULbOUJDnwwxW56m14iPlMOb",
+    "collection_rows": 1,
+    "available_cents": 0,
+    "signed_checkout_events": 1,
+    "guest_confirmation_rows": 1
+  },
+  "serviceConsumptionVerified": true,
+  "service": {
+    "status": "closed",
+    "business_date": "2026-09-30",
+    "subtotal_cents": 10000,
+    "discount_cents": 0,
+    "total_cents": 10000,
+    "cash_cents": 8000,
+    "deposit_cents": 2000,
+    "application_rows": 1,
+    "original_commission_base_cents": 10000,
+    "commission_base_cents": 8000
+  },
+  "refundVerified": true,
+  "refundFacts": {
+    "id": "6c2155c4-3679-469a-89da-c98d98ac2e4e",
+    "status": "succeeded",
+    "amount_cents": 400,
+    "stripe_refund_id": "re_3ULbOUJDnwwxW56m1xXSyV0z",
+    "balance_transaction_id": "txn_3ULbOUJDnwwxW56m1qzRRQQh",
+    "settlement_currency": "usd",
+    "settlement_gross_cents": -400,
+    "fee_cents": 0,
+    "net_cents": -400,
+    "service_refund_rows": 1,
+    "cash_refund_recorded_cents": 1600,
+    "deposit_restored_cents": 400,
+    "restoration_rows": 1,
+    "purchase_refund_rows": 1,
+    "signed_refund_events": 2,
+    "providerStatus": "succeeded",
+    "providerAmountCents": 400
+  },
+  "goalComplete": false
+}

@@ -1,0 +1,17 @@
+$ vitest run --passWithNoTests src/features/commerce/DepositRetentionReleaseActions.test.tsx src/features/commerce/DepositRetentionActions.test.tsx src/components/AppointmentDrawer.test.tsx src/features/dayclose/CommerceDayPanel.test.tsx
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/features/dayclose/CommerceDayPanel.test.tsx (2 tests) 122ms
+ ✓ src/components/AppointmentDrawer.test.tsx (10 tests) 651ms
+ ✓ src/features/commerce/DepositRetentionReleaseActions.test.tsx (3 tests) 968ms
+   ✓ keeps a lost release after remount and retries its exact original amount and key even when the retained balance is now zero 421ms
+   ✓ requires refund permission, online access and an amount within the retained balance 309ms
+ ✓ src/features/commerce/DepositRetentionActions.test.tsx (5 tests) 1085ms
+   ✓ requires an explicit amount and reason and preserves the selected guest quote on interrupted retries 420ms
+
+ Test Files  4 passed (4)
+      Tests  20 passed (20)
+   Start at  12:28:57
+   Duration  4.27s (transform 910ms, setup 3.00s, collect 4.47s, tests 2.82s, environment 3.01s, prepare 346ms)
+

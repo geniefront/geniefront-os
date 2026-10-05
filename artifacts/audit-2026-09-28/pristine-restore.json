@@ -1,0 +1,93 @@
+[
+  {
+    "command": [
+      "psql",
+      "postgresql://postgres:audit_local_only@127.0.0.1:57208/audit_pristine",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-f",
+      "packages/db/test/bootstrap-postgres.sql"
+    ],
+    "exitCode": 0,
+    "output": "DO\nCREATE SCHEMA\nCREATE EXTENSION\nALTER ROLE\nCREATE SCHEMA\nCREATE TABLE\nCREATE TABLE\nCREATE FUNCTION\nCREATE SCHEMA\nCREATE TABLE\nALTER TABLE\nCREATE FUNCTION\nCREATE FUNCTION\nCREATE SCHEMA\nCREATE TABLE\nCREATE TABLE\nALTER TABLE\nCREATE FUNCTION\nGRANT\nGRANT\nGRANT\nGRANT\n"
+  },
+  {
+    "command": [
+      "pnpm",
+      "db:migrate"
+    ],
+    "exitCode": 0,
+    "output": "$ pnpm --filter @gf/db migrate\n$ tsx src/migrate.ts\n\n\u2550\u2550\u2550 \u8fc1\u79fb \u2550\u2550\u2550\n\n\u8fde\u63a5\u8eab\u4efd\uff1apostgres @ audit_pristine\n\n1) \u5efa\u8868\uff08drizzle\uff09\n  \u2192 drizzle/0000_crazy_squadron_supreme.sql ...   \u00b7 identifier \"rotation_participants_location_id_business_date_membership_id_pk\" will be truncated to \"rotation_participants_location_id_business_date_membership_id_p\"\nOK\n  \u2192 drizzle/0001_tranquil_khan.sql ... OK\n  \u2192 drizzle/0002_high_tiger_shark.sql ... OK\n  \u2192 drizzle/0003_lying_changeling.sql ... OK\n  \u2192 drizzle/0004_mature_killmonger.sql ... OK\n  \u2192 drizzle/0005_petite_warbound.sql ... OK\n  \u2192 drizzle/0006_stiff_mauler.sql ... OK\n  \u2192 drizzle/0007_nostalgic_roxanne_simpson.sql ... OK\n  \u2192 drizzle/0008_lean_scorpion.sql ... OK\n  \u2192 drizzle/0009_green_hellfire_club.sql ... OK\n  \u2192 drizzle/0010_narrow_randall_flagg.sql ... OK\n\n2) \u5b88\u62a4 SQL\uff08RLS / \u7ea6\u675f / \u5ba1\u8ba1\uff09\n  \u2192 sql/0001_rls_and_guards.sql ... OK\n  \u2192 sql/0002_reviews_rls.sql ... OK\n  \u2192 sql/0003_user_scoped_identity.sql ... OK\n  \u2192 sql/0004_identity_permissions.sql ... OK\n  \u2192 sql/0005_tickets_rls.sql ... OK\n  \u2192 sql/0006_tip_policies_rls.sql ... OK\n  \u2192 sql/0007_setup_constraints.sql ... OK\n  \u2192 sql/0008_resource_capacity.sql ... OK\n  \u2192 sql/0009_money_and_roster_rls.sql ... OK\n  \u2192 sql/0010_phase1b_permissions.sql ... OK\n  \u2192 sql/0011_realtime_and_attendance.sql ... OK\n  \u2192 sql/0012_broadcast_wrapper.sql ... OK\n  \u2192 sql/0013_presence_policy.sql ... OK\n  \u2192 sql/0014_blueprint.sql ...   \u00b7 \u2713 price-lists \u79c1\u6709\u6876\u4e0e\u7b56\u7565\u5df2\u5c31\u7eea\nOK\n  \u2192 sql/0015_phone.sql ... OK\n  \u2192 sql/0016_kiosk.sql ...   \u00b7 \u2713 signatures \u79c1\u6709\u6876\u4e0e\u7b56\u7565\u5df2\u5c31\u7eea\nOK\n  \u2192 sql/0017_phase2_permissions.sql ... OK\n  \u2192 sql/0018_billing.sql ... OK\n  \u2192 sql/0019_ledger_order.sql ... OK\n  \u2192 sql/0020_stripe_events_processed_at.sql ... OK\n  \u2192 sql/0021_plans_and_included_quota.sql ... OK\n  \u2192 sql/0022_topup_tiers.sql ... OK\n  \u2192 sql/0023_credits_and_minutes.sql ... OK\n  \u2192 sql/0024_retire_money_ledger_columns.sql ... OK\n  \u2192 sql/0025_store_contact_numbers.sql ... OK\n  \u2192 sql/0026_forwarding_mode.sql ... OK\n  \u2192 sql/0027_forwarding_modes.sql ... OK\n  \u2192 sql/0028_name_auto.sql ... OK\n  \u2192 sql/0029_email_outbox.sql ... OK\n  \u2192 sql/0030_signup.sql ... OK\n  \u2192 sql/0031_ghost_staff.sql ... OK\n  \u2192 sql/0032_gap_days.sql ... OK\n  \u2192 sql/0033_public_booking.sql ... OK\n  \u2192 sql/0034_sms.sql ... OK\n  \u2192 sql/0035_service_addon.sql ... OK\n  \u2192 sql/0036_phone_tool_token.sql ... OK\n  \u2192 sql/0037_call_transcript.sql ... OK\n  \u2192 sql/0038_form_share.sql ... OK\n  \u2192 sql/0039_trial.sql ... OK\n  \u2192 sql/0040_self_reschedule.sql ... OK\n  \u2192 sql/0041_ai_change_policy.sql ... OK\n  \u2192 sql/0042_public_key_fn.sql ... OK\n  \u2192 sql/0043_gift_cards.sql ... OK\n  \u2192 sql/0044_discounts_notifications.sql ... OK\n  \u2192 sql/0045_storefront_brief.sql ... OK\n  \u2192 sql/0046_off_hours.sql ... OK\n  \u2192 sql/0047_google_signin.sql ... OK\n  \u2192 sql/0048_marketing_resources_pairing.sql ... OK\n  \u2192 sql/0049_permissions_and_pairing_rls.sql ... OK\n  \u2192 sql/0050_desk_enhancements.sql ... OK\n  \u2192 sql/0051_staff_directory_enhancements.sql ... OK\n  \u2192 sql/0052_financial_bi_subscription_enhancements.sql ... OK\n  \u2192 sql/0053_settings_enhancements.sql ... OK\n  \u2192 sql/0054_profile_and_notifications.sql ... OK\n  \u2192 sql/0055_security_hardening.sql ... OK\n  \u2192 sql/0056_one_live_ticket_per_appointment.sql ... OK\n  \u2192 sql/0057_ticket_refund_ledger.sql ... OK\n  \u2192 sql/0058_day_close_credit_service_execution.sql ... OK\n  \u2192 sql/0059_trustworthy_operations_models.sql ... OK\n  \u2192 sql/0060_record_only_finance_scope.sql ... OK\n  \u2192 sql/0061_isolated_seed_reset.sql ... OK\n  \u2192 sql/0062_storefront_delivery_and_device_control.sql ... OK\n  \u2192 sql/0063_stripe_events_status.sql ... OK\n  \u2192 sql/0064_kiosk_enterprise_hardening.sql ... OK\n  \u2192 sql/0065_kiosk_signature_encryption.sql ... OK\n  \u2192 sql/0066_unify_walkin_visit_flow.sql ... OK\n  \u2192 sql/0067_phone_e164_consistency.sql ... OK\n  \u2192 sql/0068_tech_tip_and_assignment_flow.sql ... OK\n  \u2192 sql/0069_checkout_timing.sql ... OK\n  \u2192 sql/0070_onboarding_import_sources.sql ... OK\n  \u2192 sql/0071_stripe_event_retry_lease.sql ... OK\n  \u2192 sql/0072_stripe_invoice_tenant.sql ... OK\n  \u2192 sql/0073_10dlc_internal_review.sql ... OK\n  \u2192 sql/0074_platform_console.sql ... OK\n  \u2192 sql/0075_stripe_ids_system_owned.sql ... OK\n  \u2192 sql/0076_customer_same_org_fk.sql ... OK\n  \u2192 sql/0077_support_notes_operator_only.sql ... OK\n  \u2192 sql/0078_idempotency_retention.sql ... OK\n  \u2192 sql/0079_sms_inbound_isolation.sql ... OK\n  \u2192 sql/0080_stripe_ids_one_org.sql ... OK\n  \u2192 sql/0081_stripe_single_org_definer.sql ... OK\n  \u2192 sql/0082_test_inbox.sql ... OK\n  \u2192 sql/0083_definer_execute_lockdown.sql ... OK\n  \u2192 sql/0084_review_sync.sql ... OK\n  \u2192 sql/0085_subscription_lifecycle.sql ... OK\n  \u2192 sql/0086_notification_defaults_and_unsubscribe.sql ... OK\n  \u2192 sql/0087_notification_default_sms_length.sql ... OK\n  \u2192 sql/0088_messaging_policy_2026_09.sql ... OK\n  \u2192 sql/0089_platform_messaging_panel.sql ... OK\n  \u2192 sql/0090_outbox_delivery_gaps.sql ... OK\n  \u2192 sql/0091_email_suppression.sql ... OK\n  \u2192 sql/0092_marketing_campaigns.sql ... OK\n  \u2192 sql/0093_notification_template_refresh.sql ... OK\n  \u2192 sql/0094_blueprint_extraction_status.sql ... OK\n  \u2192 sql/0095_hosted_booking_slug.sql ... OK\n  \u2192 sql/0096_hosted_shop_slug_resolve.sql ... OK\n  \u2192 sql/0097_restrict_staff_own_appointment_items.sql ... OK\n  \u2192 sql/0098_manage_token_resolution.sql ... OK\n  \u2192 sql/0099_manage_token_wrap.sql ... OK\n  \u2192 sql/0100_manage_url_templates.sql ... OK\n  \u2192 sql/0101_hosted_booking_function_hardening.sql ... OK\n  \u2192 sql/0102_harden_form_access_log.sql ... OK\n  \u2192 sql/0103_harden_template_seed.sql ... OK\n  \u2192 sql/0104_blueprint_packages.sql ... OK\n  \u2192 sql/0105_copilot_sessions.sql ... OK\n  \u2192 sql/0106_form_access_log_seed_reset.sql ... OK\n  \u2192 sql/0107_elastic_email_phase1.sql ... OK\n  \u2192 sql/0108_ticket_item_overbook.sql ... OK\n  \u2192 sql/0109_staff_contact_email.sql ... OK\n  \u2192 sql/0110_copilot_tasks.sql ... OK\n  \u2192 sql/0111_queue_resource_capacity_by_guest.sql ... OK\n  \u2192 sql/0112_sms_inbound_route_by_recipient.sql ... OK\n  \u2192 sql/0113_phone_line_ai_answer_default_off.sql ... OK\n  \u2192 sql/0114_staff_directory_id_contract.sql ... OK\n  \u2192 sql/0115_sms_inbound_routing_scope.sql ... OK\n  \u2192 sql/0116_blueprint_item_staff_count.sql ... OK\n  \u2192 sql/0117_services_updated_at.sql ... OK\n  \u2192 sql/0118_service_bundles.sql ... OK\n  \u2192 sql/0119_health_form_feature_defaults.sql ... OK\n  \u2192 sql/0120_license_codes.sql ... OK\n  \u2192 sql/0121_license_expiry_notice.sql ... OK\n  \u2192 sql/0122_license_sweep_functions.sql ... OK\n  \u2192 sql/20260912142621_v1_issue_permissions_and_indexes.sql ... OK\n  \u2192 sql/20260912181312_health_summary_cache.sql ... OK\n  \u2192 sql/20260919163537_voice_booking_plan.sql ... OK\n  \u2192 sql/20260919164811_voice_processing_jobs.sql ... OK\n  \u2192 sql/20260919182357_voice_manual_quota_defaults.sql ... OK\n  \u2192 sql/20260920032253_public_booking_sms_claims.sql ... OK\n  \u2192 sql/20260920032914_public_booking_party_resources.sql ... OK\n  \u2192 sql/20260920123000_voice_staff_schedules.sql ... OK\n  \u2192 sql/20260920164621_booking_notification_links.sql ... OK\n  \u2192 sql/20260921030000_sms_delivery_receipts.sql ... OK\n  \u2192 sql/20260921030124_public_support_messages.sql ... OK\n  \u2192 sql/20260921155847_service_short_names.sql ... OK\n  \u2192 sql/20260921164813_booking_auto_assignment.sql ... OK\n  \u2192 sql/20260921171225_settings_media_owner_transfer.sql ... OK\n  \u2192 sql/20260921173817_voice_context_references.sql ... OK\n  \u2192 sql/20260921183108_voice_availability_snapshots.sql ... OK\n  \u2192 sql/20260921184523_remove_booking_confirmation_code.sql ... OK\n  \u2192 sql/20260921185620_voice_call_appointment_history.sql ... OK\n  \u00b7 role \"postgres\" has already been granted membership in role \"app_user\" by role \"postgres\"\n\n\u2713 app_user \u5df2\u53ef\u767b\u5f55\uff08\u53d7 RLS \u7ea6\u675f\uff0c\u65e0 BYPASSRLS\uff09\n\u2713 RLS \u8986\u76d6\u68c0\u67e5\u901a\u8fc7\n\n\u5b8c\u6210\uff1a\u65b0\u5e94\u7528 151 \u4e2a\u6587\u4ef6\n\n"
+  },
+  {
+    "command": [
+      "pnpm",
+      "db:seed"
+    ],
+    "exitCode": 0,
+    "output": "$ tsx packages/db/src/seedEntry.ts\n\n\u2550\u2550\u2550 \u586b\u5145\u771f\u5b9e\u6d4b\u8bd5\u6570\u636e\uff08\u8986\u76d6\u8fc7\u53bb 14 \u5929\u4e0e\u672a\u6765 14 \u5929\uff09 \u2550\u2550\u2550\n\n1. \u5f00\u59cb\u6570\u636e\u5e93\u4e8b\u52a1\u4e0e\u6e05\u7406\u65e7\u6570\u636e...\nCleaning table: copilot_messages\nCleaning table: copilot_sessions\nCleaning table: ai_business_summaries\nCleaning table: support_request_notes\nCleaning table: support_requests\nCleaning table: day_close_events\nCleaning table: ticket_refunds\nCleaning table: ticket_service_notes\nCleaning table: resource_occupancies\nCleaning table: in_app_notifications\nCleaning table: user_notification_preferences\nCleaning table: user_device_sessions\nCleaning table: location_webhooks\nCleaning table: location_10dlc_registrations\nCleaning table: location_intake_templates\nCleaning table: location_scheduling_rules\nCleaning table: location_checkout_settings\nCleaning table: customer_credit_ledger\nCleaning table: customer_packages\nCleaning table: package_templates\nCleaning table: coupon_templates\nCleaning table: gift_cards\nCleaning table: gift_card_templates\nCleaning table: earnings\nCleaning table: tip_payouts\nCleaning table: cash_movements\nCleaning table: day_closes\nCleaning table: order_bundle_instances\nCleaning table: service_bundle_components\nCleaning table: service_bundles\nCleaning table: tip_allocations\nCleaning table: payments\nCleaning table: ticket_discounts\nCleaning table: ticket_item_staff\nCleaning table: ticket_items\nCleaning table: tickets\nCleaning table: ticket_groups\nCleaning table: tip_policies\nCleaning table: time_punches\nCleaning table: staff_sessions\nCleaning table: booking_manage_attempts\nCleaning table: email_sender_settings\nCleaning table: email_domain_requests\nCleaning table: email_accounts\nCleaning table: email_validation_cache\nCleaning table: form_access_log\nCleaning table: form_submissions\nCleaning table: form_share_links\nCleaning table: form_templates\nCleaning table: walkin_queue\nCleaning table: voice_appointment_activity\nCleaning table: voice_availability_snapshots\nCleaning table: voice_context_references\nCleaning table: voice_processing_jobs\nCleaning table: call_drafts\nCleaning table: phone_calls\nCleaning table: phone_lines\nCleaning table: sms_inbound\nCleaning table: sms_consent\nCleaning table: sms_outbox\nCleaning table: email_outbox\nCleaning table: license_redemptions\nCleaning table: license_codes\nCleaning table: credit_ledger\nCleaning table: usage_events\nCleaning table: stripe_events\nCleaning table: billing_invoices\nCleaning table: billing_accounts\nCleaning table: location_subscriptions\nCleaning table: pairing_sessions\nCleaning table: discount_reasons\nCleaning table: notification_rules\nCleaning table: notification_templates\nCleaning table: storefront_revisions\nCleaning table: storefront_drafts\nCleaning table: storefront_briefs\nCleaning table: blueprint_items\nCleaning table: blueprint_sources\nCleaning table: shop_blueprints\nCleaning table: location_reviews\nCleaning table: location_review_stats\nCleaning table: review_summaries\nCleaning table: shifts\nCleaning table: shift_templates\nCleaning table: compensation_plans\nCleaning table: appointment_item_blocks\nCleaning table: appointment_items\nCleaning table: appointments\nCleaning table: rotation_events\nCleaning table: rotation_participants\nCleaning table: rotation_policies\nCleaning table: customer_preferences\nCleaning table: customers\nCleaning table: service_option_defs\nCleaning table: services\nCleaning table: service_categories\nCleaning table: resources\nCleaning table: resource_types\nCleaning table: staff_profiles\nCleaning table: staff_skills\nCleaning table: skills\nCleaning table: staff_levels\nCleaning table: staff_job_titles\nCleaning table: device_tokens\nCleaning table: membership_roles\nCleaning table: permission_overrides\nCleaning table: memberships\nCleaning table: role_permissions\nCleaning table: roles\nCleaning table: user_last_location\nCleaning table: platform_operators\nCleaning table: __users__\nCleaning table: location_allowed_origins\nCleaning table: location_features\nCleaning table: signup_intents\nCleaning table: locations\n\u2713 \u65e7\u6570\u636e\u6e05\u7406\u5b8c\u6bd5\n2. \u521b\u5efa\u673a\u6784\u4e0e\u95e8\u5e97...\n3. \u5458\u5de5\u4e0e\u6280\u80fd\u521b\u5efa...\n4. \u5ba2\u6237\u4e0e\u504f\u597d\u521b\u5efa...\n5. \u73ed\u8868\u751f\u6210 (29\u5929\u5168\u8986\u76d6)...\n6. \u8fc7\u53bb 14 \u5929\u5df2\u5b8c\u6210\u9884\u7ea6\u4e0e\u771f\u5b9e\u5de5\u5355\u8d22\u52a1\u6d41\u6c34\u751f\u6210...\n7. AI \u7535\u8bdd\u4e13\u7ebf\u3001\u901a\u8bdd\u8bb0\u5f55\u4e0e\u610f\u5411\u8349\u6848\u751f\u6210...\n\u2713 \u79cd\u5b50\u6570\u636e\u586b\u5145\u5b8c\u6bd5\uff01\n  organizations                  2\n  locations                      2\n  services                       15\n  resources                      8\n  customers                      18\n  memberships                    10\n  shifts (29\u5929)                   232\n  appointments (\u8fc7\u53bb/\u4eca\u65e5/\u672a\u6765)        175\n  tickets (\u5df2\u7ed3/\u8fdb\u884c\u4e2d\u5de5\u5355)             103\n  payments (\u6536\u6b3e\u6d41\u6c34)                98\n  gift_cards (\u793c\u54c1\u5361)               5\n  coupon_templates (\u4f18\u60e0\u5238)         4\n  package_templates (\u6b21\u5361\u5957\u9910)       4\n  location_reviews (\u53e3\u7891\u8bc4\u4ef7)        5\n"
+  },
+  {
+    "command": [
+      "docker",
+      "exec",
+      "gf-audit-20260928",
+      "createdb",
+      "-U",
+      "postgres",
+      "audit_pristine_restored"
+    ],
+    "exitCode": 0,
+    "output": ""
+  },
+  {
+    "command": [
+      "docker",
+      "exec",
+      "-i",
+      "gf-audit-20260928",
+      "pg_restore",
+      "-U",
+      "postgres",
+      "-d",
+      "audit_pristine_restored",
+      "--exit-on-error"
+    ],
+    "exitCode": 0,
+    "output": ""
+  },
+  {
+    "command": [
+      "docker",
+      "exec",
+      "gf-audit-20260928",
+      "psql",
+      "-U",
+      "postgres",
+      "-d",
+      "audit_pristine",
+      "-At",
+      "-c",
+      "select proname,proconfig from pg_proc where proname='gf_shop_slug_canonical'; select json_build_object('locations',(select count(*) from locations),'tickets',(select count(*) from tickets),'payments',(select count(*) from payments),'payment_total',(select sum(amount_cents) from payments),'forced_rls',(select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relrowsecurity and c.relforcerowsecurity));"
+    ],
+    "exitCode": 0,
+    "output": "gf_shop_slug_canonical|{\"search_path=pg_catalog, public\"}\n{\"locations\" : 2, \"tickets\" : 103, \"payments\" : 98, \"payment_total\" : 707253, \"forced_rls\" : 132}\n"
+  },
+  {
+    "command": [
+      "docker",
+      "exec",
+      "gf-audit-20260928",
+      "psql",
+      "-U",
+      "postgres",
+      "-d",
+      "audit_pristine_restored",
+      "-At",
+      "-c",
+      "select proname,proconfig from pg_proc where proname='gf_shop_slug_canonical'; select json_build_object('locations',(select count(*) from locations),'tickets',(select count(*) from tickets),'payments',(select count(*) from payments),'payment_total',(select sum(amount_cents) from payments),'forced_rls',(select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relrowsecurity and c.relforcerowsecurity));"
+    ],
+    "exitCode": 0,
+    "output": "gf_shop_slug_canonical|{\"search_path=pg_catalog, public\"}\n{\"locations\" : 2, \"tickets\" : 103, \"payments\" : 98, \"payment_total\" : 707253, \"forced_rls\" : 132}\n"
+  }
+]

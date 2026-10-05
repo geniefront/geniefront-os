@@ -1,0 +1,29 @@
+$ vitest run --passWithNoTests
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/packages/contracts
+
+ ✓ src/planAccess.test.ts (5 tests) 2ms
+ ✓ src/shopSlug.test.ts (19 tests) 6ms
+ ✓ src/birthdate.test.ts (15 tests) 3ms
+ ✓ src/money.test.ts (6 tests) 2ms
+ ✓ src/kiosk.test.ts (4 tests) 6ms
+ ✓ src/voiceConfiguration.test.ts (4 tests) 8ms
+ ✓ src/catalogPresets.test.ts (6 tests) 27ms
+ ✓ src/phone.test.ts (16 tests) 9ms
+ ✓ src/voiceNotifications.test.ts (3 tests) 6ms
+ ✓ src/businessHours.test.ts (2 tests) 10ms
+ ✓ src/healthForms.test.ts (2 tests) 3ms
+ ✓ src/aiSchema.test.ts (3 tests) 1ms
+ ✓ src/phoneEntrypoints.test.ts (2 tests) 8ms
+ ✓ src/setupReadiness.test.ts (2 tests) 4ms
+ ✓ src/bookingMedia.test.ts (1 test) 8ms
+ ✓ src/profile.test.ts (2 tests) 7ms
+ ✓ src/appointmentCapabilities.test.ts (1 test) 1ms
+ ✓ src/serviceParty.test.ts (1 test) 1ms
+ ✓ src/registry.test.ts (3 tests) 11ms
+
+ Test Files  19 passed (19)
+      Tests  97 passed (97)
+   Start at  17:56:48
+   Duration  934ms (transform 696ms, setup 0ms, collect 2.43s, tests 123ms, environment 3ms, prepare 1.36s)
+

@@ -7,7 +7,7 @@
  */
 
 import {
-  pgTable, uuid, text, jsonb, boolean, integer, timestamp, date, index, uniqueIndex,
+  pgTable, uuid, text, jsonb, boolean, integer, numeric, timestamp, date, index, uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { organizations, locations } from './tenancy';
@@ -61,6 +61,8 @@ export const tickets = pgTable('tickets', {
   subtotalCents: integer('subtotal_cents').notNull().default(0),
   discountCents: integer('discount_cents').notNull().default(0),
   taxCents: integer('tax_cents').notNull().default(0),
+  settlementTaxMode:text('settlement_tax_mode'),
+  settlementTaxRatePercent:numeric('settlement_tax_rate_percent',{precision:8,scale:4}),
   /** ⚠️ tip 与 service_charge 法律上是两回事，永不混用（00 §3.2） */
   tipCents: integer('tip_cents').notNull().default(0),
   serviceChargeCents: integer('service_charge_cents').notNull().default(0),
@@ -159,6 +161,8 @@ export const payments = pgTable('payments', {
   ticketId: uuid('ticket_id').notNull().references(() => tickets.id, { onDelete: 'cascade' }),
   /** 决策 19：只区分现金与刷卡，Zelle 按现金记 */
   method: text('method').notNull(),   // cash|card|external
+  depositHoldId:uuid('deposit_hold_id'),
+  depositCommercePaymentId:uuid('deposit_commerce_payment_id'),
   /** ⚠️ 含小费的收款总额（刷卡机小票上的那个数）。服务净额 = amount − tip */
   amountCents: integer('amount_cents').notNull(),
   tipCents: integer('tip_cents').notNull().default(0),
@@ -209,6 +213,9 @@ export const ticketRefunds = pgTable('ticket_refunds', {
   cardCents: integer('card_cents').notNull().default(0),
   giftCardCents: integer('gift_card_cents').notNull().default(0),
   customerCreditCents: integer('customer_credit_cents').notNull().default(0),
+  depositCents:integer('deposit_cents').notNull().default(0),
+  membershipCents:integer('membership_cents').notNull().default(0),
+  packageCents:integer('package_cents').notNull().default(0),
   method: text('method').notNull(),
   reason: text('reason').notNull(),
   notes: text('notes'),
@@ -293,3 +300,46 @@ export const resourceOccupancies = pgTable('resource_occupancies', {
   index('resource_occupancies_active_idx').on(t.resourceId, t.status)
     .where(sql`${t.status} <> 'released'`),
 ]);
+
+export const ticketSettlementSources=pgTable('ticket_settlement_sources',{
+ id:id(),orgId:orgCol(),locationId:locCol(),ticketId:uuid('ticket_id').notNull().references(()=>tickets.id),sourceKey:text('source_key').notNull(),kind:text('kind').notNull(),
+ paymentId:uuid('payment_id'),creditLedgerId:uuid('credit_ledger_id'),membershipRedemptionId:uuid('membership_redemption_id'),packageRedemptionId:uuid('package_redemption_id'),
+ amountCents:integer('amount_cents').notNull(),tipCents:integer('tip_cents').notNull().default(0),fundedValueCents:integer('funded_value_cents'),
+ serviceCents:integer('service_cents').notNull(),taxCents:integer('tax_cents').notNull().default(0),feeCents:integer('fee_cents').notNull().default(0),
+ baselineServiceCents:integer('baseline_service_cents').notNull().default(0),baselineTaxCents:integer('baseline_tax_cents').notNull().default(0),baselineFeeCents:integer('baseline_fee_cents').notNull().default(0),
+ itemIds:uuid('item_ids').array().notNull().default(sql`'{}'::uuid[]`),baselineReturnedCents:integer('baseline_returned_cents').notNull().default(0),baselineTipCents:integer('baseline_tip_cents').notNull().default(0),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[uniqueIndex('ticket_sources_key').on(t.ticketId,t.sourceKey)]);
+export const ticketSourceReceipts=pgTable('ticket_source_receipts',{
+ id:id(),orgId:orgCol(),locationId:locCol(),ticketId:uuid('ticket_id').notNull().references(()=>tickets.id),stage:text('stage').notNull(),origin:text('origin').notNull(),
+ totalCents:integer('total_cents').notNull(),tipCents:integer('tip_cents').notNull(),sourceCount:integer('source_count').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+});
+export const ticketSourceRefunds=pgTable('ticket_source_refunds',{
+ id:id(),orgId:orgCol(),locationId:locCol(),ticketRefundId:uuid('ticket_refund_id').notNull().references(()=>ticketRefunds.id),sourceId:uuid('source_id').notNull().references(()=>ticketSettlementSources.id),
+ serviceCents:integer('service_cents').notNull(),taxCents:integer('tax_cents').notNull(),feeCents:integer('fee_cents').notNull(),
+ amountCents:integer('amount_cents').notNull(),tipCents:integer('tip_cents').notNull(),destination:text('destination').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+});
+
+export const ticketItemSettlements=pgTable('ticket_item_settlements',{
+ ticketItemId:uuid('ticket_item_id').primaryKey().references(()=>ticketItems.id),orgId:orgCol(),locationId:locCol(),ticketId:uuid('ticket_id').notNull().references(()=>tickets.id),
+ originalCents:integer('original_cents').notNull(),discountCents:integer('discount_cents').notNull(),serviceCents:integer('service_cents').notNull(),taxCents:integer('tax_cents').notNull(),feeCents:integer('fee_cents').notNull(),taxMode:text('tax_mode').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+});
+export const ticketItemSourceAllocations=pgTable('ticket_item_source_allocations',{
+ id:id(),orgId:orgCol(),locationId:locCol(),sourceId:uuid('source_id').notNull().references(()=>ticketSettlementSources.id),ticketItemId:uuid('ticket_item_id').notNull().references(()=>ticketItemSettlements.ticketItemId),
+ serviceCents:integer('service_cents').notNull(),taxCents:integer('tax_cents').notNull(),feeCents:integer('fee_cents').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+});
+export const ticketItemSourceReturns=pgTable('ticket_item_source_returns',{
+ id:id(),orgId:orgCol(),locationId:locCol(),ticketRefundId:uuid('ticket_refund_id').notNull().references(()=>ticketRefunds.id),sourceId:uuid('source_id').notNull().references(()=>ticketSettlementSources.id),allocationId:uuid('allocation_id').notNull().references(()=>ticketItemSourceAllocations.id),
+ serviceCents:integer('service_cents').notNull(),taxCents:integer('tax_cents').notNull(),feeCents:integer('fee_cents').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+});
+export const ticketItemCommissionSources=pgTable('ticket_item_commission_sources',{
+ id:id(),orgId:orgCol(),locationId:locCol(),earningId:uuid('earning_id').notNull(),ticketItemId:uuid('ticket_item_id').notNull().references(()=>ticketItemSettlements.ticketItemId),membershipId:uuid('membership_id').notNull().references(()=>memberships.id),
+ baseCents:integer('base_cents').notNull(),amountCents:integer('amount_cents').notNull(),rateBp:integer('rate_bp').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+});
+export const ticketItemCommissionReturns=pgTable('ticket_item_commission_returns',{
+ id:id(),orgId:orgCol(),locationId:locCol(),ticketRefundId:uuid('ticket_refund_id').notNull().references(()=>ticketRefunds.id),commissionSourceId:uuid('commission_source_id').notNull().references(()=>ticketItemCommissionSources.id),
+ baseCents:integer('base_cents').notNull(),amountCents:integer('amount_cents').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+});
+export const ticketItemGraphReceipts=pgTable('ticket_item_graph_receipts',{
+ ticketId:uuid('ticket_id').primaryKey().references(()=>tickets.id),orgId:orgCol(),locationId:locCol(),origin:text('origin').notNull(),version:integer('version').notNull().default(1),
+ itemCount:integer('item_count').notNull(),allocationCount:integer('allocation_count').notNull(),commissionCount:integer('commission_count').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+});

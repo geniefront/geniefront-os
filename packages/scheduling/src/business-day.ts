@@ -8,15 +8,30 @@
  * 纯函数，无 IO，不依赖运行环境的时区。
  */
 
+// Intl formatter construction is expensive. Only formatting rules are shared;
+// dates, offsets and availability must never be cached globally.
+const wallClockFormatters = new Map<string, Intl.DateTimeFormat>();
+function wallClockFormatter(timezone: string): Intl.DateTimeFormat {
+  const cached = wallClockFormatters.get(timezone);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+  // Bound even callers supplying arbitrary (but valid) timezone aliases.
+  if (wallClockFormatters.size >= 64) {
+    wallClockFormatters.delete(wallClockFormatters.keys().next().value!);
+  }
+  wallClockFormatters.set(timezone, formatter);
+  return formatter;
+}
+
 /** 把一个时刻转成指定时区的墙上时间分量 */
 export function wallClock(instant: Date, timezone: string): {
   year: number; month: number; day: number; hour: number; minute: number;
 } {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  }).formatToParts(instant);
+  const parts = wallClockFormatter(timezone).formatToParts(instant);
 
   const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
   return {

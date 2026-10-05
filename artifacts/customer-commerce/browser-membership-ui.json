@@ -1,0 +1,55 @@
+{
+  "at": "2026-10-01T14:49:33.134805+00:00",
+  "scope": "P4 first subscription purchase, plan editing and customer status UI",
+  "productionPublished": false,
+  "realEmailSent": false,
+  "scenarios": {
+    "monthlyHostedCheckout": true,
+    "annualHostedCheckout": true,
+    "explicitRenewalConsent": true,
+    "immutablePurchasedPriceAfterPlanUpdate": true,
+    "annualTwelvePlannedBatchesOneIssued": true,
+    "customerDesktopEnglish": true,
+    "customerMobileChinese": true,
+    "staffPlanVersionUpdate": true
+  },
+  "sessions": {
+    "commerce-member-monthly": {
+      "viewport": [
+        390,
+        844
+      ],
+      "horizontalOverflow": false,
+      "browserErrors": 0
+    },
+    "commerce-member-year": {
+      "viewport": [
+        390,
+        844
+      ],
+      "horizontalOverflow": false,
+      "browserErrors": 0
+    },
+    "commerce-member-desk-clean": {
+      "viewport": [
+        1280,
+        633
+      ],
+      "horizontalOverflow": false,
+      "browserErrors": 0
+    }
+  },
+  "screenshots": [
+    "membership-monthly-consent-desktop.png",
+    "membership-monthly-paid-desktop.png",
+    "membership-monthly-paid-mobile-zh.png",
+    "membership-annual-consent-desktop.png",
+    "membership-annual-paid-desktop.png",
+    "membership-annual-paid-mobile-zh.png",
+    "membership-plan-version-desk.png"
+  ],
+  "limitations": [
+    "These receipts prove first payments only. Renewals, consumption, cancellation/portal and refunds remain incomplete.",
+    "Earlier P3 HMR session errors remain recorded in their original evidence; zero applies only to these P4 sessions."
+  ]
+}

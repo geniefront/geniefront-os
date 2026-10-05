@@ -13,6 +13,8 @@ trap 'rm -f "$tmp"' EXIT
 
 {
   echo 'GF_ENV=staging'
+  echo 'COMMUNICATION_DELIVERY_MODE=capture'
+  echo "GF_BASELINE_PASSWORD=$(openssl rand -hex 24)"
   echo 'PORT=3000'
   echo 'LOG_LEVEL=info'
   echo 'API_HOST=staging-api.geniefront.com'

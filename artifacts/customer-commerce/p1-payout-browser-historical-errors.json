@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-02T06:48:50.616Z",
+  "scope": "Owned desk browser during development reloads",
+  "errors": [
+    {
+      "column": 18,
+      "line": 331,
+      "text": "Error: useSession must be used within a SessionProvider\n    at useSession (http://localhost:5297/src/lib/session.tsx?t=1790919391727:332:19)\n    at SessionGate (http://localhost:5297/src/App.tsx?t=1790921489614:134:75)\n    at Object.react_stack_bottom_frame (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=be3d6ef7:18509:20)\n    at renderWithHooks (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=be3d6ef7:5654:24)\n    at updateFunctionComponent (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=be3d6ef7:7475:21)\n    at beginWork (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=be3d6ef7:8525:20)\n    at runWithFiberInDEV (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=be3d6ef7:997:72)\n    at performUnitOfWork (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=be3d6ef7:12561:98)\n    at workLoopSync (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=be3d6ef7:12424:43)\n    at renderRootSync (http://localhost:5297/node_modules/.vite/deps/react-dom_client.js?v=be3d6ef7:12408:13)",
+      "url": null
+    }
+  ],
+  "reloadRequired": true,
+  "businessHistoryChanged": false
+}

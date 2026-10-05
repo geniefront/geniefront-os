@@ -1,0 +1,55 @@
+{
+  "at": "2026-10-02T22:16:08.174Z",
+  "stage": "ended",
+  "providerObservation": "signed_subscription_event_and_sdk",
+  "membershipId": "0ef40a69-adf7-4425-a928-72ae89bc470e",
+  "originalSubscriptionReused": true,
+  "stripe": {
+    "status": "canceled",
+    "cancelAtPeriodEnd": true,
+    "providerCancelAtPeriodEnd": false,
+    "cancelAt": 1833027598,
+    "currentAmount": 99900,
+    "cadence": "year",
+    "periodEnd": 1833027598,
+    "canceledAt": 1801495258,
+    "endedAt": 1833027598
+  },
+  "clock": {
+    "status": "ready",
+    "frozenTime": 1833027658
+  },
+  "db": {
+    "invoices": 5,
+    "cycles": 16,
+    "current_units": 1,
+    "signed_deleted_events": 1,
+    "signed_updated_events": 18
+  },
+  "originalFinancialFactsPreserved": true,
+  "financialFacts": {
+    "commerce_payments": {
+      "count": 16,
+      "hash": "9901fc78e52eee7370a0b4d8b718d5b4"
+    },
+    "commerce_refunds": {
+      "count": 9,
+      "hash": "539296b86eef2820e3498848f8a8f638"
+    },
+    "customer_membership_invoices": {
+      "count": 8,
+      "hash": "ccecc76b479291c7407133cae44a8679"
+    },
+    "customer_membership_cycles": {
+      "count": 41,
+      "hash": "e05825ef94f9c00adff79e668c82fa5b"
+    },
+    "customer_membership_ledger": {
+      "count": 34,
+      "hash": "f4fbd8f708a8d744f2f5c45f26d04066"
+    }
+  },
+  "applicationClockAdvanced": false,
+  "newPaymentOrRefund": false,
+  "productionPublished": false
+}

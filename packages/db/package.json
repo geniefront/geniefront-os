@@ -10,7 +10,7 @@
   "scripts": {
     "generate": "drizzle-kit generate",
     "migrate": "tsx src/migrate.ts",
-    "seed": "tsx src/seed.ts",
+    "seed": "tsx src/seedEntry.ts",
     "qa:reset": "tsx src/qa/cli.ts reset",
     "qa:seed": "tsx src/qa/cli.ts seed",
     "setup-test-reset": "tsx --env-file=../../.env src/resetSetupTest.ts",

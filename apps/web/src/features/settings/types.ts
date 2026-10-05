@@ -91,6 +91,10 @@ export interface OnlineBookingConfig {
   slotIntervalMinutes?: 15 | 30 | 60;
   depositRequired?: boolean;
   depositAmountCents?: number;
+  depositMethod?:'fixed'|'percentage';
+  depositPercentBps?:number;
+  retainDepositAfterCutoff?:boolean;
+  cancellationPolicyNotice?:string;
   requireCardOnFile?: boolean;
   allowClientPickStaff?: boolean;
 }
@@ -294,6 +298,10 @@ export interface SaveOnlineBookingInput {
   slotIntervalMinutes?: 15 | 30 | 60;
   depositRequired?: boolean;
   depositAmountCents?: number;
+  depositMethod?:'fixed'|'percentage';
+  depositPercentBps?:number;
+  retainDepositAfterCutoff?:boolean;
+  cancellationPolicyNotice?:string;
   requireCardOnFile?: boolean;
   allowClientPickStaff?: boolean;
 }

@@ -40,9 +40,10 @@ export type QaLocationSpec = {
 };
 
 export type QaTenantSpec = {
-  scenario: QaScenarioId;
+  scenario: string;
   orgName: string;
   ownerKey: string;
+  authPassword?: string;
   plan: CanonicalPlan;
   locations: QaLocationSpec[];
 };
@@ -68,7 +69,7 @@ export type SeededLocation = {
 };
 
 export type SeededTenant = {
-  scenario: QaScenarioId;
+  scenario: string;
   orgId: string;
   ownerUserId: string;
   locations: Record<string, SeededLocation>;
@@ -94,9 +95,9 @@ export async function bootstrapTenant(
   const orgId = qaUuid(`org:${spec.scenario}`);
   const owner = spec.locations[0]?.staff.find((p) => p.key === spec.ownerKey);
   if (!owner) throw new Error(`QA scenario ${spec.scenario} is missing owner person`);
-  const ownerUserId = await upsertQaAuthUser(owner.email, owner.fullName);
+  const ownerUserId = await upsertQaAuthUser(owner.email, owner.fullName, spec.authPassword);
   await insertLocalAuthIdentity(tx, {
-    userId: ownerUserId, email: owner.email, fullName: owner.fullName,
+    userId: ownerUserId, email: owner.email, fullName: owner.fullName, password: spec.authPassword,
   });
 
   await tx`insert into users (id, email, full_name, locale)
@@ -145,10 +146,10 @@ export async function bootstrapTenant(
     for (const person of loc.staff) {
       const userId = person.key === spec.ownerKey
         ? ownerUserId
-        : await upsertQaAuthUser(person.email, person.fullName);
+        : await upsertQaAuthUser(person.email, person.fullName, spec.authPassword);
       if (person.key !== spec.ownerKey) {
         await insertLocalAuthIdentity(tx, {
-          userId, email: person.email, fullName: person.fullName,
+          userId, email: person.email, fullName: person.fullName, password: spec.authPassword,
         });
         await tx`insert into users (id, email, full_name, locale)
           values (${userId}, ${person.email}, ${person.fullName}, 'en')

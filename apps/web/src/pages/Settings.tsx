@@ -7,9 +7,10 @@ import { VoiceSettings } from '@/features/voice-plan/VoiceSettings';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { useState, useEffect, useRef } from 'react';
 import { useErrorMessage } from '@/lib/errorMessage';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams,Link } from 'react-router-dom';
+import { commerceText,depositText } from '@gf/contracts';
 import { useLanguage } from '@/LanguageContext';
-import { useCan } from '@/lib/permissions';
+import { useCan,useCanWrite } from '@/lib/permissions';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { cn, formatPhoneDisplay, formatPhoneInput } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
@@ -260,6 +261,8 @@ function FullSettings() {
   const currentTab = voiceOnly && !voiceTabs.includes(requestedTab) ? 'store' : requestedTab;
   const canManageSettings = useCan('settings.manage') || useCan('staff.manage');
   const canManageBilling = useCan('billing.manage');
+  const canManageCommerce = useCan('commerce.configure');
+  const canWriteBookingSettings=useCanWrite('settings.manage');
 
   const { data: settings, isLoading, error, refetch } = useDeskSettingsQuery({ enabled: canManageSettings });
   const { data: billingData } = useDeskBillingQuery({ enabled: canManageBilling });
@@ -340,6 +343,9 @@ function FullSettings() {
   const [slotInterval, setSlotInterval] = useState<'15' | '30' | '60'>('30');
   const [requireDeposit, setRequireDeposit] = useState(false);
   const [depositAmount, setDepositAmount] = useState('0.00');
+  const [depositMethod,setDepositMethod]=useState<'fixed'|'percentage'>('fixed');
+  const [depositPercent,setDepositPercent]=useState('20');
+  const [retainDeposit,setRetainDeposit]=useState(false),[depositPolicyNotice,setDepositPolicyNotice]=useState('');
   const [allowPickStaff, setAllowPickStaff] = useState(false);
 
   // 5. 服务目录表单
@@ -473,6 +479,10 @@ function FullSettings() {
         if (settings.guest.onlineBooking.depositAmountCents !== undefined) {
           setDepositAmount(centsToDollars(settings.guest.onlineBooking.depositAmountCents));
         }
+        setDepositMethod(settings.guest.onlineBooking.depositMethod??'fixed');
+        setDepositPercent(String((settings.guest.onlineBooking.depositPercentBps??2000)/100));
+        setRetainDeposit(settings.guest.onlineBooking.retainDepositAfterCutoff??false);
+        setDepositPolicyNotice(settings.guest.onlineBooking.cancellationPolicyNotice??'');
         if (settings.guest.onlineBooking.allowClientPickStaff !== undefined) {
           setAllowPickStaff(settings.guest.onlineBooking.allowClientPickStaff);
         }
@@ -631,17 +641,19 @@ function FullSettings() {
     const maxAhead = parseCount(maxDaysAhead, { min: 1, max: 365 });
     if (!maxAhead.ok) return bookingForm.fail('maxDaysAhead', invalid.count(maxAhead.reason, { min: 1, max: 365 }));
 
-    const minAhead = parseCount(minMinutesAhead, { min: 0, max: 10_080 });
-    if (!minAhead.ok) return bookingForm.fail('minMinutesAhead', invalid.count(minAhead.reason, { min: 0, max: 10_080 }));
+    const minAhead = parseCount(minMinutesAhead, { min: 0, max: 1440 });
+    if (!minAhead.ok) return bookingForm.fail('minMinutesAhead', invalid.count(minAhead.reason, { min: 0, max: 1440 }));
 
-    const cutoff = parseCount(cancelCutoffHours, { min: 0, max: 168 });
-    if (!cutoff.ok) return bookingForm.fail('cancelCutoff', invalid.count(cutoff.reason, { min: 0, max: 168 }));
+    const cutoff = parseCount(cancelCutoffHours, { min: 0, max: 72 });
+    if (!cutoff.ok) return bookingForm.fail('cancelCutoff', invalid.count(cutoff.reason, { min: 0, max: 72 }));
 
     /* 押金只在「要求押金」时才判定：不要求押金时这一格的内容无关紧要 */
-    const deposit = parseMoney(depositAmount, { allowEmpty: !requireDeposit });
-    if (requireDeposit && (!deposit.ok || deposit.value <= 0)) {
+    const deposit = parseMoney(depositAmount, { allowEmpty: !requireDeposit||depositMethod==='percentage' });
+    if (requireDeposit&&depositMethod==='fixed'&&(!deposit.ok || deposit.value <= 0)) {
       return bookingForm.fail('deposit', deposit.ok ? invalid.money('empty') : invalid.money(deposit.reason));
     }
+    const percent=parsePercent(depositPercent,{max:100,maxDecimals:2});
+    if(depositMethod==='percentage'&&(!percent.ok||percent.value<=0))return bookingForm.fail('deposit',percent.ok?invalid.percent('empty'):invalid.percent(percent.reason));
 
     try {
       await saveOnlineBookingMutation.mutateAsync({
@@ -651,7 +663,9 @@ function FullSettings() {
         cancelCutoffHours: cutoff.value,
         slotIntervalMinutes: (parseInt(slotInterval, 10) as any) || 30,
         depositRequired: requireDeposit,
-        depositAmountCents: deposit.ok ? deposit.value : 0,
+        depositMethod,
+        ...(depositMethod==='fixed'?{depositAmountCents:deposit.ok?deposit.value:0}:{depositPercentBps:percent.ok?percent.value:undefined}),
+        retainDepositAfterCutoff:retainDeposit,cancellationPolicyNotice:depositPolicyNotice,
         allowClientPickStaff: allowPickStaff,
       });
       toast.success(t('settings.stBookingSaved'));
@@ -1008,6 +1022,7 @@ function FullSettings() {
       />
 
       {/* 主布局：左侧分类导航 + 右侧设置面板 */}
+      {canManageCommerce?<Link to="/commerce" className="inline-flex min-h-11 items-center rounded-xl border border-slate-200 px-4 text-sm font-medium text-teal-700">{commerceText(language,'account')}</Link>:null}
       <div className="flex flex-col lg:flex-row gap-6 w-full items-start">
         {/* 左侧导航栏 */}
         <div className="w-full lg:w-52 shrink-0 space-y-4 lg:sticky lg:top-0">
@@ -1884,7 +1899,7 @@ function FullSettings() {
                   label={t('settings.stDepositTitle')}
                   description={t('settings.stDepositDesc')}
                 >
-                  <div className="space-y-3 max-w-md">
+                  <fieldset className="space-y-3 max-w-md" disabled={!canWriteBookingSettings}>
                     <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700">
                       <input
                         type="checkbox"
@@ -1897,21 +1912,29 @@ function FullSettings() {
 
                     {requireDeposit && (
                       <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-                        <label className="text-[11px] font-bold text-slate-700 block">{t('settings.stDefaultDeposit')}</label>
+                        <label className="text-[11px] font-bold text-slate-700 block">{depositText(language,'amountPolicy')}
+                          <select className="mt-1 w-full rounded-lg border bg-white p-2" value={depositMethod} onChange={e=>setDepositMethod(e.target.value as 'fixed'|'percentage')}>
+                            <option value="fixed">{depositText(language,'fixed')}</option><option value="percentage">{depositText(language,'percentage')}</option>
+                          </select>
+                        </label>
+                        <label htmlFor="appointment-deposit-amount" className="text-[11px] font-bold text-slate-700 block">{depositText(language,depositMethod==='fixed'?'required':'percentLabel')}</label>
                         <div className="relative max-w-xs">
                           <Input
                             type="number"
                             {...bookingForm.bind('deposit')}
-                        value={depositAmount}
-                            onChange={(e) => setDepositAmount(e.target.value)}
-                            placeholder="20.00"
+                            id="appointment-deposit-amount"
+                            value={depositMethod==='fixed'?depositAmount:depositPercent}
+                            onChange={(e)=>depositMethod==='fixed'?setDepositAmount(e.target.value):setDepositPercent(e.target.value)}
+                            placeholder={depositMethod==='fixed'?'20.00':'20'}
                             className="pl-8 font-mono text-xs"
                           />
-                          <DollarSign className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          {depositMethod==='fixed'?<DollarSign className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />:<span className="absolute left-2.5 top-1/2 -translate-y-1/2">%</span>}
                         </div>
+                        <label className="flex gap-2 text-xs"><input type="checkbox" checked={retainDeposit} onChange={e=>setRetainDeposit(e.target.checked)}/>{depositText(language,'retainOption')}</label>
+                        <label className="block text-xs">{depositText(language,'policyNoticeLabel')}<textarea className="mt-1 w-full rounded-lg border p-2" maxLength={1000} value={depositPolicyNotice} onChange={e=>setDepositPolicyNotice(e.target.value)}/></label>
                       </div>
                     )}
-                  </div>
+                  </fieldset>
                 </SettingsRow>
               </SettingsCard>
             </div>
@@ -3005,7 +3028,9 @@ function FullSettings() {
         isOpen={confirmSaveBookingOpen}
         onOpenChange={setConfirmSaveBookingOpen}
         title={t('settings.stSaveBookingConfirmTitle')}
-        description={t('settings.stSaveBookingConfirmBody', { p0: maxDaysAhead, p1: minMinutesAhead, p2: cancelCutoffHours })}
+        description={[t('settings.stSaveBookingConfirmBody',{p0:maxDaysAhead,p1:minMinutesAhead,p2:cancelCutoffHours}),
+          ...(requireDeposit?[`${depositText(language,'amountPolicy')}: ${depositText(language,depositMethod)} ${depositMethod==='percentage'?`${depositPercent}%`:depositAmount}`,
+            depositText(language,retainDeposit?'lateRetain':'lateReview')]:[])].join(' · ')}
         confirmLabel={t('settings.stSaveBookingConfirmAction')}
         onConfirm={async () => {
           await handleSaveBookingRules();

@@ -1,0 +1,42 @@
+$ vitest run src/appointmentDepositAdjustments.test.ts src/appointmentDeposits.test.ts src/appointmentGuestCancellation.test.ts src/appointmentDepositRetention.test.ts src/money.test.ts src/workstations.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ✓ src/appointmentDeposits.test.ts (32 tests) 2805ms
+   ✓ applies $20 already-paid deposit to a $100 service without discounting it, and restores the original deposit on service refunds 337ms
+ ✓ src/appointmentDepositAdjustments.test.ts (19 tests) 3560ms
+   ✓ restores two original deposit payment sources according to the service refund allocation, without turning either into cash 317ms
+   ✓ retains and releases selected guest money across two payments without moving money between the original sources 329ms
+   ✓ offers the remaining supplement after the initial payment is fully refunded and returns late supplemental payment after service settlement 455ms
+ ✓ src/money.test.ts (22 tests) 2039ms
+   ✓ ⭐ 组单：一人付全部 > quotes and settles grouped service and tip stages separately with one cash tender 318ms
+{"level":30,"time":1790994805186,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","req":{"id":"req-1","method":"POST","url":"/public/v1/bookings/ba3be186-c3b8-423c-a978-804fcca7767e/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790994805198,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","code":"NOT_FOUND","details":{"entity":"booking"},"msg":"business error"}
+{"level":30,"time":1790994805199,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","res":{"statusCode":404},"responseTime":11.822791999999026,"msg":"request completed"}
+{"level":30,"time":1790994805199,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","req":{"id":"req-2","method":"POST","url":"/public/v1/bookings/ba3be186-c3b8-423c-a978-804fcca7767e/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790994805211,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","code":"PERMISSION_DENIED","details":{"reason":"last4_mismatch","attemptsLeft":2,"shopPhone":null},"msg":"business error"}
+{"level":30,"time":1790994805211,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","res":{"statusCode":403},"responseTime":11.997874999997293,"msg":"request completed"}
+{"level":30,"time":1790994805211,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","req":{"id":"req-3","method":"POST","url":"/public/v1/bookings/ba3be186-c3b8-423c-a978-804fcca7767e/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790994805231,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","code":"VALIDATION_FAILED","details":{"reason":"deposit_guest_refund_quote_changed","amountCents":1176},"msg":"business error"}
+{"level":30,"time":1790994805231,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","res":{"statusCode":400},"responseTime":19.938458000000537,"msg":"request completed"}
+{"level":30,"time":1790994805233,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-4","req":{"id":"req-4","method":"POST","url":"/public/v1/bookings/ba3be186-c3b8-423c-a978-804fcca7767e/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790994805300,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-4","res":{"statusCode":200},"responseTime":67.27737500000148,"msg":"request completed"}
+{"level":30,"time":1790994805300,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-5","req":{"id":"req-5","method":"POST","url":"/public/v1/bookings/ba3be186-c3b8-423c-a978-804fcca7767e/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790994805319,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-5","res":{"statusCode":200},"responseTime":18.268832999998267,"msg":"request completed"}
+{"level":30,"time":1790994805319,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-6","req":{"id":"req-6","method":"POST","url":"/public/v1/bookings/ba3be186-c3b8-423c-a978-804fcca7767e/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"205"}},"msg":"incoming request"}
+{"level":30,"time":1790994805330,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-6","code":"IDEMPOTENCY_KEY_REUSED","details":{"reason":"different_request"},"msg":"business error"}
+{"level":30,"time":1790994805330,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-6","res":{"statusCode":409},"responseTime":11.754499999999098,"msg":"request completed"}
+{"level":30,"time":1790994805350,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-7","req":{"id":"req-7","method":"POST","url":"/public/v1/bookings/ba3be186-c3b8-423c-a978-804fcca7767e/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"206"}},"msg":"incoming request"}
+{"level":30,"time":1790994805427,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-7","res":{"statusCode":200},"responseTime":77.24412500000108,"msg":"request completed"}
+{"level":30,"time":1790994805427,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-8","req":{"id":"req-8","method":"POST","url":"/public/v1/bookings/ba3be186-c3b8-423c-a978-804fcca7767e/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"206"}},"msg":"incoming request"}
+{"level":30,"time":1790994805440,"pid":89766,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-8","res":{"statusCode":200},"responseTime":12.411667000000307,"msg":"request completed"}
+ ✓ src/appointmentGuestCancellation.test.ts (10 tests) 1603ms
+   ✓ authenticates customer partial cancellation by token and last4 and keeps customer provenance without a staff actor 337ms
+ ✓ src/appointmentDepositRetention.test.ts (14 tests) 2033ms
+ ✓ src/workstations.test.ts (8 tests) 149ms
+
+ Test Files  6 passed (6)
+      Tests  105 passed (105)
+   Start at  22:33:08
+   Duration  22.35s (transform 1.11s, setup 7.85s, collect 2.17s, tests 12.19s, environment 0ms, prepare 31ms)
+

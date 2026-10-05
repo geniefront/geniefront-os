@@ -1,0 +1,59 @@
+$ vitest run src/appointmentDepositAdjustments.test.ts src/appointmentDepositRetention.test.ts src/appointmentGuestCancellation.test.ts src/commercePayouts.test.ts src/customerMemberships.test.ts src/commerce.test.ts src/money.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+ ✓ src/customerMemberships.test.ts (58 tests) 11198ms
+   ✓ calculates both configured tax modes after the purchased member price and refunds stored amounts after the tax policy changes 302ms
+   ✓ keeps the original expiry when a fully returned service restores a membership unit after its period has ended 2994ms
+   ✓ conserves membership, package, discount, deposit, gift, credit, cash, tax, fee and tips through three original-source returns 573ms
+   ✓ conserves all six payment sources across a quoted three-ticket group and each original service return 754ms
+   ✓ merges an explicitly selected identity without rewriting paid records, duplicating subscriptions or granting a shared-phone stranger its assets 1063ms
+{"level":30,"time":1790995145640,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","req":{"id":"req-1","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","stripe-signature":"t=1790995145,v1=3ccf3631834d735970c3f87ae8318b4d434484f4bf92497f1c0cdee5bddb3fad","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790995145641,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","res":{"statusCode":200},"responseTime":0.7715840000000753,"msg":"request completed"}
+{"level":30,"time":1790995145642,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","req":{"id":"req-2","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790995145642,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790995145642,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","res":{"statusCode":401},"responseTime":0.3057910000006814,"msg":"request completed"}
+{"level":30,"time":1790995145642,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","req":{"id":"req-3","method":"POST","url":"/v1/commerce/accounts/refresh","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"57"}},"msg":"incoming request"}
+{"level":30,"time":1790995145642,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790995145642,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","res":{"statusCode":401},"responseTime":0.11304200000085984,"msg":"request completed"}
+ ✓ src/commerce.test.ts (54 tests) 6836ms
+   ✓ accepts signed thin events through the complete server auth stack and keeps account administration protected 441ms
+   ✓ quotes and settles a group against the original package and gift budgets without consuming during review 302ms
+   ✓ reconciles prepaid cash sales and original purchase refunds without counting service use as new cash 389ms
+   ✓ handles an unlimited entitlement across its actual expiry boundary and caps repeated manual refunds without reviving access 2194ms
+ ✓ src/appointmentDepositAdjustments.test.ts (19 tests) 3589ms
+   ✓ restores two original deposit payment sources according to the service refund allocation, without turning either into cash 331ms
+   ✓ retains and releases selected guest money across two payments without moving money between the original sources 371ms
+   ✓ offers the remaining supplement after the initial payment is fully refunded and returns late supplemental payment after service settlement 427ms
+ ✓ src/money.test.ts (22 tests) 1996ms
+{"level":30,"time":1790995162398,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","req":{"id":"req-1","method":"POST","url":"/public/v1/bookings/1b8ad039-2073-4b02-8c02-2bd2df19118a/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790995162409,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","code":"NOT_FOUND","details":{"entity":"booking"},"msg":"business error"}
+{"level":30,"time":1790995162410,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","res":{"statusCode":404},"responseTime":11.071250000000873,"msg":"request completed"}
+{"level":30,"time":1790995162410,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","req":{"id":"req-2","method":"POST","url":"/public/v1/bookings/1b8ad039-2073-4b02-8c02-2bd2df19118a/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790995162422,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","code":"PERMISSION_DENIED","details":{"reason":"last4_mismatch","attemptsLeft":2,"shopPhone":null},"msg":"business error"}
+{"level":30,"time":1790995162422,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","res":{"statusCode":403},"responseTime":12.037208000001556,"msg":"request completed"}
+{"level":30,"time":1790995162422,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","req":{"id":"req-3","method":"POST","url":"/public/v1/bookings/1b8ad039-2073-4b02-8c02-2bd2df19118a/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790995162442,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","code":"VALIDATION_FAILED","details":{"reason":"deposit_guest_refund_quote_changed","amountCents":1176},"msg":"business error"}
+{"level":30,"time":1790995162442,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","res":{"statusCode":400},"responseTime":19.825917000001937,"msg":"request completed"}
+{"level":30,"time":1790995162443,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-4","req":{"id":"req-4","method":"POST","url":"/public/v1/bookings/1b8ad039-2073-4b02-8c02-2bd2df19118a/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790995162505,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-4","res":{"statusCode":200},"responseTime":61.705832999999984,"msg":"request completed"}
+{"level":30,"time":1790995162505,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-5","req":{"id":"req-5","method":"POST","url":"/public/v1/bookings/1b8ad039-2073-4b02-8c02-2bd2df19118a/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"207"}},"msg":"incoming request"}
+{"level":30,"time":1790995162523,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-5","res":{"statusCode":200},"responseTime":18.177457999998296,"msg":"request completed"}
+{"level":30,"time":1790995162524,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-6","req":{"id":"req-6","method":"POST","url":"/public/v1/bookings/1b8ad039-2073-4b02-8c02-2bd2df19118a/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"205"}},"msg":"incoming request"}
+{"level":30,"time":1790995162535,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-6","code":"IDEMPOTENCY_KEY_REUSED","details":{"reason":"different_request"},"msg":"business error"}
+{"level":30,"time":1790995162535,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-6","res":{"statusCode":409},"responseTime":11.81787500000064,"msg":"request completed"}
+{"level":30,"time":1790995162554,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-7","req":{"id":"req-7","method":"POST","url":"/public/v1/bookings/1b8ad039-2073-4b02-8c02-2bd2df19118a/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"206"}},"msg":"incoming request"}
+{"level":30,"time":1790995162630,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-7","res":{"statusCode":200},"responseTime":75.91862499999843,"msg":"request completed"}
+{"level":30,"time":1790995162630,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-8","req":{"id":"req-8","method":"POST","url":"/public/v1/bookings/1b8ad039-2073-4b02-8c02-2bd2df19118a/cancel-guests","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"origin":"https://book.geniefront.com","x-gf-public-key":"pk_bbbbbbbb222242228222bbbb","user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"206"}},"msg":"incoming request"}
+{"level":30,"time":1790995162644,"pid":90540,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-8","res":{"statusCode":200},"responseTime":13.372500000004948,"msg":"request completed"}
+ ✓ src/appointmentGuestCancellation.test.ts (10 tests) 1503ms
+   ✓ authenticates customer partial cancellation by token and last4 and keeps customer provenance without a staff actor 324ms
+ ✓ src/appointmentDepositRetention.test.ts (14 tests) 2206ms
+   ✓ releases a retained amount in two original-source refunds without rewriting its decision or claiming pending money returned 323ms
+ ✓ src/commercePayouts.test.ts (11 tests) 409ms
+
+ Test Files  7 passed (7)
+      Tests  188 passed (188)
+   Start at  22:38:49
+   Duration  38.42s (transform 971ms, setup 8.94s, collect 1.62s, tests 27.74s, environment 0ms, prepare 23ms)
+

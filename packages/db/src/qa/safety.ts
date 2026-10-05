@@ -129,6 +129,9 @@ export function assertQaDatabaseSafe(input: QaSafetyInput): QaSafetyResult {
   try {
     const mig = new URL(migrationUrl);
     const app = new URL(databaseUrl);
+    if (mig.port === '55322' || app.port === '55322') {
+      return { ok: false, reason: 'Manual QA local database (55322) is not an isolated scenario database' };
+    }
     const migRole = decodeURIComponent(mig.username).split('.')[0];
     const appRole = decodeURIComponent(app.username).split('.')[0];
     if (migRole !== 'postgres') {

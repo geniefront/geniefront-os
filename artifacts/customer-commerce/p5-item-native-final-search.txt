@@ -1,0 +1,241 @@
+- generic
+  - generic
+    - log
+    - log
+  - generic [ref=e94] clickable [onclick]
+    - complementary
+      - StaticText "🪷"
+      - button "Golden Foot Spa" [disabled, ref=e95]
+        - StaticText "Golden Foot Spa"
+      - button "Collapse sidebar" [ref=e96]
+      - generic
+        - StaticText "CORE WORKSPACE"
+        - list
+          - listitem [level=1]
+            - link "Dashboard" [ref=e104]
+              - StaticText "Dashboard"
+          - listitem [level=1]
+            - link "Schedule" [ref=e105]
+              - StaticText "Schedule"
+          - listitem [level=1]
+            - link "Operations Board" [ref=e106]
+              - StaticText "Operations Board"
+          - listitem [level=1]
+            - link "Checkout" [ref=e107]
+              - StaticText "Checkout"
+          - listitem [level=1]
+            - link "Tickets" [ref=e108]
+              - StaticText "Tickets"
+        - StaticText "CRM & MARKETING"
+        - list
+          - listitem [level=1]
+            - link "Customers" [ref=e109]
+              - StaticText "Customers"
+          - listitem [level=1]
+            - link "Marketing" [ref=e110]
+              - StaticText "Marketing"
+          - listitem [level=1]
+            - link "Customer payments" [ref=e111]
+              - StaticText "Customer payments"
+          - listitem [level=1]
+            - link "Rotation" [ref=e112]
+              - StaticText "Rotation"
+          - listitem [level=1]
+            - link "Rooms" [ref=e113]
+              - StaticText "Rooms"
+          - listitem [level=1]
+            - link "Staff Center" [ref=e114]
+              - StaticText "Staff Center"
+        - StaticText "CHECKOUT & RULES"
+        - list
+          - listitem [level=1]
+            - link "Business Data" [ref=e115]
+              - StaticText "Business Data"
+          - listitem [level=1]
+            - link "Day Close" [ref=e116]
+              - StaticText "Day Close"
+          - listitem [level=1]
+            - link "Payouts" [ref=e117]
+              - StaticText "Payouts"
+        - StaticText "COMMUNICATION"
+        - list
+          - listitem [level=1]
+            - link "AI Phone" [ref=e118]
+              - StaticText "AI Phone"
+          - listitem [level=1]
+            - link "Messages" [ref=e119]
+              - StaticText "Messages"
+          - listitem [level=1]
+            - link "Communication Logs" [ref=e120]
+              - StaticText "Communication Logs"
+        - StaticText "SYSTEM & CONFIG"
+        - list
+          - listitem [level=1]
+            - link "Storefront" [ref=e121]
+              - StaticText "Storefront"
+          - listitem [level=1]
+            - link "Health Forms" [ref=e122]
+              - StaticText "Health Forms"
+          - listitem [level=1]
+            - link "Store Settings" [ref=e123]
+              - StaticText "Store Settings"
+        - StaticText "ACCOUNT & HELP"
+        - list
+          - listitem [level=1]
+            - link "Profile" [ref=e124]
+              - StaticText "Profile"
+          - listitem [level=1]
+            - link "Support" [ref=e125]
+              - StaticText "Support"
+      - generic [ref=e98] clickable [cursor:pointer, onclick]
+        - generic [ref=e100] clickable [cursor:pointer, onclick]
+          - StaticText "💆🏻♀️"
+        - paragraph
+          - StaticText "qa-local-owner@example.test"
+        - paragraph
+          - StaticText "Owner"
+    - generic
+      - banner
+        - generic
+          - textbox "Search..." [ref=e101]
+          - StaticText "⌘K"
+        - button "Language" [ref=e102]
+        - button "Notifications" [ref=e103]
+        - button "New Appointment" [ref=e99]
+          - StaticText "New Appointment"
+      - main
+        - heading "Order History & Tickets" [level=1, ref=e126]
+        - paragraph
+          - StaticText "Business date: 2026-10-02 · live count 1orders"
+        - button "Export transactions" [ref=e127]
+          - StaticText "Export transactions"
+        - button "Refresh" [ref=e128]
+          - StaticText "Refresh"
+        - button "Checkout" [ref=e129]
+          - StaticText "Checkout"
+        - generic
+          - StaticText "TOTAL COLLECTED"
+          - StaticText "$"
+          - StaticText "0.00"
+          - paragraph
+            - StaticText "Settled "
+            - strong
+              - StaticText "0"
+            - StaticText " orders"
+        - generic
+          - StaticText "CUSTOMER TIPS"
+          - StaticText "$"
+          - StaticText "0.00"
+          - paragraph
+            - StaticText "Allocated in full to each therapist's personal wallet"
+        - generic
+          - StaticText "TAX AND CARD FEES"
+          - StaticText "$"
+          - StaticText "0.00"
+          - paragraph
+            - StaticText "No sales tax configured for this shop"
+        - generic
+          - StaticText "AVERAGE ORDER VALUE (AOV)"
+          - StaticText "$"
+          - StaticText "0.00"
+          - StaticText "Awaiting payment"
+          - StaticText "0"
+          - StaticText "|"
+          - StaticText "Voided / refunded"
+          - StaticText "1"
+        - generic
+          - button "All orders 1" [ref=e130]
+            - StaticText "All orders"
+            - StaticText "1"
+          - button "Settled 0" [ref=e131]
+            - StaticText "Settled"
+            - StaticText "0"
+          - button "Awaiting payment 0" [ref=e132]
+            - StaticText "Awaiting payment"
+            - StaticText "0"
+          - button "Voided 0" [ref=e133]
+            - StaticText "Voided"
+            - StaticText "0"
+          - button "Refunded 1" [ref=e134]
+            - StaticText "Refunded"
+            - StaticText "1"
+          - generic
+            - textbox "Search ticket, customer, phone, service or therapist…" [ref=e135]: ORD-62E6A
+              - StaticText "ORD-62E6A"
+            - button "✕" [ref=e742]
+          - button "Reset" [ref=e740]
+            - StaticText "Reset"
+          - combobox [expanded=false, ref=e136]: All historical dates
+            - MenuListPopup
+              - option "All historical dates" [selected, ref=e188]
+              - option "Today" [ref=e189]
+              - option "Yesterday" [ref=e190]
+              - option "Last 7 days" [ref=e191]
+              - option "This month" [ref=e192]
+          - combobox [expanded=false, ref=e137]: All therapists
+            - MenuListPopup
+              - option "All therapists" [selected, ref=e193]
+              - option "Therapist: Bo" [ref=e854]
+          - combobox [expanded=false, ref=e138]: All payment channels
+            - MenuListPopup
+              - option "All payment channels" [selected, ref=e197]
+              - option "Card payment" [ref=e198]
+              - option "Cash payment" [ref=e199]
+              - option "Package / plan redemption" [ref=e200]
+              - option "Gift card" [ref=e201]
+              - option "Split payment" [ref=e202]
+          - combobox [expanded=false, ref=e139]: All amounts
+            - MenuListPopup
+              - option "All amounts" [selected, ref=e203]
+              - option "$0 – $50 (small add-ons)" [ref=e204]
+              - option "$50 – $100 (standard services)" [ref=e205]
+              - option "$100 – $200 (premium packages)" [ref=e206]
+              - option "$200+ (multi-service tickets)" [ref=e207]
+        - table
+          - rowgroup
+            - row
+              - columnheader "TICKET / TIME" [ref=e863]
+              - columnheader "CUSTOMER" [ref=e864]
+              - columnheader "SERVICE AND THERAPIST" [ref=e865]
+              - columnheader "ORDER SETTLEMENT TOTAL" [ref=e866]
+              - columnheader "PAYMENT METHOD" [ref=e867]
+              - columnheader "THERAPIST TIPS" [ref=e868]
+              - columnheader "STATUS" [ref=e869]
+              - columnheader "ACTIONS" [ref=e870]
+          - row [ref=e853] clickable [cursor:pointer, onclick]
+            - cell "ORD-62E6A 05:40 AM" [ref=e855]
+              - StaticText "ORD-62E6A"
+              - StaticText "05:40 AM"
+            - cell "PP Package Payout Browser QA Standard member" [ref=e856]
+              - StaticText "PP"
+              - StaticText "Package Payout Browser QA"
+              - StaticText "Standard member"
+            - cell "Foot Reflexology 60min (60m) Bo Foot Reflexology 60min (60m) Bo" [ref=e857]
+              - StaticText "Foot Reflexology 60min"
+              - StaticText "("
+              - StaticText "60"
+              - StaticText "m)"
+              - StaticText "Bo"
+              - StaticText "Foot Reflexology 60min"
+              - StaticText "("
+              - StaticText "60"
+              - StaticText "m)"
+              - StaticText "Bo"
+            - cell "$310.00 New payments received: $210.00" [ref=e858]
+              - StaticText "$"
+              - StaticText "310.00"
+              - StaticText "New payments received"
+              - StaticText ": $"
+              - StaticText "210.00"
+            - cell "Original package + Cash payment" [ref=e859]
+              - StaticText "Original package + Cash payment"
+            - cell "$10.00 Bo: $10.00 · Bo: $-10.00" [ref=e860]
+              - StaticText "$"
+              - StaticText "10.00"
+              - StaticText "Bo: $10.00 · Bo: $-10.00"
+            - cell "Refunded" [ref=e861]
+            - cell "Details" [ref=e862]
+              - generic [ref=e871] clickable [cursor:pointer, onclick]
+                - button "Details" [ref=e872]
+                  - StaticText "Details"
+      - button "Open AI copilot" [ref=e97]

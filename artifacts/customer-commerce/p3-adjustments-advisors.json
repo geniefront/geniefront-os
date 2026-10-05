@@ -1,0 +1,145 @@
+{
+  "at": "2026-10-03T02:40:53.508Z",
+  "database": "gf_commerce_ci",
+  "migration": 188,
+  "previousWarnings": 30,
+  "remainingWarnings": 6,
+  "changedFinancialFunctionsFindings": 0,
+  "remaining": [
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.gf_license_redemption_append_only` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "gf_license_redemption_append_only",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_gf_license_redemption_append_only_fb074b17f72ddc862649a27811e21ba2"
+    },
+    {
+      "name": "function_search_path_mutable",
+      "title": "Function Search Path Mutable",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects functions where the search_path parameter is not set.",
+      "detail": "Function `public.health_anonymize_content` has a role mutable search_path",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable",
+      "metadata": {
+        "name": "health_anonymize_content",
+        "type": "function",
+        "schema": "public"
+      },
+      "cache_key": "function_search_path_mutable_public_health_anonymize_content_6803f4a7f173c5bffcb385d4ed2e4fcc"
+    },
+    {
+      "name": "extension_in_public",
+      "title": "Extension in Public",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects extensions installed in the `public` schema.",
+      "detail": "Extension `btree_gist` is installed in the public schema. Move it to another schema.",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0014_extension_in_public",
+      "metadata": {
+        "name": "btree_gist",
+        "type": "extension",
+        "schema": "public"
+      },
+      "cache_key": "extension_in_public_btree_gist"
+    },
+    {
+      "name": "rls_policy_always_true",
+      "title": "RLS Policy Always True",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects RLS policies that use overly permissive expressions like `USING (true)` or `WITH CHECK (true)` for UPDATE, DELETE, or INSERT operations. SELECT policies with `USING (true)` are intentionally excluded as this pattern is often used deliberately for public read access.",
+      "detail": "Table `public.email_suppressions` has an RLS policy `platform_wide` for `ALL` that allows unrestricted access (both USING and WITH CHECK are always true). This effectively bypasses row-level security for -.",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0024_permissive_rls_policy",
+      "metadata": {
+        "name": "email_suppressions",
+        "qual": "true",
+        "type": "table",
+        "roles": [
+          "-"
+        ],
+        "schema": "public",
+        "command": "ALL",
+        "with_check": "true",
+        "policy_name": "platform_wide",
+        "permissive_using": true,
+        "permissive_with_check": true
+      },
+      "cache_key": "rls_policy_always_true_public_email_suppressions_platform_wide"
+    },
+    {
+      "name": "rls_policy_always_true",
+      "title": "RLS Policy Always True",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects RLS policies that use overly permissive expressions like `USING (true)` or `WITH CHECK (true)` for UPDATE, DELETE, or INSERT operations. SELECT policies with `USING (true)` are intentionally excluded as this pattern is often used deliberately for public read access.",
+      "detail": "Table `public.sms_consent` has an RLS policy `platform_wide` for `ALL` that allows unrestricted access (both USING and WITH CHECK are always true). This effectively bypasses row-level security for -.",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0024_permissive_rls_policy",
+      "metadata": {
+        "name": "sms_consent",
+        "qual": "true",
+        "type": "table",
+        "roles": [
+          "-"
+        ],
+        "schema": "public",
+        "command": "ALL",
+        "with_check": "true",
+        "policy_name": "platform_wide",
+        "permissive_using": true,
+        "permissive_with_check": true
+      },
+      "cache_key": "rls_policy_always_true_public_sms_consent_platform_wide"
+    },
+    {
+      "name": "rls_policy_always_true",
+      "title": "RLS Policy Always True",
+      "level": "WARN",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects RLS policies that use overly permissive expressions like `USING (true)` or `WITH CHECK (true)` for UPDATE, DELETE, or INSERT operations. SELECT policies with `USING (true)` are intentionally excluded as this pattern is often used deliberately for public read access.",
+      "detail": "Table `public.sms_inbound` has an RLS policy `inbound_insert_platform` for `INSERT` that allows unrestricted access (WITH CHECK clause is always true). This effectively bypasses row-level security for -.",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0024_permissive_rls_policy",
+      "metadata": {
+        "name": "sms_inbound",
+        "qual": null,
+        "type": "table",
+        "roles": [
+          "-"
+        ],
+        "schema": "public",
+        "command": "INSERT",
+        "with_check": "true",
+        "policy_name": "inbound_insert_platform",
+        "permissive_using": false,
+        "permissive_with_check": true
+      },
+      "cache_key": "rls_policy_always_true_public_sms_inbound_inbound_insert_platform"
+    }
+  ]
+}

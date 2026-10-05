@@ -14,14 +14,14 @@ import { loadBookingStaff, enforceScheduledBooking } from '../queries/bookingSta
 import type postgres from 'postgres';
 import { randomUUID } from 'node:crypto';
 import {
-  AppointmentCreate, AppointmentCreateBatch, AppointmentAddItem, AppointmentCancel, AppointmentReschedule,
+  AppointmentCreate, AppointmentCreateBatch, AppointmentAddItem, AppointmentReplaceItem, AppointmentCancel, AppointmentReschedule,
   AppointmentSaveServiceBrief, AppointmentAssignCustomer,
   AppError, ERROR_CODES, pickText, appointmentAllowsSchedulingChanges, type CommandContext,
 } from '@gf/contracts';
 import { renderConfirm, formatWhen } from '../email/render';
 import { emailConfigured } from '../email/send';
 import { hostedManageBookingUrl } from '../links';
-import { generateManageToken, hashManageToken, wrapManageToken } from '../public/bookingToken';
+import { generateManageToken, hashManageToken, wrapManageToken,unwrapManageToken } from '../public/bookingToken';
 import { guestManageLink, manageUrlVar } from '../notify/manageUrl';
 import { notifyBookingRecipients } from '../notify/bookingRecipients';
 import { bookingSummary } from '../notify/bookingSummary';
@@ -36,7 +36,11 @@ import {
 } from '@gf/scheduling';
 import { ts, jsonb, parseTs, readOnlineBooking } from '@gf/db';
 import { loadPartyAvailability } from '../public/partyAvailability';
-import { guestRescheduleBlockReason, withinBookingCorrectionWindow } from '../public/managedDetail';
+import { guestRescheduleBlockReason, withinBookingCorrectionWindow,depositCancellationCutoff } from '../public/managedDetail';
+import {cancelAppointmentDepositInTransaction} from './appointmentDepositCancellation';
+import {queuePendingDepositNotice} from './appointmentDepositNotices';
+import {requoteAppointmentDeposit} from './appointmentDepositAdjustments';
+import './appointmentGuestCancellation';
 import { checkManagedRescheduleSlot } from '../public/managedAvailability';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { quoteBundle } from '../queries/bundle';
@@ -197,7 +201,7 @@ function assertBusinessHours(args: {
  * 班表恒为空，按班表算等于 0，而 0 在容量引擎里意味着**关闭门店层检查**，
  * 那就把一整层约束悄悄取消了。
  */
-async function countOnDutyBookable(
+export async function countOnDutyBookable(
   tx: postgres.TransactionSql, locationId: string, businessDate: string,
 ): Promise<number> {
   const [location]=await tx<{settings:Record<string,any>}[]>`select settings from locations where id=${locationId}`;
@@ -227,10 +231,49 @@ export async function lockBookingCapacity(
     hashtext(${locationId}), hashtext('appointment.capacity'))`;
 }
 
+/** Reacquire an expired deposit reservation using its original items, with today's capacity rules and no new lead-time rule. */
+export async function restoreDepositBookingCapacity(tx:postgres.TransactionSql,ctx:CommandContext,appointmentId:string):Promise<void>{
+  const [appt]=await tx<{starts_at:string;party_size:number;business_date:string;future:boolean}[]>`
+    select starts_at::text,party_size,business_date::text,starts_at>now() as future from appointments where id=${appointmentId}`;
+  const fail=()=>{throw new AppError(ERROR_CODES.RESOURCE_CONFLICT,{details:{reason:'late_deposit_capacity_unavailable'}});};
+  if(!appt?.future)fail();
+  const [loc]=await tx<{settings:Record<string,unknown>}[]>`select settings from locations where id=${ctx.locationId}`;
+  const items=await tx<{id:string;starts_at:string;ends_at:string;membership_id:string|null;resource_id:string|null;is_request:boolean;details:Record<string,unknown>}[]>`
+    select id,starts_at::text,ends_at::text,coalesce(membership_id,reserved_membership_id) as membership_id,resource_id,is_request,details
+    from appointment_items where appointment_id=${appointmentId} order by seq`;
+  if(!items.length||!loc)fail();
+  const policy=readBookingPolicy(loc!.settings),onDuty=await countOnDutyBookable(tx,ctx.locationId,appt!.business_date);
+  const rows=await tx<{membership_id:string|null;starts_at:string;ends_at:string;group_key:string}[]>`
+    select coalesce(ai.membership_id,ai.reserved_membership_id) as membership_id,ai.starts_at::text,ai.ends_at::text,
+      case when a.party_size>1 or ai.details?'serviceExecutionGroup' then ai.id::text else a.id::text end as group_key
+    from appointment_items ai join appointments a on a.id=ai.appointment_id
+    where ai.location_id=${ctx.locationId} and ai.appointment_id<>${appointmentId} and ai.status in('booked','in_service')`;
+  const existing=rows.map(r=>({membershipId:r.membership_id,startsAt:parseTs(r.starts_at),endsAt:parseTs(r.ends_at),groupKey:r.group_key}));
+  for(const item of items){
+    const startsAt=parseTs(item.starts_at),endsAt=parseTs(item.ends_at);
+    const proposed={startsAt,endsAt,groupKey:appt!.party_size>1||item.details['serviceExecutionGroup']?item.id:appointmentId};
+    const [staff]=item.membership_id?await tx<{is_bookable:boolean;max_concurrent_appointments:number;status:string}[]>`
+      select sp.is_bookable,sp.max_concurrent_appointments,m.status from staff_profiles sp join memberships m on m.id=sp.membership_id
+      where sp.membership_id=${item.membership_id} and sp.location_id=${ctx.locationId}`:[];
+    if(item.membership_id&&(!staff||!staff.is_bookable||staff.status!=='active'))fail();
+    await enforceScheduledBooking(tx,ctx.locationId,appt!.business_date,loc!.settings,{...proposed,membershipId:item.membership_id},existing);
+    if(checkCapacity({proposed,staff:staff&&item.membership_id?{membershipId:item.membership_id,isBookable:staff.is_bookable,
+      maxConcurrent:bookingLimits(policy,onDuty,item.is_request,staff.max_concurrent_appointments).staffLimit,
+      existing:existing.filter(e=>e.membershipId===item.membership_id)}:null,
+      location:{maxConcurrentPerSlot:bookingLimits(policy,onDuty,item.is_request).locationLimit,onDutyBookableCount:onDuty,existing}}).length)fail();
+    existing.push({...proposed,membershipId:item.membership_id});
+  }
+  // Resource triggers are the final hard constraint, including simultaneous party items.
+  await tx`update appointment_items set status='booked' where appointment_id=${appointmentId} and status='cancelled'`;
+  await tx`update order_bundle_instances set status='active' where appointment_id=${appointmentId} and status='cancelled'`;
+  await tx`update appointments set status='booked',cancelled_at=null,cancel_reason=null,cancel_note=null where id=${appointmentId}`;
+}
+
 export async function executeSingleAppointmentInTx(
   tx: postgres.TransactionSql,
   ctx: CommandContext,
   input: Input,
+  options:{deferConfirmation?:boolean}={},
 ): Promise<{
   appointmentId: string;
   itemIds: string[];
@@ -675,7 +718,7 @@ export async function executeSingleAppointmentInTx(
 
   // Only guest-initiated bookings send confirmations to customers, shops, and staff.
   // Staff operations stay silent even if the supplied source is a public source.
-  if (ctx.membershipId === null && PUBLIC_SOURCES.has(input.source)) {
+  if (!options.deferConfirmation&&ctx.membershipId === null && PUBLIC_SOURCES.has(input.source)) {
     await enqueueConfirmEmail(tx, ctx, appt!.id, itemIds[0] ?? null, issuedManageToken);
     if(input.guest?.bookingSmsConsent!==false) await enqueueConfirmSms(tx, ctx, appt!.id, itemIds[0] ?? null, issuedManageToken);
     await notifyBookingRecipients(tx,ctx,{appointmentId:appt!.id,occurrence:"created",event:"created"});
@@ -966,6 +1009,21 @@ async function enqueueConfirmEmail(
   });
 }
 
+/** Confirmed payment or an authorized waiver commits with the same booking confirmation outbox. */
+export async function confirmPaidDepositBooking(tx:HandlerArgs<Input>['tx'],ctx:CommandContext,appointmentId:string):Promise<void>{
+  await tx`update email_outbox set status='failed',last_error='deposit_request_superseded'
+    where entity_id=${appointmentId} and kind='appointment_deposit_pending' and status='pending'`;
+  const [appt]=await tx<{source:string;deposit_status:string;manage_token_wrapped:Buffer|null;manage_token_digest:string|null}[]>`
+    select source,deposit_status,manage_token_wrapped,manage_token_digest from appointments where id=${appointmentId}`;
+  if(!appt||!['paid','waived','not_required','refund_pending'].includes(appt.deposit_status)||!PUBLIC_SOURCES.has(appt.source))return;
+  const [item]=await tx<{id:string;details:Record<string,unknown>}[]>`select id,details from appointment_items
+    where appointment_id=${appointmentId} and status='booked' order by seq limit 1`;
+  const token=appt.manage_token_wrapped&&appt.manage_token_digest?unwrapManageToken(appt.manage_token_wrapped,appt.manage_token_digest):null;
+  await enqueueConfirmEmail(tx,ctx,appointmentId,item?.id??null,token);
+  if(item?.details.bookingSmsConsent!==false)await enqueueConfirmSms(tx,ctx,appointmentId,item?.id??null,token);
+  await notifyBookingRecipients(tx,ctx,{appointmentId,occurrence:'created',event:'created'});
+}
+
 
 /**
  * 把预约确认**短信**放进发件箱（**事务内**，和预约同生共死）。
@@ -1092,8 +1150,9 @@ function input_hasCustomerEmailSupport(): boolean {
  * 拒绝而不是猜，是因为猜错的方向是「凭空给技师记了一次没干过的活」
  * 或者「抹掉他真干过的一次」—— 两个都会被技师当场发现并投诉。
  */
-registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
-  typeof AppointmentCancel.input._type>): Promise<typeof AppointmentCancel.output._type> => {
+export async function cancelAppointmentInTransaction({ input, ctx, tx, audit, emit }: HandlerArgs<
+  typeof AppointmentCancel.input._type>,options?:{notifyCustomer?:boolean}): Promise<typeof AppointmentCancel.output._type> {
+  await lockBookingCapacity(tx,ctx.locationId);
   const [appt] = await tx<{
     id: string; status: string; source: string; business_date: string; starts_at:string; created_at:string;
   }[]>`
@@ -1114,8 +1173,9 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit, emit }: Handl
 
   if(ctx.actorKind==='api' && !ctx.userId && !ctx.membershipId) {
     const [loc]=await tx<{settings:Record<string,unknown>}[]>`select settings from locations where id=${ctx.locationId}`;
+    const [held]=await tx<{policy_snapshot:Record<string,unknown>}[]>`select policy_snapshot from commerce_appointment_holds where appointment_id=${appt.id}`;
     const cfg=readOnlineBooking(loc?.settings??{});
-    if(appt.status!=='booked' || (Date.parse(appt.starts_at)-Date.now()<cfg.cancelCutoffHours*3600000 && !withinBookingCorrectionWindow({startsAt:appt.starts_at,createdAt:appt.created_at}))) {
+    if(appt.status!=='booked' || (Date.parse(appt.starts_at)-Date.now()<depositCancellationCutoff(held?.policy_snapshot,cfg.cancelCutoffHours)*3600000 && !withinBookingCorrectionWindow({startsAt:appt.starts_at,createdAt:appt.created_at}))) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED,{details:{reason:appt.status!=='booked'?'not_mutable':'cancel_cutoff_passed'}});
     }
   }
@@ -1149,6 +1209,8 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit, emit }: Handl
   await tx`update order_bundle_instances set status = 'cancelled'
     where appointment_id = ${appt.id} and status <> 'cancelled'`;
 
+  await cancelAppointmentDepositInTransaction({input,ctx,tx,audit,emit},appt.id,input.reason);
+
   // Checked-in appointments also own a queue entry; cancelling must end both.
   await tx`update walkin_queue set status = 'left', left_at = now(),
       left_reason = coalesce(left_reason, 'appointment_cancelled')
@@ -1162,6 +1224,7 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit, emit }: Handl
     oldStartsAt: null,
     newStartsAt: null,
     snapshot,
+    notifyCustomer:options?.notifyCustomer??false,
   });
 
   audit({
@@ -1180,7 +1243,8 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit, emit }: Handl
   emit({type:'appointment.changed',entityId:appt.id,businessDate:appt.business_date});
   await recordVoiceActivity(tx,ctx,appt.id,'cancel','completed');
   return { appointmentId: appt.id, turnKept: false };
-});
+}
+registerHandler(AppointmentCancel,cancelAppointmentInTransaction);
 
 // ─────────────────────────────────────────────────────────────────── 改期
 
@@ -1243,6 +1307,13 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
     await recordVoiceActivity(tx,ctx,appt.id,'reschedule','completed');
     return {appointmentId:appt.id,overbooked:false};
   }
+
+  // A delayed expiry worker must not let an elapsed reservation acquire a new slot.
+  // Time-only changes retain the original payment, quote, policy and deadline.
+  const [depositHold]=await tx<{status:string;due:boolean}[]>`select status,expires_at<=now() as due
+    from commerce_appointment_holds where appointment_id=${appt.id} for update`;
+  if(depositHold?.status==='pending'&&depositHold.due)
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'deposit_hold_not_payable'}});
 
   const publicGuest=ctx.actorKind==='api' && !ctx.userId && !ctx.membershipId;
   if(publicGuest) {
@@ -1521,14 +1592,14 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
  * 而预约详情里的追加项目应该先进入 appointment_items，待之后开单时由
  * ticket.open 按预约快照整单带入。
  */
-registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
-  typeof AppointmentAddItem.input._type>
-): Promise<typeof AppointmentAddItem.output._type> => {
+export async function addAppointmentItemInTransaction({ input, ctx, tx, audit, emit }: HandlerArgs<
+  typeof AppointmentAddItem.input._type>,options?:{skipDepositRequote:boolean}
+): Promise<typeof AppointmentAddItem.output._type> {
   await lockBookingCapacity(tx, ctx.locationId);
 
-  const [appt] = await tx<{ id: string; status: string }[]>`
-    select id, status from appointments
-    where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
+  const [appt] = await tx<{ id: string; status: string; party_size:number }[]>`
+    select id, status, party_size from appointments
+    where id = ${input.appointmentId} and location_id = ${ctx.locationId} for update`;
   if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
   if (!appointmentAllowsSchedulingChanges(appt.status)) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
@@ -1543,6 +1614,14 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
       details: { reason: 'appointment_ticket_exists', ticketId: ticket.id },
     });
   }
+
+  const [deposit]=await tx<{id:string}[]>`select id from commerce_appointment_holds where appointment_id=${appt.id}`;
+  const cancelled=await tx<{guest_index:number;original_party_size:number}[]>`select guest_index,original_party_size from appointment_guest_cancellations where appointment_id=${appt.id}`;
+  const originalSize=cancelled[0]?.original_party_size??appt.party_size;
+  const activeGuests=Array.from({length:originalSize},(_,i)=>i).filter(i=>!cancelled.some(c=>c.guest_index===i));
+  const guestIndex=input.guestIndex??(activeGuests.length===1?activeGuests[0]:undefined);
+  if((deposit&&guestIndex===undefined)||(guestIndex!==undefined&&!activeGuests.includes(guestIndex)))
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'deposit_service_guest_required'}});
 
   const [service] = await tx<{ id: string; duration_min: number; base_price_cents: number; is_addon: boolean; staff_count: number }[]>`
     select id, duration_min, base_price_cents, is_addon, staff_count from services
@@ -1652,7 +1731,7 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
               ${ts(startsAt)}::timestamptz, ${ts(endsAt)}::timestamptz,
               ${service.base_price_cents}, ${durationMin}, ${(seq?.n ?? -1) + 1},
               ${overbooked}, ${overbooked ? input.override?.reason ?? null : null},
-              ${overbooked ? input.override?.note ?? null : null}, ${jsonb({})}::jsonb)
+              ${overbooked ? input.override?.note ?? null : null}, ${jsonb(guestIndex===undefined?{}:{publicGuestIndex:guestIndex})}::jsonb)
       returning id`;
   } catch (error) {
     const code = (error as { code?: string }).code;
@@ -1667,15 +1746,48 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
   const [span] = await tx<{ s: string; e: string }[]>`
     select min(starts_at)::text as s, max(ends_at)::text as e
     from appointment_items where appointment_id = ${appt.id} and status <> 'cancelled'`;
+  const appointmentBusinessDate=businessDateOf(parseTs(span!.s),loc.timezone,loc.cutoff);
   await tx`update appointments set starts_at = ${span!.s}::timestamptz,
-    ends_at = ${span!.e}::timestamptz, business_date = ${businessDate}
+    ends_at = ${span!.e}::timestamptz, business_date = ${appointmentBusinessDate}
     where id = ${appt.id}`;
+  if(deposit&&!options?.skipDepositRequote)await requoteAppointmentDeposit({input,ctx,tx,audit,emit},deposit.id,input.depositAdjustment);
   audit({ entityType: 'appointment', entityId: appt.id, after: {
     addedItemId: item!.id, serviceId: service.id, membershipId: input.membershipId,
     overbooked, offHours: offHoursOverride,
   } });
-  emit({ type: 'appointment.changed', entityId: appt.id, businessDate });
-  return { appointmentId: appt.id, itemId: item!.id, businessDate, overbooked };
+  emit({ type: 'appointment.changed', entityId: appt.id, businessDate:appointmentBusinessDate });
+  return { appointmentId: appt.id, itemId: item!.id, businessDate:appointmentBusinessDate, overbooked };
+}
+registerHandler(AppointmentAddItem,addAppointmentItemInTransaction);
+
+registerHandler(AppointmentReplaceItem,async args=>{
+  const {input,ctx,tx,audit,emit}=args;
+  if(!ctx.membershipId)throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+  await lockBookingCapacity(tx,ctx.locationId);
+  const [old]=await tx<{id:string;starts_at:string;membership_id:string|null;resource_id:string|null;details:Record<string,unknown>;bundle_instance_id:string|null;party_size:number;status:string}[]>`
+    select ai.*,ai.starts_at::text,a.party_size from appointment_items ai join appointments a on a.id=ai.appointment_id
+    where ai.id=${input.itemId} and ai.appointment_id=${input.appointmentId} and ai.location_id=${ctx.locationId} for update of ai,a`;
+  if(!old)throw new AppError(ERROR_CODES.NOT_FOUND);
+  const guests=Array.isArray(old.details.publicGuestIndices)?old.details.publicGuestIndices:Number.isInteger(old.details.publicGuestIndex)?[old.details.publicGuestIndex]:old.party_size===1?[0]:[];
+  if(old.status!=='booked'||old.bundle_instance_id||old.details.serviceExecutionGroup||guests.length!==1)
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'appointment_service_change_requires_whole_group'}});
+  const [service]=await tx<{duration_min:number}[]>`select duration_min from services where id=${input.serviceId} and location_id=${ctx.locationId} and active`;
+  if(!service)throw new AppError(ERROR_CODES.NOT_FOUND);
+  const endsAt=new Date(Date.parse(old.starts_at)+service.duration_min*60000).toISOString();
+  const overlap=await tx`select id from appointment_items where appointment_id=${input.appointmentId} and id<>${old.id} and status<>'cancelled'
+    and starts_at<${endsAt}::timestamptz and ends_at>${old.starts_at}::timestamptz
+    and (${old.party_size}::int=1 or not(details?'publicGuestIndex' or details?'publicGuestIndices')
+      or details->>'publicGuestIndex'=${String(guests[0])} or details->'publicGuestIndices' @> ${jsonb(guests)}::jsonb)`;
+  if(overlap.length)throw new AppError(ERROR_CODES.RESOURCE_CONFLICT,{details:{reason:'appointment_service_overlap'}});
+  await tx`update appointment_items set status='cancelled' where id=${old.id}`;
+  const result=await addAppointmentItemInTransaction({...args,input:{appointmentId:input.appointmentId,serviceId:input.serviceId,
+    membershipId:input.membershipId===undefined?old.membership_id:input.membershipId,resourceId:input.resourceId===undefined?old.resource_id:input.resourceId,
+    startsAt:new Date(old.starts_at).toISOString(),guestIndex:Number(guests[0]),isRequest:input.isRequest,...(input.override?{override:input.override}:{})}},
+    {skipDepositRequote:true});
+  const [deposit]=await tx<{id:string}[]>`select id from commerce_appointment_holds where appointment_id=${input.appointmentId}`;
+  if(deposit)await requoteAppointmentDeposit(args,deposit.id,input.depositAdjustment,{reason:'appointment_service_replaced'});
+  audit({entityType:'appointment',entityId:input.appointmentId,after:{replacedItemId:old.id,itemId:result.itemId,serviceId:input.serviceId}});
+  return {...result,replacedItemId:old.id};
 });
 
 /**
@@ -1699,7 +1811,7 @@ type ChangeNotifySnapshot = {
   location_id: string;
 };
 
-async function loadChangeNotifySnapshot(
+export async function loadChangeNotifySnapshot(
   tx: HandlerArgs<unknown>['tx'],
   appointmentId: string,
 ): Promise<ChangeNotifySnapshot | null> {
@@ -1725,7 +1837,7 @@ async function loadChangeNotifySnapshot(
   return row ? {...row,service_label:await appointmentServiceLabel(tx,row.location_id,appointmentId,pickText(row.service_name,'en',''))} : null;
 }
 
-async function notifyAppointmentChange(
+export async function notifyAppointmentChange(
   tx: HandlerArgs<unknown>['tx'],
   ctx: HandlerArgs<unknown>['ctx'],
   args: {
@@ -1736,6 +1848,8 @@ async function notifyAppointmentChange(
     newStartsAt: string | null;
     snapshot?: ChangeNotifySnapshot | null;
     previousStaffIds?: string[];
+    notifyCustomer?:boolean;
+    depositNoticeQueued?:boolean;
   },
 ): Promise<void> {
   // One occurrence per successful command transaction. Command-bus replay skips
@@ -1757,9 +1871,23 @@ async function notifyAppointmentChange(
       last_error = case when status = 'pending' then 'appointment_changed' else last_error end
     where entity_id = ${args.appointmentId} and kind = 'appointment_reminder'
       and entity_type in ('appointment', 'appointment_shop')`;
-  // Desk edits/cancellations are silent, including bookings originally made online.
+  if(args.event==='appointment_changed') {
+    const [pending]=await tx<{id:string}[]>`select h.id from commerce_appointment_holds h
+      join appointments a on a.id=h.appointment_id where h.appointment_id=${args.appointmentId}
+      and h.status='pending' and a.deposit_status='pending'`;
+    if(pending) {
+      if(args.depositNoticeQueued)return;
+      // Replace an unsent payment request so it cannot carry the previous schedule.
+      // Unpaid reservations must not produce ordinary confirmed-booking or staff notices.
+      await tx`update email_outbox set status='failed',last_error='deposit_schedule_changed'
+        where entity_id=${args.appointmentId} and kind='appointment_deposit_pending' and status='pending'`;
+      await queuePendingDepositNotice(tx,ctx,pending.id,true,args.oldStartsAt??undefined);
+      return;
+    }
+  }
+  // Desk changes are silent unless the caller explicitly requests a transactional customer update.
   // Still invalidate stale reminders above so they cannot send the old schedule.
-  if (ctx.membershipId !== null) return;
+  if (ctx.membershipId !== null&&!args.notifyCustomer) return;
 
   const row = args.snapshot ?? await loadChangeNotifySnapshot(tx, args.appointmentId);
   if (!row) return;
@@ -1808,7 +1936,7 @@ async function notifyAppointmentChange(
    * 就是中文 —— 邮件与短信皆然。
    */
   // Guest self-service and verified voice changes retain customer notifications.
-  if (PUBLIC_SOURCES.has(row.source) || ctx.verifiedBookingCaller) {
+  if (PUBLIC_SOURCES.has(row.source) || ctx.verifiedBookingCaller || ctx.verifiedManagedBooking || args.notifyCustomer) {
     await notifyEvent(tx, ctx, {
       event: args.event,
       transactionalBooking:true,

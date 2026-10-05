@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-02T01:53:03.302Z",
+  "previous": [
+    {
+      "invoices": 3,
+      "cash": 29700,
+      "cycles": 3
+    },
+    {
+      "invoices": 2,
+      "cash": 199800,
+      "cycles": 24
+    }
+  ],
+  "businessRowsMutated": false,
+  "productionPublished": false
+}

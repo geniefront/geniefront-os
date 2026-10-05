@@ -157,3 +157,10 @@ export async function downloadReportCsv(from: string, to: string, membershipId: 
   document.body.removeChild(a);
   window.URL.revokeObjectURL(downloadUrl);
 }
+
+export function useCommerceReportQuery(from:string,to:string){
+ const {membershipId,status}=useSession();
+ return useQuery({queryKey:['desk','reports','commerce',membershipId,from,to],
+  queryFn:()=>apiGet<{commerce?:import('@gf/contracts').CommerceDaySummary}>(`/v1/desk/reports?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+  enabled:status==='ready'&&!!membershipId&&!!from&&!!to});
+}

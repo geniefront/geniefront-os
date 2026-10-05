@@ -5,7 +5,7 @@ import { qaUuid } from './ids';
 const SB_URL = process.env.SUPABASE_URL ?? process.env.TEST_SUPABASE_URL ?? '';
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.TEST_SUPABASE_SERVICE_ROLE_KEY ?? '';
 
-export async function upsertQaAuthUser(email: string, fullName: string): Promise<string> {
+export async function upsertQaAuthUser(email: string, fullName: string, password = QA_PASSWORD): Promise<string> {
   if (process.env.SEED_SKIP_AUTH === '1') {
     return qaUuid(`auth:${email.toLowerCase()}`);
   }
@@ -25,14 +25,14 @@ export async function upsertQaAuthUser(email: string, fullName: string): Promise
   if (hit) {
     await fetch(`${SB_URL}/auth/v1/admin/users/${hit.id}`, {
       method: 'PUT', headers: h,
-      body: JSON.stringify({ password: QA_PASSWORD, email_confirm: true }),
+      body: JSON.stringify({ password, email_confirm: true }),
     });
     return hit.id;
   }
   const created = await fetch(`${SB_URL}/auth/v1/admin/users`, {
     method: 'POST', headers: h,
     body: JSON.stringify({
-      email, password: QA_PASSWORD, email_confirm: true,
+      email, password, email_confirm: true,
       user_metadata: { full_name: fullName },
     }),
   }).then((r) => r.json() as Promise<{ id?: string; msg?: string; message?: string }>);
@@ -42,7 +42,7 @@ export async function upsertQaAuthUser(email: string, fullName: string): Promise
 
 export async function insertLocalAuthIdentity(
   tx: postgres.TransactionSql,
-  args: { userId: string; email: string; fullName: string },
+  args: { userId: string; email: string; fullName: string; password?: string | undefined },
 ): Promise<void> {
   if (process.env.SEED_SKIP_AUTH !== '1') return;
   const J = (v: unknown) => tx.json(v as never);
@@ -56,7 +56,7 @@ export async function insertLocalAuthIdentity(
     values
     ('00000000-0000-0000-0000-000000000000', ${args.userId},
      'authenticated', 'authenticated', ${args.email},
-     crypt(${QA_PASSWORD}, gen_salt('bf')), now(),
+     crypt(${args.password ?? QA_PASSWORD}, gen_salt('bf')), now(),
      ${J({ provider: 'email', providers: ['email'] })},
      ${J({ full_name: args.fullName })}, now(), now(), '', '', '', '', '',
      '', '', '', 0)

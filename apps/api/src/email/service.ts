@@ -7,6 +7,8 @@ import { validateEmail } from './validation';
 import { reconcileEmail } from './events';
 import { isCaptureMode } from '../comms/mode';
 import { mailslurpEnabled, mailslurpCreateInbox, mailslurpAttachWebhook } from './mailslurp';
+import { emailProvider } from './provider';
+import { mailerooDomain, mailerooRequest, type MailerooDomain } from './maileroo';
 
 export function encryptEmailKey(value:string,context:string):string {
   const raw=process.env['EMAIL_CREDENTIAL_ENCRYPTION_KEY'];
@@ -19,6 +21,15 @@ export function encryptEmailKey(value:string,context:string):string {
 }
 export async function provisionEmailAccount(tenant:TenantContext):Promise<void> {
   if(!tenant.locationId) return;
+  if (emailProvider() === 'maileroo') {
+    // Marketing accounts are not active yet; no legacy provider resources should be provisioned.
+    await withTenant(tenant, tx => tx`insert into email_accounts(org_id,location_id,account_email,status,last_error)
+      values(${tenant.orgId},${tenant.locationId},${`shop-${tenant.locationId}@tenant.geniefront.com`},'paused','marketing_coming_soon')
+      on conflict(location_id) do nothing`);
+    await withTenant(tenant, tx => tx`update email_accounts set status='paused',last_error='marketing_coming_soon',updated_at=now()
+      where location_id=${tenant.locationId} and status in ('pending','error')`);
+    return;
+  }
   // Validate the wrapping key before creating any remote credentials.
   encryptEmailKey('preflight',tenant.locationId);
   const email=`shop-${tenant.locationId}@tenant.geniefront.com`;
@@ -72,16 +83,37 @@ export async function refreshEmailDomains(tenant:TenantContext):Promise<void> {
     update email_domain_requests set checked_at=now() where location_id=${tenant.locationId} and status<>'cancelled'
     and (checked_at is null or checked_at<now()-interval '15 minutes') returning id,domain,ownership_token`);
   for(const r of rows){
-    const records=await domainInstructions(r.domain,r.ownership_token);
+    let records=await domainInstructions(r.domain,r.ownership_token);
     let status='dns_pending', error:string|null=null;
     try{
       // Verify tenant control before registering the domain in the shared transactional account.
       const ownership=await txtRecords(`_geniefront.${r.domain}`);
       if(ownership.includes(`gf-domain=${r.ownership_token}`)){
+        if (emailProvider() === 'maileroo') {
+          const found = await mailerooDomain(r.domain);
+          const d = found ? await mailerooRequest<MailerooDomain>(`/domains/${found.id}`)
+            : await mailerooRequest<MailerooDomain>('/domains', 'POST', { type: 'custom', domain_name: r.domain });
+          await mailerooRequest(`/domains/${d.id}/scan-dns`, 'POST');
+          records = await domainInstructions(r.domain, r.ownership_token, d);
+          if (d.status) {
+            const appId = process.env['MAILEROO_APPLICATION_ID'];
+            if (!appId) throw new Error('maileroo_application_not_configured');
+            // Both API replicas share the application; serialize read-modify-write domain grants.
+            await withTenant(tenant, async tx => {
+              await tx`select pg_advisory_xact_lock(hashtext('maileroo-domain-grants'),hashtext(${appId}))`;
+              const app = await mailerooRequest<{ authorized_domains: { domain_id: number }[] }>(`/applications/${encodeURIComponent(appId)}`);
+              if (!app.authorized_domains.some(a => a.domain_id === d.id)) await mailerooRequest(`/applications/${encodeURIComponent(appId)}`, 'PATCH', {
+                authorized_domains: [...app.authorized_domains.map(a => a.domain_id), d.id],
+              });
+            });
+            status = 'verified';
+          }
+        } else {
         try{await elasticRequest('GET',`/domains/${encodeURIComponent(r.domain)}`);}
         catch(e){if(!(e instanceof ElasticError)||e.status!==404) throw e;await elasticRequest('POST','/domains',{Domain:r.domain,SetAsDefault:false});}
         const d=await elasticRequest<ElasticDomain>('PUT',`/domains/${encodeURIComponent(r.domain)}/verification`,'None');
         if(elasticDomainReady(d)) status='verified';
+        }
       }
     }catch(e){status='error';error=e instanceof ElasticError?e.message:'domain_verification_failed';}
     await withTenant(tenant,tx=>tx`update email_domain_requests set dns_records=${jsonb(records)}::jsonb,status=${status},last_error=${error},updated_at=now() where id=${r.id} and status<>'cancelled'`);
@@ -89,7 +121,8 @@ export async function refreshEmailDomains(tenant:TenantContext):Promise<void> {
 }
 export async function runEmailService():Promise<void>{
   if(process.env['NODE_ENV']==='test') return;
-  if(!mailslurpEnabled() && (isCaptureMode() || !elasticKey())) return;
+  if (isCaptureMode() && !mailslurpEnabled()) return;
+  if(emailProvider() !== 'maileroo' && !mailslurpEnabled() && !elasticKey()) return;
   const tenants=await sql<{org_id:string;location_id:string}[]>`select * from gf_email_service_tenants(50)`;
   for(const r of tenants){
     const tenant={orgId:r.org_id,locationId:r.location_id,membershipId:null};
@@ -103,14 +136,16 @@ export async function runEmailService():Promise<void>{
           where org_id=${tenant.orgId} and location_id=${tenant.locationId} and email=${v.email}`);
       }
       try { await provisionEmailAccount(tenant); } catch { /* Missing provisioning config must not stop delivery reconciliation. */ }
-      if (!isCaptureMode() && elasticKey()) {
-        await refreshEmailDomains(tenant);
+      if (!isCaptureMode()) {
         await withTenant(tenant,tx=>tx`update email_outbox set status='uncertain',last_error='delivery_claim_expired' where location_id=${tenant.locationId} and status='sending' and claimed_at<now()-interval '5 minutes'`);
+        if (emailProvider() === 'maileroo' || elasticKey()) {
+          try { await refreshEmailDomains(tenant); } catch { /* Domain outages must not block delivery reconciliation. */ }
+        }
         const pending=await withTenant(tenant,tx=>tx<{provider_transaction_id:string}[]>`
           select distinct provider_transaction_id from email_outbox where location_id=${tenant.locationId}
           and provider='elasticemail' and status='sent' and provider_transaction_id is not null and sent_at>now()-interval '6 days'
           and (last_reconciled_at is null or last_reconciled_at<now()-interval '15 minutes') limit 20`);
-        for(const p of pending) await reconcileEmail(tenant,p.provider_transaction_id);
+        if (elasticKey()) for(const p of pending) await reconcileEmail(tenant,p.provider_transaction_id);
       }
     }catch{ /* Other tenants still progress; detailed statuses are persisted per resource. */ }
   }

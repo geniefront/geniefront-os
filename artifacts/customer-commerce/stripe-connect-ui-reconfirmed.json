@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-02T01:00:46.539112+00:00",
+  "scope": "Read-only user Chrome Stripe dashboard inspection after login confirmation",
+  "page": "Connect 子账户",
+  "sandboxBannerVerified": true,
+  "enabledAccounts": 2,
+  "restrictedAccounts": 0,
+  "connectBlockerResolved": true,
+  "dashboardMutated": false,
+  "productionPublished": false
+}

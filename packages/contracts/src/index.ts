@@ -33,6 +33,9 @@ export * from './commands/customer.js';
 export * from './commands/sms.js';
 export * from './commands/resource.js';
 export * from './commands/marketing.js';
+export * from './commands/commerce.js';
+export * from './commerceCopy.js';
+export * from './depositCopy.js';
 export * from './commands/profile.js';
 export * from './commands/notifications.js';
 export * from './commands/support.js';
@@ -63,3 +66,20 @@ export * from './voiceConfiguration.js';
 export * from './serviceParty.js';
 
 export * from './serviceShortNames';
+export * from './commands/customerMembership.js';
+export * from './membershipCopy.js';
+export * from './serviceRefundCopy.js';
+
+export * from './checkoutQuoteCopy.js';
+
+export * from './groupCheckoutCopy.js';
+export {commerceDayExportRows,type CommerceDayCurrency,type CommerceDaySummary} from './commerceDay';
+export {commerceDayText,type CommerceDayCopyKey} from './commerceDayCopy';
+export {customerMergeText} from './customerMergeCopy';
+export * from './retentionReleaseCopy.js';
+export * from './membershipChangeCopy.js';
+export * from './membershipAccessCopy.js';
+export * from './purchaseRefundCopy.js';
+
+export * from './depositAdjustment.js';
+export * from './depositAdjustmentCopy.js';

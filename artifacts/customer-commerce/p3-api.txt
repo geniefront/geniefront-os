@@ -1,0 +1,32 @@
+$ vitest run src/appointmentDeposits.test.ts src/commerce.test.ts src/bundle.test.ts src/workstations_backend.test.ts src/giftcard.test.ts src/marketing.test.ts src/v1Issues.test.ts src/customer.test.ts src/stripe/subscriptionLifecycle.test.ts src/email/maileroo.test.ts src/logRedact.unit.test.ts
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/api
+
+{"level":30,"time":1790816860259,"pid":72578,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","req":{"id":"req-1","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","stripe-signature":"t=1790816860,v1=b6b23343ae3076a750e36fa43397c21cceccb1866386f0da2d5d72b7f6c06d00","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790816860277,"pid":72578,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-1","res":{"statusCode":200},"responseTime":5.5584170000001905,"msg":"request completed"}
+{"level":30,"time":1790816860277,"pid":72578,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","req":{"id":"req-2","method":"POST","url":"/v1/stripe/commerce-account-webhook","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"content-type":"application/json","user-agent":"lightMyRequest","host":"localhost:80","content-length":"58"}},"msg":"incoming request"}
+{"level":30,"time":1790816860278,"pid":72578,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790816860278,"pid":72578,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-2","res":{"statusCode":401},"responseTime":0.9805830000004789,"msg":"request completed"}
+{"level":30,"time":1790816860279,"pid":72578,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","req":{"id":"req-3","method":"POST","url":"/v1/commerce/accounts/refresh","hostname":"localhost","remoteAddress":"127.0.0.1","headers":{"user-agent":"lightMyRequest","host":"localhost:80","content-type":"application/json","content-length":"57"}},"msg":"incoming request"}
+{"level":30,"time":1790816860279,"pid":72578,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","code":"UNAUTHENTICATED","details":{},"msg":"business error"}
+{"level":30,"time":1790816860279,"pid":72578,"hostname":"naiyouzhudeMacBook-Air.local","reqId":"req-3","res":{"statusCode":401},"responseTime":0.6385420000005979,"msg":"request completed"}
+ ✓ src/commerce.test.ts (35 tests) 7355ms
+   ✓ disables and replaces lost credentials without duplicating value, revokes old access, and delivers only the current card 757ms
+   ✓ accepts signed thin events through the complete server auth stack and keeps account administration protected 1881ms
+   ✓ keeps gift promotional-value cent rounding consistent across multiple purchase refunds 347ms
+ ✓ src/bundle.test.ts (34 tests) 2161ms
+ ✓ src/stripe/subscriptionLifecycle.test.ts (16 tests) 843ms
+ ✓ src/appointmentDeposits.test.ts (12 tests) 882ms
+ ✓ src/workstations_backend.test.ts (15 tests) 783ms
+ ✓ src/marketing.test.ts (12 tests) 286ms
+ ✓ src/giftcard.test.ts (22 tests) 736ms
+ ✓ src/v1Issues.test.ts (13 tests) 314ms
+ ✓ src/customer.test.ts (12 tests) 77ms
+ ✓ src/email/maileroo.test.ts (9 tests) 4ms
+ ✓ src/logRedact.unit.test.ts (1 test) 1ms
+
+ Test Files  11 passed (11)
+      Tests  181 passed (181)
+   Start at  21:07:24
+   Duration  53.27s (transform 3.20s, setup 34.33s, collect 5.14s, tests 13.44s, environment 0ms, prepare 91ms)
+

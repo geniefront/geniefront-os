@@ -1,0 +1,105 @@
+{
+  "at": "2026-10-01T12:39:28.407Z",
+  "browserRetentionVerified": true,
+  "actualLocalHttp": true,
+  "actualOriginalStripeCheckoutVerified": true,
+  "originalRefundVerified": true,
+  "appointmentId": "4f29ab1f-fb20-4d61-b667-e1625366e81c",
+  "holdId": "1e115ec9-4acd-420e-8a04-13bfac479e53",
+  "facts": {
+    "status": "retained",
+    "amount_cents": 2000,
+    "service_total_cents": 10000,
+    "policy_snapshot": {
+      "method": "percentage",
+      "consent": {
+        "at": "2026-10-01 11:03:54.432393+00",
+        "locale": "en",
+        "method": "staff_confirmation",
+        "accepted": true
+      },
+      "version": "appointment-deposit-v2:7912fd6c1ea3b0dc96671637fb904ecb0ae80050f2042f258de6f4013f1b1746",
+      "percentBps": 2000,
+      "holdMinutes": 15,
+      "guestAllocation": {
+        "guests": [
+          {
+            "guestIndex": 0,
+            "amountCents": 2000,
+            "serviceTotalCents": 10000
+          }
+        ],
+        "method": "equal_without_guest_mapping"
+      },
+      "fixedAmountCents": null,
+      "cancelCutoffHours": 48,
+      "retainAfterCutoff": true,
+      "cancellationPolicyNotice": "Sandbox QA: agreed unused deposit may be retained after the original cutoff; staff will record the decision."
+    },
+    "reserved_cents": 0,
+    "appointment_status": "cancelled",
+    "payment_id": "b6bddb52-22c7-4a05-88d0-b5c4e1042dad",
+    "payment_status": "paid",
+    "checkout_session_id": "cs_test_a1LaU47mr78CUaWuvn2AbtF35YbNXBihNz5Z7u9AiJUXojA1yk3dHAINO2",
+    "stripe_account_id": "acct_1ULVaEJDnwwxW56m",
+    "fee_cents": 88,
+    "net_cents": 1912,
+    "balance_transaction_id": "txn_3ULhoOJDnwwxW56m0k1VcIKd",
+    "signed_checkout_events": 1,
+    "available": 0,
+    "collection_rows": 1,
+    "retention_rows": 1,
+    "retained_cents": 800,
+    "decisions": 1,
+    "retention_notices": 1,
+    "captured_retention_notices": 1
+  },
+  "publicSummary": {
+    "status": "retained",
+    "financialStatus": "retained",
+    "amountCents": 2000,
+    "currency": "USD",
+    "availableCents": 0,
+    "appliedCents": 0,
+    "refundedCents": 1200,
+    "retainedCents": 800,
+    "expiresAt": "2026-10-01 11:18:54.432393+00",
+    "serviceRemainingCents": 0,
+    "checkoutUrl": null,
+    "paymentMethod": "online",
+    "policy": {
+      "cancelCutoffHours": 48,
+      "notice": "Sandbox QA: agreed unused deposit may be retained after the original cutoff; staff will record the decision.",
+      "retainAfterCutoff": true
+    },
+    "guestAllocation": {
+      "guests": [
+        {
+          "guestIndex": 0,
+          "amountCents": 2000,
+          "serviceTotalCents": 10000,
+          "cancelled": false,
+          "refundStatus": "retained"
+        }
+      ],
+      "method": "equal_without_guest_mapping"
+    }
+  },
+  "refund": {
+    "status": "succeeded",
+    "amount_cents": 1200,
+    "stripe_refund_id": "re_3ULhoOJDnwwxW56m0qL5bT4M",
+    "fee_cents": 0,
+    "net_cents": -1200,
+    "balance_transaction_id": "txn_3ULhoOJDnwwxW56m0D4icxhU",
+    "signed_refund_events": 2
+  },
+  "policyRestored": true,
+  "currentMatchesPriorPolicy": true,
+  "serviceConsumed": false,
+  "notificationDelivery": "capture",
+  "realEmailDeliveryVerified": false,
+  "bankPayoutVerified": false,
+  "goalComplete": false,
+  "productionPublished": false
+}

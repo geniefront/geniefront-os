@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-02T13:19:11.245Z",
+  "ticketId": "7ae7954a-45c4-4b6d-8d07-24a599e2c5ba",
+  "originalCanonicalRequestAndQuotePreserved": true,
+  "replayed": true,
+  "counts": {
+    "payments": 1,
+    "redemptions": 1,
+    "item_receipts": 1,
+    "payment_audits": 1
+  },
+  "productionChanged": false
+}

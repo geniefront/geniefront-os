@@ -34,6 +34,8 @@ import { CUSTOMER_COMMANDS } from './commands/customer.js';
 import { SMS_COMMANDS } from './commands/sms.js';
 import { RESOURCE_COMMANDS } from './commands/resource.js';
 import { MARKETING_COMMANDS } from './commands/marketing.js';
+import { COMMERCE_COMMANDS } from './commands/commerce.js';
+import { CUSTOMER_MEMBERSHIP_COMMANDS } from './commands/customerMembership.js';
 import { PROFILE_COMMANDS } from './commands/profile.js';
 import { NOTIFICATION_COMMANDS } from './commands/notifications.js';
 import { SUPPORT_COMMANDS } from './commands/support.js';
@@ -42,6 +44,8 @@ import { REVIEW_COMMANDS } from './commands/reviews.js';
 import { EMAIL_COMMANDS } from './commands/email.js';
 
 const ALL: readonly AnyCommandDef[] = [
+  ...COMMERCE_COMMANDS,
+  ...CUSTOMER_MEMBERSHIP_COMMANDS,
   SaveBookingPolicy,
   SubmitVoiceBooking,
   ...VOICE_PROCESSING_COMMANDS,

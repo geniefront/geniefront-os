@@ -1,0 +1,3 @@
+/tmp/commerce-item-sources-types-final.txt
+ Tasks:    16 successful, 16 total
+  Time:    30.437s 

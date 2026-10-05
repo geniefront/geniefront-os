@@ -1,4 +1,4 @@
-import { canonicalCustomer, customerAssetIds } from '../customerIdentity';
+import { canonicalCustomer, lockCustomerIdentity,customerFamilies,customerAssetIds } from '../customerIdentity';
 /**
  * 客户档案聚合（批 6）。
  *
@@ -45,6 +45,8 @@ export interface CustomerDetail {
   source: string | null;
   /** 合并过的客户查旧 id 会跟到这里 */
   mergedIntoId: string | null;
+  canonicalCustomerId:string;
+  identityAliases:Array<{id:string;displayName:string}>;
 
   preferences: {
     preferredStaffIds: string[];
@@ -94,6 +96,7 @@ export interface CustomerDetail {
 export async function loadCustomerDetail(
   tx: postgres.TransactionSql, ctx: CommandContext, customerId: string,
 ): Promise<CustomerDetail | null> {
+  await lockCustomerIdentity(tx);
   const canSeeContact = ctx.permissions.has('customer.view_contact');
   const canSeeMoney = ctx.permissions.has('report.view');
 
@@ -114,6 +117,8 @@ export async function loadCustomerDetail(
            source, merged_into_id
     from customers where id = ${customerId}`;
   if (!c) return null;
+  const assetCustomerId = await canonicalCustomer(tx, customerId);
+  const aliases=await tx<{id:string;display_name:string|null}[]>`select id,display_name from customers where id in ${customerAssetIds(tx,assetCustomerId)} and id<>${assetCustomerId} order by display_name,id`;
 
   const [p] = await tx<{
     preferred_staff_ids: string[] | null; avoid_staff_ids: string[] | null;
@@ -138,22 +143,22 @@ export async function loadCustomerDetail(
            max(business_date)::text as last_at,
            coalesce(sum(total_cents), 0)::int as total
     from tickets
-    where location_id = ${ctx.locationId} and customer_id = ${customerId}
+    where location_id = ${ctx.locationId} and customer_id in ${customerAssetIds(tx,assetCustomerId)}
       and status = 'closed'`;
 
   const visitCount = v?.n ?? 0;
   const lifetime = v?.total ?? 0;
 
-  const gcRows = await tx<{
+  const gcRows = ctx.permissions.has('commerce.read')?await tx<{
     id: string; code: string; balance_cents: number; face_value_cents: number;
     status: string; expires_at: Date | string | null;
   }[]>`
-    select id, code, balance_cents, face_value_cents, status, expires_at
+    select id, code,case when commerce_frozen or credential_disabled then 0 else greatest(0,balance_cents-reserved_cents) end as balance_cents, face_value_cents,
+      case when credential_disabled then 'disabled' when commerce_frozen then 'review' when reserved_cents>0 then 'refund_pending' else status end as status,expires_at
     from gift_cards
-    where holder_customer_id = ${customerId} and status in ('active','depleted')
-    order by created_at desc limit 20`;
+    where holder_customer_id in ${customerAssetIds(tx,assetCustomerId)} and (location_id=${ctx.locationId} or scope='org') and status in ('active','depleted')
+    order by created_at desc limit 20`:[];
 
-  const assetCustomerId = await canonicalCustomer(tx, customerId);
   const [storeCredit] = await tx<{ balance: number }[]>`
     select coalesce(sum(amount_cents), 0)::int as balance
     from customer_credit_ledger
@@ -168,7 +173,7 @@ export async function loadCustomerDetail(
     from tickets t
     left join ticket_items ti on ti.ticket_id = t.id
     left join services s on s.id = ti.service_id
-    where t.location_id = ${ctx.locationId} and t.customer_id = ${customerId}
+    where t.location_id = ${ctx.locationId} and t.customer_id in ${customerAssetIds(tx,assetCustomerId)}
     group by t.id
     order by t.business_date desc limit 20`;
 
@@ -184,11 +189,11 @@ export async function loadCustomerDetail(
     select fs.id, ft.key, fs.created_at as at
     from form_submissions fs
     join form_templates ft on ft.id = fs.template_id
-    where fs.customer_id = ${customerId} and fs.location_id = ${ctx.locationId}
+    where fs.customer_id in ${customerAssetIds(tx,assetCustomerId)} and fs.location_id = ${ctx.locationId}
     order by fs.created_at desc limit 20`;
 
   const appointments = ctx.permissions.has('appointment.read') ? await tx<{ id: string; starts_at: Date | string; status: string }[]>`
-    select id,starts_at,status from appointments where location_id=${ctx.locationId} and customer_id=${customerId}
+    select id,starts_at,status from appointments where location_id=${ctx.locationId} and customer_id in ${customerAssetIds(tx,assetCustomerId)}
     order by starts_at desc limit 20` : [];
 
   const lastVisit = v?.last_at ? new Date(`${v.last_at}T12:00:00Z`).getTime() : null;
@@ -215,7 +220,7 @@ export async function loadCustomerDetail(
     blockedAt: c.blocked_at ? parseTs(c.blocked_at).toISOString() : null,
     blockedReason: c.blocked_reason,
     source: c.source,
-    mergedIntoId: c.merged_into_id,
+    mergedIntoId: c.merged_into_id,canonicalCustomerId:assetCustomerId,identityAliases:aliases.map(a=>({id:a.id,displayName:a.display_name??''})),
 
     preferences: {
       preferredStaffIds: p?.preferred_staff_ids ?? [],
@@ -237,7 +242,7 @@ export async function loadCustomerDetail(
         ? Math.floor((Date.now() - lastVisit) / 86400_000) : null,
     },
 
-    giftCards: (canSeeMoney && canSeeContact ? gcRows : []).map((g) => ({
+    giftCards: (ctx.permissions.has('commerce.read') ? gcRows : []).map((g) => ({
       id: g.id, code: g.code, balanceCents: g.balance_cents,
       faceValueCents: g.face_value_cents, status: g.status,
       expiresAt: g.expires_at ? parseTs(g.expires_at).toISOString() : null,
@@ -294,6 +299,7 @@ export async function loadCustomerList(
   },
 ): Promise<{ rows: CustomerListRow[]; total: number; metrics: CustomerMetrics }> {
   const today = await customerBusinessDate(tx, ctx);
+  await lockCustomerIdentity(tx);
   const canSeeContact = ctx.permissions.has('customer.view_contact');
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
   const offset = Math.max(opts.offset ?? 0, 0);
@@ -308,23 +314,24 @@ export async function loadCustomerList(
   };
   const selection = tx`
     with v as (
-      select customer_id, count(*)::int as n, max(business_date)::text as last_at
-      from tickets
-      where location_id = ${ctx.locationId} and status = 'closed'
-      group by customer_id
+      select f.root_id as customer_id, count(*)::int as n, max(business_date)::text as last_at
+      from tickets t join ${customerFamilies(tx)}f on f.id=t.customer_id
+      where t.location_id = ${ctx.locationId} and t.status = 'closed'
+      group by f.root_id
     )
     select c.id, c.display_name, c.phone_e164, c.vip_level, c.no_show_count, c.blocked_at::text as blocked_at,
-           (select count(*)::int from appointments a where a.customer_id=c.id and a.location_id=${ctx.locationId}) as appointment_count,
-           (select max(starts_at)::text from appointments a where a.customer_id=c.id and a.location_id=${ctx.locationId}) as last_appointment_at,
+           (select count(*)::int from appointments a where a.customer_id in (select f.id from ${customerFamilies(tx)}f where f.root_id=c.id) and a.location_id=${ctx.locationId}) as appointment_count,
+           (select max(starts_at)::text from appointments a where a.customer_id in (select f.id from ${customerFamilies(tx)}f where f.root_id=c.id) and a.location_id=${ctx.locationId}) as last_appointment_at,
            coalesce(v.n, 0) as n, v.last_at,
            count(*) over ()::int as total
     from customers c
     left join v on v.customer_id = c.id
     where c.merged_into_id is null
-      and (c.primary_location_id = ${ctx.locationId} or v.customer_id is not null)
+      and (c.primary_location_id = ${ctx.locationId} or v.customer_id is not null or exists(select 1 from customers a join ${customerFamilies(tx)}f on f.id=a.id where f.root_id=c.id and a.primary_location_id=${ctx.locationId}))
       ${searchStr ? tx`and (
         ${digits.length >= 3 ? tx`c.phone_e164 like ${'%' + digits}` : tx`false`}
         or c.display_name ilike ${'%' + searchStr + '%'}
+        or exists(select 1 from customers a join ${customerFamilies(tx)}f on f.id=a.id where f.root_id=c.id and (a.display_name ilike ${'%' + searchStr + '%'} ${digits.length>=3?tx`or a.phone_e164 like ${'%'+digits}`:tx``}))
       )` : tx``}
       ${(opts.vipOnly || filter === 'vip') ? tx`and c.vip_level > 0` : tx``}
       ${filter === 'active30' ? tx`and v.last_at is not null and v.last_at >= (${today}::date - 30)::text` : tx``}
@@ -369,11 +376,12 @@ export interface CustomerMetrics {
 
 /** All-store metrics do not depend on search, segment or page. */
 export async function loadCustomerMetrics(tx: postgres.TransactionSql, ctx: CommandContext, date?: string): Promise<CustomerMetrics> {
+  await lockCustomerIdentity(tx);
   const today = date ?? await customerBusinessDate(tx, ctx);
   const [row] = await tx<CustomerMetrics[]>`
     with visits as (
-      select customer_id, max(business_date) as last_at from tickets
-      where location_id = ${ctx.locationId} and status = 'closed' group by customer_id
+      select f.root_id as customer_id,max(business_date) as last_at from tickets t join ${customerFamilies(tx)}f on f.id=t.customer_id
+      where t.location_id = ${ctx.locationId} and t.status = 'closed' group by f.root_id
     ), day as (
       select ${today}::date as today
     )
@@ -383,7 +391,7 @@ export async function loadCustomerMetrics(tx: postgres.TransactionSql, ctx: Comm
       count(*) filter (where v.last_at is null or v.last_at < day.today - 30)::int as "sleep30",
       count(*) filter (where v.last_at is null or v.last_at < day.today - 90)::int as "sleep90"
     from customers c left join visits v on v.customer_id = c.id cross join day
-    where c.merged_into_id is null and (c.primary_location_id = ${ctx.locationId} or v.customer_id is not null)`;
+    where c.merged_into_id is null and (c.primary_location_id = ${ctx.locationId} or v.customer_id is not null or exists(select 1 from customers a join ${customerFamilies(tx)}f on f.id=a.id where f.root_id=c.id and a.primary_location_id=${ctx.locationId}))`;
   return row ?? { total: 0, vipCount: 0, active30: 0, sleep30: 0, sleep90: 0 };
 }
 

@@ -1,5 +1,8 @@
 # 11 · 官网 ↔ 系统 的对接契约
 
+> **2026-09-27 账号清理更新：** 当前环境账号和 seed 命令以[环境账号清单](qa/TEST_ACCOUNTS.md)为准。下文旧账号、演示店及旧密码仅适用于历史记录或隔离测试 fixture，不能作为现行 local/staging/prod 登录配置；原 `ops` 管理员保留。
+
+
 > **写给做官网的那个 AI。** 最小公开入口现在是本仓的 `apps/marketing`。
 > 它和系统之间**只有一个接触面：Stripe Checkout 的 metadata**。
 > 浏览器不再拿 Stripe Secret、也不再自己建 Session。

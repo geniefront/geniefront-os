@@ -1,0 +1,33 @@
+- generic [ref=e1] clickable [onclick]
+  - banner
+    - link "Back to booking" [ref=e4]
+    - combobox "Language" [expanded=false, ref=e5]: English
+      - MenuListPopup
+        - option "English" [selected, ref=e9]
+        - option "简体中文" [ref=e10]
+        - option "繁體中文" [ref=e11]
+        - option "Español" [ref=e12]
+        - option "한국어" [ref=e13]
+        - option "Tiếng Việt" [ref=e14]
+  - paragraph
+    - StaticText "Golden Foot Spa"
+  - heading "Gift cards & Packages" [level=1, ref=e2]
+    - StaticText "Gift cards & Packages"
+  - generic
+    - heading "Partially refunded" [level=2, ref=e6]
+    - paragraph
+      - StaticText "$500.00"
+    - paragraph
+      - StaticText "Refunded: $450.00"
+    - paragraph
+      - StaticText "1 sessions"
+    - button "Back to booking" [ref=e7]
+  - link "Paid memberships" [ref=e3]
+  - group
+    - DisclosureTriangle "Check gift card balance" [expanded=false]
+      - StaticText "Check gift card balance"
+  - contentinfo
+    - link "Powered by GenieFront" [ref=e8]
+      - StaticText "Powered by"
+      - strong
+        - StaticText "GenieFront"

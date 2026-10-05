@@ -1,0 +1,139 @@
+
+=== guards ===
+
+$ bash scripts/lint-guards.sh
+
+[32m✓ 全部通过[0m
+
+=== types-fresh ===
+
+@gf/ipad:typecheck: $ tsc --noEmit
+@gf/api:typecheck: $ tsc --noEmit
+@gf/booking:typecheck: $ tsc --noEmit
+@gf/web:typecheck: cache bypass, force executing 25ef262a2fcbede3
+@gf/web:typecheck: $ tsc --noEmit
+
+ Tasks:    16 successful, 16 total
+Cached:    0 cached, 16 total
+  Time:    55.617s 
+
+
+=== unit ===
+
+packages/aws test:  Test Files  1 passed (1)
+packages/aws test:       Tests  14 passed (14)
+packages/aws test:    Duration  1.15s (transform 64ms, setup 0ms, collect 158ms, tests 134ms, environment 0ms, prepare 223ms)
+packages/payroll test:  Test Files  6 passed (6)
+packages/payroll test:       Tests  130 passed (130)
+packages/payroll test:    Duration  1.97s (transform 735ms, setup 0ms, collect 2.44s, tests 245ms, environment 1ms, prepare 1.67s)
+packages/rotation test:  Test Files  1 passed (1)
+packages/rotation test:       Tests  30 passed (30)
+packages/rotation test:    Duration  1.19s (transform 87ms, setup 0ms, collect 75ms, tests 4ms, environment 0ms, prepare 286ms)
+packages/contracts test:  Test Files  19 passed (19)
+packages/contracts test:       Tests  97 passed (97)
+packages/contracts test:    Duration  3.96s (transform 2.31s, setup 0ms, collect 9.28s, tests 436ms, environment 2ms, prepare 5.44s)
+packages/scheduling test:  Test Files  8 passed (8)
+packages/scheduling test:       Tests  109 passed (109)
+packages/scheduling test:    Duration  1.54s (transform 1.20s, setup 0ms, collect 1.70s, tests 524ms, environment 1ms, prepare 2.47s)
+packages/brightdata test:  Test Files  2 passed (2)
+packages/brightdata test:       Tests  22 passed (22)
+packages/brightdata test:    Duration  5.20s (transform 2.17s, setup 0ms, collect 4.01s, tests 33ms, environment 0ms, prepare 946ms)
+packages/ai test:  Test Files  14 passed (14)
+packages/ai test:       Tests  135 passed (135)
+packages/ai test:    Duration  5.85s (transform 5.31s, setup 0ms, collect 15.05s, tests 163ms, environment 7ms, prepare 5.22s)
+packages/yelp test:  Test Files  1 passed (1)
+packages/yelp test:       Tests  20 passed (20)
+packages/yelp test:    Duration  1.08s (transform 50ms, setup 0ms, collect 63ms, tests 7ms, environment 0ms, prepare 357ms)
+apps/platform test:  Test Files  5 passed (5)
+apps/platform test:       Tests  21 passed (21)
+apps/platform test:    Duration  7.09s (transform 950ms, setup 0ms, collect 3.10s, tests 1.15s, environment 14.75s, prepare 2.49s)
+apps/marketing test:  Test Files  4 passed (4)
+apps/marketing test:       Tests  17 passed (17)
+apps/marketing test:    Duration  11.75s (transform 946ms, setup 2.56s, collect 2.15s, tests 5.31s, environment 11.56s, prepare 1.60s)
+apps/ipad test:  Test Files  11 passed (11)
+apps/ipad test:       Tests  24 passed (24)
+apps/ipad test:    Duration  7.92s (transform 1.98s, setup 7.13s, collect 5.61s, tests 3.10s, environment 29.40s, prepare 2.49s)
+apps/booking test:  Test Files  12 passed (12)
+apps/booking test:       Tests  45 passed (45)
+apps/booking test:    Duration  16.58s (transform 3.26s, setup 9.00s, collect 17.11s, tests 19.93s, environment 32.83s, prepare 2.41s)
+apps/web test: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+apps/web test: AssertionError: expected 0 to be greater than 3
+apps/web test:  Test Files  1 failed | 99 passed (100)
+apps/web test:       Tests  1 failed | 551 passed (552)
+apps/web test:    Duration  29.84s (transform 6.80s, setup 55.73s, collect 68.29s, tests 21.16s, environment 94.57s, prepare 6.03s)
+
+=== db-3 ===
+
+ Test Files  13 passed (13)
+      Tests  117 passed (117)
+   Duration  4.70s (transform 252ms, setup 0ms, collect 642ms, tests 3.95s, environment 0ms, prepare 26ms)
+
+=== db-4 ===
+
+   × tool：真建预约 > ⭐ 两位客人 → 建出两条并排的 item，各占一位技师 55ms
+   × 系统设置增强模块与全新 REST API 接口测试 > 4. AI 电话助手高级配置 > PUT /api/desk/settings/phone-assistant 保存问候语与转接号 14ms
+   × 次卡套餐 (Packages) > 前台只报姓名+手机号发售：次卡挂在正确的实名客户名下，不落占位客户 1ms
+   × 预约邮件抄送门店 > 默认抄送一份，正文与顾客那封逐字相同，标题带 Copy 前缀 12ms
+   × voice provider policies > sets a provider-side maximum and records both call legs 2ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/marketing.test.ts > 次卡套餐 (Packages) > 前台只报姓名+手机号发售：次卡挂在正确的实名客户名下，不落占位客户
+ FAIL  src/notify_policy.test.ts > 预约邮件抄送门店 > 默认抄送一份，正文与顾客那封逐字相同，标题带 Copy 前缀
+AssertionError: expected [ { …(4) } ] to have a length of 2 but got 1
+ FAIL  src/phone.test.ts > tool：真建预约 > ⭐ 两位客人 → 建出两条并排的 item，各占一位技师
+AssertionError: expected 1 to be 2 // Object.is equality
+ FAIL  src/settings_enhancements.test.ts > 系统设置增强模块与全新 REST API 接口测试 > 4. AI 电话助手高级配置 > PUT /api/desk/settings/phone-assistant 保存问候语与转接号
+AssertionError: expected 403 to be 200 // Object.is equality
+ FAIL  src/voicePolicy.test.ts > voice provider policies > sets a provider-side maximum and records both call legs
+AssertionError: expected '<?xml version="1.0" encoding="UTF-8"?…' to contain 'timeLimit="600"'
+ Test Files  5 failed | 122 passed (127)
+      Tests  5 failed | 1570 passed (1575)
+   Duration  219.90s (transform 1.27s, setup 177.03s, collect 6.89s, tests 35.71s, environment 0ms, prepare 24ms)
+
+=== marketing-repeat ===
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Duration  2.27s (transform 252ms, setup 1.45s, collect 520ms, tests 207ms, environment 0ms, prepare 26ms)
+
+=== migration-repeat ===
+
+  · sql/20260921183108_voice_availability_snapshots.sql  已应用
+  · sql/20260921184523_remove_booking_confirmation_code.sql  已应用
+  · sql/20260921185620_voice_call_appointment_history.sql  已应用
+  · role "postgres" has already been granted membership in role "app_user" by role "postgres"
+
+✓ app_user 已可登录（受 RLS 约束，无 BYPASSRLS）
+✓ RLS 覆盖检查通过
+
+完成：新应用 0 个文件
+
+
+=== api-build ===
+
+
+  ../../../../tmp/genie-audit-server.mjs       2.9mb ⚠️
+  ../../../../tmp/genie-audit-server.mjs.map  12.7mb
+
+⚡ Done in 139ms
+
+=== build web ===
+
+(!) Some chunks are larger than 700 kB after minification. Consider:
+✓ built in 4.38s
+
+=== build booking ===
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+✓ built in 1.69s
+
+=== build ipad ===
+
+✓ built in 1.11s
+
+=== build platform ===
+
+✓ built in 1.22s
+
+=== build marketing ===
+
+✓ built in 890ms

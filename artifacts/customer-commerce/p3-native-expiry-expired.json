@@ -1,0 +1,44 @@
+{
+  "at": "2026-10-03T03:49:39.718Z",
+  "mode": "verify-expired",
+  "race": [
+    {
+      "status": 201,
+      "code": null,
+      "reason": null
+    },
+    {
+      "status": 409,
+      "code": "RESOURCE_CONFLICT",
+      "reason": "party_slot_taken"
+    }
+  ],
+  "appointmentId": "1cdb0098-4e69-4a33-9c6c-019c74e79705",
+  "holdId": "92d9e105-944e-490e-b660-f30144ce0bf5",
+  "facts": {
+    "status": "cancelled",
+    "deposit_status": "expired",
+    "hold_status": "expired",
+    "expires_at": "2026-10-03 03:48:06.393305+00",
+    "payment_status": "failed",
+    "money_rows": 0,
+    "confirmations": 0,
+    "winning_holds": 1
+  },
+  "originalSlotAvailable": true,
+  "stripeSessionStatus": "expired",
+  "stripePaymentStatus": "unpaid",
+  "actualWallClockDeadline": true,
+  "clockOrMoneyFabricated": false,
+  "priorPayments": {
+    "count": 22,
+    "hash": "d62cf8fe4e061202502780125522595c"
+  },
+  "currentPayments": {
+    "count": 23,
+    "hash": "235c5b906f6520058e8a4c673c6a4a2a"
+  },
+  "notificationDelivery": "capture",
+  "productionPublished": false,
+  "goalComplete": false
+}

@@ -2,7 +2,7 @@ import { useCanWrite } from '@/lib/permissions';
 import { printTable } from '@/features/printing/preview';
 import { useMemo, useState } from 'react';
 import { useSession } from '@/lib/session';
-import { asCents, pickText } from '@gf/contracts';
+import { asCents, pickText,membershipText,serviceRefundText } from '@gf/contracts';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -51,6 +51,7 @@ import {
   useTicketsList,
   useVoidTicket,
   useRefundTicket,
+  useTicketRefundReview,
   useOrdersQuery,
 } from '@/features/tickets/api';
 import type { TicketSummary, VoidReason } from '@/features/tickets/types';
@@ -86,6 +87,10 @@ export interface TipSplitRecord {
 }
 
 export interface EnrichedOrderRecord {
+  membershipCoveredCents?:number;
+  packageCoveredCents?:number;
+  hasPrepaidSource?:boolean;
+  newCollectedCents?:number;
   ticketId: string;
   orderNumber: string;
   businessDate: string;
@@ -165,12 +170,20 @@ function TicketsContent() {
 
   // 4. 订单退款与售后冲正弹窗
   const [refundModalRecord, setRefundModalRecord] = useState<EnrichedOrderRecord | null>(null);
-  const [refundType, setRefundType] = useState<'full' | 'partial'>('full');
+  const [refundType, setRefundType] = useState<'full' | 'partial' | 'items'>('full');
+  const [refundItemAmounts,setRefundItemAmounts]=useState<Record<string,string>>({});
   const [refundAmountDollars, setRefundAmountDollars] = useState('');
   const [refundRemainingTip, setRefundRemainingTip] = useState(false);
   const [refundMethod, setRefundMethod] = useState<'original_payment' | 'cash' | 'store_credit'>('original_payment');
   const [refundReason, setRefundReason] = useState<'customer_dissatisfied' | 'wrong_charge' | 'duplicate' | 'other'>('customer_dissatisfied');
   const [refundNotes, setRefundNotes] = useState('');
+  const itemOptions=useTicketRefundReview(refundModalRecord&&canRefund&&refundModalRecord.totalPaidCents>refundModalRecord.refundCents?{ticketId:refundModalRecord.ticketId,amountCents:refundModalRecord.totalPaidCents-refundModalRecord.refundCents,refundTipCents:Math.max(0,refundModalRecord.tipCents-refundModalRecord.refundTipCents),method:'original_payment'}:null);
+  const selectedRefundItems=(itemOptions.data?.items??[]).filter(i=>Object.hasOwn(refundItemAmounts,i.ticketItemId)).map(i=>({ticketItemId:i.ticketItemId,amountCents:Math.round(Number(refundItemAmounts[i.ticketItemId])*100)}));
+  const selectedItemsValid=selectedRefundItems.length>0&&selectedRefundItems.every(i=>Number.isSafeInteger(i.amountCents)&&i.amountCents>0&&i.amountCents<=(itemOptions.data?.items?.find(o=>o.ticketItemId===i.ticketItemId)?.remainingCents??0));
+  const requestedNonTip=refundModalRecord?(refundType==='items'?selectedRefundItems.reduce((n,i)=>n+i.amountCents,0):refundType==='full'?Math.max(0,refundModalRecord.totalPaidCents-refundModalRecord.tipCents-(refundModalRecord.refundCents-refundModalRecord.refundTipCents)):Math.round(Number(refundAmountDollars)*100)):0;
+  const requestedTip=refundModalRecord&&refundRemainingTip?Math.max(0,refundModalRecord.tipCents-refundModalRecord.refundTipCents):0;
+  const reviewInput=refundModalRecord&&canRefund&&Number.isSafeInteger(requestedNonTip)&&requestedNonTip>=0&&(refundType!=='items'||selectedItemsValid)?{ticketId:refundModalRecord.ticketId,amountCents:requestedNonTip+requestedTip,refundTipCents:requestedTip,method:refundMethod,...(refundType==='items'?{refundItems:selectedRefundItems}:{})}:null;
+  const refundReview=useTicketRefundReview(reviewInput);
 
   // 5. 导出模态框
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -226,13 +239,14 @@ function TicketsContent() {
         const rowPayments = Array.isArray(row.payments) ? row.payments : [];
         const rowTips = Array.isArray(row.tipAllocations) ? row.tipAllocations : [];
 
-        const pay = orderPaymentDisplay({ status: normalizedStatus, payments: rowPayments });
+        const positivePayments=rowPayments.filter((p:{amountCents:number})=>p.amountCents>0);
+        const pay = orderPaymentDisplay({ status: normalizedStatus, payments: positivePayments });
         const paymentMethod: EnrichedOrderRecord['paymentMethod'] =
-          pay.method === 'card' ? 'credit_card'
+          (row.packageCoveredCents??0)>0&&positivePayments.length===0?'package':pay.method === 'card' ? 'credit_card'
             : pay.method === 'unpaid' ? 'unpaid'
               : pay.method === 'mixed' ? 'split'
                 : pay.method;
-        const paymentLabel =
+        const receivedLabel =
           pay.method === 'unpaid'
             ? t('checkout.tkUnpaid')
             : pay.method === 'card'
@@ -246,6 +260,10 @@ function TicketsContent() {
                     : pay.method === 'mixed'
                       ? t('paymentMixed')
                       : t('checkout.tkUnpaid');
+
+        const quotaLabels=[(row.membershipCoveredCents??0)>0?membershipText(language,'title'):null,(row.packageCoveredCents??0)>0?serviceRefundText(language,'package'):null].filter(Boolean);
+        const paymentLabels=[...new Set(positivePayments.map((p:{method:string})=>p.method))].map(method=>method==='deposit'?serviceRefundText(language,'deposit'):method==='customer_credit'?serviceRefundText(language,'store_credit'):method==='gift_card'?t('paymentGiftCard'):method==='cash'?t('paymentCash'):t('payCard'));
+        const paymentLabel=[...quotaLabels,...paymentLabels].join(' + ')||receivedLabel;
 
         list.push({
           ticketId: row.ticketId,
@@ -274,6 +292,10 @@ function TicketsContent() {
           surchargeCents: asCents(row.surchargeCents ?? 0),
           tipCents: asCents(row.tipCents ?? 0),
           totalPaidCents: asCents(row.totalCents ?? 0),
+          membershipCoveredCents:row.membershipCoveredCents??0,
+          packageCoveredCents:row.packageCoveredCents??0,
+          hasPrepaidSource:quotaLabels.length>0||positivePayments.some((p:{method:string})=>['deposit','gift_card','customer_credit'].includes(p.method)),
+          newCollectedCents:rowPayments.filter((p:any)=>['cash','card','external'].includes(p.method)).reduce((sum:number,p:any)=>sum+asCents(p.amountCents),0),
           refundCents: asCents(row.refundCents ?? 0),
           refundTipCents: asCents(row.refundTipCents ?? 0),
           refundTaxCents: asCents(row.refundTaxCents ?? 0),
@@ -405,7 +427,7 @@ function TicketsContent() {
       if (paymentFilter !== 'all') {
         if (paymentFilter === 'card' && ord.paymentMethod !== 'credit_card') return false;
         if (paymentFilter === 'cash' && ord.paymentMethod !== 'cash') return false;
-        if (paymentFilter === 'package' && ord.paymentMethod !== 'package') return false;
+        if (paymentFilter === 'package' && ord.paymentMethod !== 'package' && !(ord.packageCoveredCents??0)) return false;
         if (paymentFilter === 'giftcard' && ord.paymentMethod !== 'gift_card') return false;
         if (paymentFilter === 'split' && ord.paymentMethod !== 'split') return false;
       }
@@ -503,15 +525,21 @@ function TicketsContent() {
     setRefundModalRecord(record);
     setRefundType('full');
     setRefundAmountDollars(centsToDollars(refundableCents));
-    setRefundRemainingTip(true);
+    setRefundRemainingTip(false);
     setRefundMethod('original_payment');
     setRefundReason('customer_dissatisfied');
     setRefundNotes('');
+    setRefundItemAmounts({});
   };
 
   // 执行退款处理
+  const handleRetrySavedRefund=async()=>{
+    const saved=refundMutation.pendingRefund;if(!saved||!canRefund||refundMutation.isPending)return;
+    try{await refundMutation.mutateAsync(saved);setRefundModalRecord(null);setSelectedRecord(null);toast.success(t('checkout.tkRefundRecorded'));}
+    catch(err){toast.danger(errorMessage(err));}
+  };
   const handleConfirmRefund = async () => {
-    if (!refundModalRecord || !canRefund) return;
+    if (!refundModalRecord || !canRefund || !refundReview.data || !reviewInput || refundMutation.pendingRefund) return;
     const remainingTipCents = Math.max(
       0,
       refundModalRecord.tipCents - refundModalRecord.refundTipCents,
@@ -522,7 +550,7 @@ function TicketsContent() {
         - refundModalRecord.tipCents
         - (refundModalRecord.refundCents - refundModalRecord.refundTipCents),
     );
-    const nonTipAmountCents = refundType === 'full'
+    const nonTipAmountCents = refundType==='items'?requestedNonTip:refundType === 'full'
       ? maxNonTipCents
       : Math.round(parseFloat(refundAmountDollars || '0') * 100);
     const refundTipCents = refundRemainingTip ? remainingTipCents : 0;
@@ -546,21 +574,18 @@ function TicketsContent() {
         reason: refundReason,
         method: refundMethod,
         notes: refundNotes || undefined,
+        reviewHash: refundReview.data.reviewHash,
+        ...(refundType==='items'?{refundItems:selectedRefundItems}:{}),
       });
       toast.success(t('checkout.tkRefundRecorded'), {
         description: t('checkout.tkRefundDetail', { p0: refundModalRecord.orderNumber || refundModalRecord.ticketId, p1: centsToDollars(amountCents) }),
       });
       setRefundModalRecord(null);
       if (selectedRecord?.ticketId === refundModalRecord.ticketId) {
-        setSelectedRecord((prev) => prev ? {
-          ...prev,
-          status: response.result.status === 'refunded' ? 'refunded' : 'completed',
-          refundCents: prev.refundCents + amountCents,
-          refundTipCents: prev.refundTipCents + refundTipCents,
-        } : null);
+        setSelectedRecord(null);
       }
     } catch (err: any) {
-      toast.danger(errorMessage(err));
+      toast.danger(err?.details?.reason==='refund_review_changed'?serviceRefundText(language,'changed'):errorMessage(err));
     }
   };
 
@@ -695,6 +720,10 @@ function TicketsContent() {
 
   return (
     <div className="space-y-6 pb-12">
+      {canRefund&&refundMutation.pendingRefund?<div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-2">
+        <p>{serviceRefundText(language,'unknown')} · #{refundMutation.pendingRefund.ticketId.slice(0,8)}</p>
+        <Button disabled={refundMutation.isPending} onClick={()=>void handleRetrySavedRefund()}>{serviceRefundText(language,'retry')}</Button>
+      </div>:null}
       {/* 顶部标题与全局操作 */}
       <PageHeader
         title={t('ticketsTitle') || t('checkout.tkTitle')}
@@ -1005,7 +1034,7 @@ function TicketsContent() {
                   <TableHead className="min-w-[110px]">{t('checkout.tkColTicket')}</TableHead>
                   <TableHead className="min-w-[140px]">{t('checkout.tkColCustomer')}</TableHead>
                   <TableHead className="min-w-[170px]">{t('checkout.tkColService')}</TableHead>
-                  <TableHead className="min-w-[90px]">{t('checkout.tkTotalCollected')}</TableHead>
+                  <TableHead className="min-w-[90px]">{filteredOrders.some(o=>o.hasPrepaidSource)?membershipText(language,'settlementTotal'):t('checkout.tkTotalCollected')}</TableHead>
                   <TableHead className="min-w-[105px]">{t('checkout.tkColPayment')}</TableHead>
                   <TableHead className="min-w-[100px]">{t('checkout.tkColTips')}</TableHead>
                   <TableHead className="min-w-[75px] text-center">{t('checkout.tkColStatus')}</TableHead>
@@ -1090,6 +1119,7 @@ function TicketsContent() {
                         <span className="text-sm font-black font-mono text-teal-700 block">
                           ${centsToDollars(ord.totalPaidCents)}
                         </span>
+                        {ord.hasPrepaidSource&&<span className="text-[10px] text-slate-500 block">{membershipText(language,'newCollected')}: ${centsToDollars(ord.newCollectedCents??0)}</span>}
                         {asCents(ord.discountCents ?? 0) > 0 && (
                           <span className="text-[10px] text-emerald-700 font-bold block font-mono">
                             
@@ -1447,7 +1477,7 @@ function TicketsContent() {
           }
           size="md"
           footer={
-            <div className="flex justify-end gap-2 w-full">
+            <div className="flex flex-wrap justify-end gap-2 w-full">
               <Button variant="secondary" onClick={() => setExportModalOpen(false)}>
                 
                 {t('checkout.tkExportCancel')}
@@ -1638,17 +1668,20 @@ function TicketsContent() {
               </Button>
               <Button
                 isPending={refundMutation.isPending}
-                className="bg-purple-600 hover:bg-purple-700 text-white font-bold gap-1 shadow-md shadow-purple-600/20"
-                disabled={refundMutation.isPending || !canRefund}
+                className="max-w-full h-auto min-h-10 whitespace-normal bg-purple-600 hover:bg-purple-700 text-white font-bold gap-1 shadow-md shadow-purple-600/20"
+                disabled={refundMutation.isPending || !canRefund || !!refundMutation.pendingRefund || !reviewInput || !refundReview.data || refundReview.isFetching}
                 onClick={handleConfirmRefund}
               >
                 <Check className="w-4 h-4" />
-                <span>{refundMutation.isPending ? t('checkout.tkRefunding') : t('checkout.tkRefundConfirm')}</span>
+                <span className="whitespace-normal break-words">{refundMutation.isPending ? t('checkout.tkRefunding') : t('checkout.tkRefundConfirm')}</span>
               </Button>
             </div>
           }
         >
           <div className="space-y-4 text-xs text-slate-700 py-1">
+            {refundMutation.pendingRefund?.ticketId===refundModalRecord.ticketId?<div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2">
+              <p>{serviceRefundText(language,'unknown')}</p><Button variant="secondary" disabled={refundMutation.isPending} onClick={()=>void handleRetrySavedRefund()}>{serviceRefundText(language,'retry')}</Button>
+            </div>:null}
             {/* 订单概览卡片 */}
             <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-2xl flex items-center justify-between">
               <div>
@@ -1659,7 +1692,7 @@ function TicketsContent() {
                   </span>
                 </div>
                 <span className="text-[11px] text-purple-800 block mt-0.5">
-                  {t('checkout.tkTotalCollected')}: <strong>${centsToDollars(refundModalRecord.totalPaidCents)}</strong>  {t('checkout.tkPaymentMethodSep')} {refundModalRecord.paymentMethodLabel || t('checkout.tkCardSettlement3')}
+                  {refundModalRecord.hasPrepaidSource?membershipText(language,'settlementTotal'):t('checkout.tkTotalCollected')}: <strong>${centsToDollars(refundModalRecord.totalPaidCents)}</strong>  {t('checkout.tkPaymentMethodSep')} {refundModalRecord.paymentMethodLabel || t('checkout.tkCardSettlement3')}
                 </span>
               </div>
               <Badge variant="secondary" className="text-[10px] font-bold bg-purple-100 text-purple-900 border-purple-300">
@@ -1670,16 +1703,25 @@ function TicketsContent() {
               </Badge>
             </div>
 
+            {refundModalRecord.hasPrepaidSource&&<p className="text-sm text-purple-800">{membershipText(language,'newCollected')}: ${centsToDollars(refundModalRecord.newCollectedCents??0)}</p>}
+            <section aria-label={serviceRefundText(language,'title')} className="rounded-xl border border-purple-200 p-3 space-y-2">
+              <h3 className="font-semibold">{serviceRefundText(language,'title')}</h3>
+              {refundReview.data?<><dl className="space-y-1">{refundReview.data.destinations.map(d=><div key={d.kind} className="flex justify-between gap-3"><dt>{serviceRefundText(language,d.kind)}</dt><dd>${centsToDollars(d.amountCents)}</dd></div>)}</dl>
+                <p>{serviceRefundText(language,'tip')}: ${centsToDollars(refundReview.data.tipCents)} · {serviceRefundText(language,'tax')}: ${centsToDollars(refundReview.data.taxCents)} · {serviceRefundText(language,'fee')}: ${centsToDollars(refundReview.data.feeCents)}</p>
+                {refundReview.data.destinations.some(d=>d.kind==='package'||d.kind==='membership')?<p>{serviceRefundText(language,'quota')}</p>:null}</>:<p role="status">{serviceRefundText(language,refundReview.error?'unavailable':'loading')}</p>}
+              {refundReview.error?<Button variant="secondary" onClick={()=>void refundReview.refetch()}>{t('refresh')}</Button>:null}
+            </section>
+
             {/* 1. 退款形式与Amount */}
             <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3">
               <label className="block text-xs font-bold text-slate-800">{t('checkout.tkRefundTypeLabel')}</label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => {
                     setRefundType('full');
                     setRefundAmountDollars(centsToDollars(fullRefundCents(refundModalRecord)));
-                    setRefundRemainingTip(true);
+                    setRefundRemainingTip(false);
                   }}
                   className={cn(
                     'p-2.5 rounded-xl border text-center font-bold transition-all flex flex-col items-center justify-center cursor-pointer',
@@ -1714,7 +1756,20 @@ function TicketsContent() {
                   <span className="text-xs">{t('checkout.tkRefundPartial')}</span>
                   <span className="text-[10px] text-slate-400 font-normal mt-0.5">{t('checkout.tkRefundCustomAmount')}</span>
                 </button>
+                <button type="button" disabled={!itemOptions.data?.itemGraphAvailable} onClick={()=>{setRefundType('items');setRefundRemainingTip(false);setRefundItemAmounts({});}}
+                  className={cn('p-2.5 rounded-xl border text-center font-bold transition-all break-words disabled:opacity-50',refundType==='items'?'border-purple-500 bg-purple-50/80 text-purple-950 ring-1 ring-purple-400':'border-slate-200 hover:bg-slate-50 text-slate-700')}>
+                  {serviceRefundText(language,'selectItems')}
+                </button>
               </div>
+              {!itemOptions.isFetching&&itemOptions.data&&!itemOptions.data.itemGraphAvailable?<p className="text-slate-600">{serviceRefundText(language,'historical')}</p>:null}
+              {refundType==='items'?<fieldset className="space-y-3"><legend>{serviceRefundText(language,'selectItemsHint')}</legend>
+                {(itemOptions.data?.items??[]).map((item,index)=><div key={item.ticketItemId} className="rounded-lg border p-3 space-y-2">
+                  <label className="flex gap-2"><input type="checkbox" checked={Object.hasOwn(refundItemAmounts,item.ticketItemId)} disabled={!item.remainingCents}
+                    onChange={e=>{setRefundItemAmounts(old=>{const next={...old};if(e.target.checked)next[item.ticketItemId]=centsToDollars(item.remainingCents);else delete next[item.ticketItemId];return next;});}}/>{item.name} · {serviceRefundText(language,'remaining')}: ${centsToDollars(item.remainingCents)}</label>
+                  {Object.hasOwn(refundItemAmounts,item.ticketItemId)?<label className="block">{serviceRefundText(language,'itemAmount')} {index+1}<input aria-label={`${serviceRefundText(language,'itemAmount')} ${index+1}`} type="number" min="0.01" step="0.01" max={centsToDollars(item.remainingCents)} value={refundItemAmounts[item.ticketItemId]??''}
+                    onChange={e=>setRefundItemAmounts(old=>({...old,[item.ticketItemId]:e.target.value}))} className="w-full mt-1 rounded-lg border p-2 font-mono"/></label>:null}
+                </div>)}
+              </fieldset>:null}
 
               {refundType === 'partial' && (
                 <div>
@@ -1762,12 +1817,13 @@ function TicketsContent() {
                 onChange={(e) => setRefundMethod(e.target.value as any)}
                 className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
               >
-                <option value="original_payment">{t('checkout.tkRefundChannelOriginal')}</option>
-                <option value="cash">{t('checkout.tkRefundChannelCash')}</option>
-                <option value="store_credit" disabled={!refundModalRecord.customerId}>
+                <option value="original_payment">{refundModalRecord.hasPrepaidSource?membershipText(language,'originalReturn'):t('checkout.tkRefundChannelOriginal')}</option>
+                <option value="cash" disabled={refundModalRecord.hasPrepaidSource}>{t('checkout.tkRefundChannelCash')}</option>
+                <option value="store_credit" disabled={!refundModalRecord.customerId||refundModalRecord.hasPrepaidSource}>
                   {t('checkout.tkRefundChannelCredit')}
                 </option>
               </select>
+              {(refundModalRecord.membershipCoveredCents??0)>0&&<p className="mt-2 text-xs text-slate-600">{membershipText(language,'restoreHint')}</p>}
             </div>
 
             {/* 3. 退款原因 */}

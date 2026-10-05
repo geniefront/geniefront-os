@@ -1,0 +1,96 @@
+{
+  "at": "2026-10-03T04:04:21.345Z",
+  "suite": "preserved sandbox read-only browser replay",
+  "exitCode": 1,
+  "financialTablesCompared": 10,
+  "financialFactsUnchanged": true,
+  "before": {
+    "commerce_payments": {
+      "count": 23,
+      "hash": "da622b22cbe8567b7edd687687282c1b"
+    },
+    "commerce_refunds": {
+      "count": 14,
+      "hash": "395846d52eff3609a3b18927b2888415"
+    },
+    "customer_credit_ledger": {
+      "count": 22,
+      "hash": "e9002d0dcd839790769110882e9fd6e8"
+    },
+    "customer_package_ledger": {
+      "count": 20,
+      "hash": "c5322482b00c635b0038ac39d2d0e10b"
+    },
+    "customer_membership_invoices": {
+      "count": 8,
+      "hash": "ccecc76b479291c7407133cae44a8679"
+    },
+    "customer_membership_cycles": {
+      "count": 41,
+      "hash": "e05825ef94f9c00adff79e668c82fa5b"
+    },
+    "customer_membership_ledger": {
+      "count": 34,
+      "hash": "f4fbd8f708a8d744f2f5c45f26d04066"
+    },
+    "commerce_deposit_ledger": {
+      "count": 27,
+      "hash": "3e7fd2fb9eace22754091f1296d04f41"
+    },
+    "payments": {
+      "count": 59,
+      "hash": "9a73743bead9867571a4433941d95029"
+    },
+    "ticket_refunds": {
+      "count": 18,
+      "hash": "ca044880a2eb3795325febec76d589b7"
+    }
+  },
+  "after": {
+    "commerce_payments": {
+      "count": 23,
+      "hash": "da622b22cbe8567b7edd687687282c1b"
+    },
+    "commerce_refunds": {
+      "count": 14,
+      "hash": "395846d52eff3609a3b18927b2888415"
+    },
+    "customer_credit_ledger": {
+      "count": 22,
+      "hash": "e9002d0dcd839790769110882e9fd6e8"
+    },
+    "customer_package_ledger": {
+      "count": 20,
+      "hash": "c5322482b00c635b0038ac39d2d0e10b"
+    },
+    "customer_membership_invoices": {
+      "count": 8,
+      "hash": "ccecc76b479291c7407133cae44a8679"
+    },
+    "customer_membership_cycles": {
+      "count": 41,
+      "hash": "e05825ef94f9c00adff79e668c82fa5b"
+    },
+    "customer_membership_ledger": {
+      "count": 34,
+      "hash": "f4fbd8f708a8d744f2f5c45f26d04066"
+    },
+    "commerce_deposit_ledger": {
+      "count": 27,
+      "hash": "3e7fd2fb9eace22754091f1296d04f41"
+    },
+    "payments": {
+      "count": 59,
+      "hash": "9a73743bead9867571a4433941d95029"
+    },
+    "ticket_refunds": {
+      "count": 18,
+      "hash": "ca044880a2eb3795325febec76d589b7"
+    }
+  },
+  "syntheticProviderEvents": false,
+  "newPaymentOrRefund": false,
+  "databaseReset": false,
+  "delivery": "capture",
+  "productionPublished": false
+}

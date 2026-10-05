@@ -1,0 +1,11 @@
+$ vitest run --passWithNoTests src/features/commerce/PurchaseRefund.test.tsx
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/features/commerce/PurchaseRefund.test.tsx (4 tests) 580ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  19:25:01
+   Duration  2.43s (transform 525ms, setup 496ms, collect 836ms, tests 580ms, environment 334ms, prepare 32ms)
+

@@ -1,0 +1,11 @@
+$ vitest run --passWithNoTests src/components/AppointmentDeposit.test.tsx --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/booking
+
+ ✓ src/components/AppointmentDeposit.test.tsx (5 tests) 259ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  01:43:31
+   Duration  2.84s (transform 510ms, setup 178ms, collect 1.69s, tests 259ms, environment 557ms, prepare 39ms)
+

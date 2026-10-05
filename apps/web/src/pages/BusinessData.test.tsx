@@ -100,6 +100,7 @@ const mockAnalytics: any = {
 
 vi.mock("@/features/analytics/api", () => ({
   useRevenueTrendsQuery: () => mockAnalytics.revenue,
+  useCommerceReportQuery:()=>({data:undefined,error:null}),
   useCustomerRetentionQuery: () => mockAnalytics.customers,
   useStaffAnalyticsQuery: () => mockAnalytics.staff,
   useReviewsSummaryQuery: () => mockAnalytics.reviews,

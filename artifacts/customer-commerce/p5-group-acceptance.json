@@ -1,0 +1,132 @@
+{
+  "at": "2026-10-02T14:48:27.177958+00:00",
+  "scope": "P5 shared single/group stored-value quote planning, native group checkout and exactly-once recovery, per-ticket source returns",
+  "phaseComplete": false,
+  "goalComplete": false,
+  "productionPublished": false,
+  "migration": 179,
+  "newMigration": false,
+  "checks": {
+    "apiFiles": 16,
+    "apiTests": 387,
+    "logRedactionTests": 2,
+    "webFiles": 7,
+    "webTests": 68,
+    "contractFiles": 19,
+    "contractTests": 97,
+    "typecheckPackages": 16,
+    "guards": true,
+    "webBuild": true,
+    "diffCheck": true,
+    "pureAllocationChanged": false
+  },
+  "implemented": {
+    "singleQuoteVersion": 2,
+    "groupQuoteVersion": 1,
+    "sharedAssetBudgetPlanning": true,
+    "quoteDoesNotWriteFinancialFacts": true,
+    "groupStaleQuoteRollback": true,
+    "perTicketStoredValueAndBenefits": true,
+    "customStaffTipSelectionPreserved": true,
+    "cashChangeCountedOnce": true,
+    "groupingAtomic": true,
+    "serviceAndTipStages": true,
+    "onePendingSingleOrGroupRequestPerMembership": true,
+    "nestedGiftCredentialLogRedaction": true
+  },
+  "native": {
+    "at": "2026-10-02T14:37:07.617Z",
+    "groupId": "d5cfaebc-a71e-4894-98de-826f184c4107",
+    "ticketIds": [
+      "d70c3af9-0c9b-4332-9498-dfc6aa0e3674",
+      "3b615791-fafe-40d9-b410-cea2edf34a87"
+    ],
+    "pathAtSubmit": "/queue",
+    "inlineDialogAtSubmit": true,
+    "originalHttpStatus": 201,
+    "responseLostAfterRealCommit": true,
+    "refreshedNativeRetry": true,
+    "canonicalOriginalInputVerified": true,
+    "counts": {
+      "payments": 2,
+      "package_uses": 1,
+      "gift_uses": 1,
+      "group_audits": 1
+    },
+    "httpStatus": 200,
+    "replayed": true,
+    "sameKey": true,
+    "sameQuote": true,
+    "productionChanged": false
+  },
+  "finalFinancialFacts": {
+    "at": "2026-10-02T14:38:17.322Z",
+    "groupId": "d5cfaebc-a71e-4894-98de-826f184c4107",
+    "ticketIds": [
+      "d70c3af9-0c9b-4332-9498-dfc6aa0e3674",
+      "3b615791-fafe-40d9-b410-cea2edf34a87"
+    ],
+    "originalStripePurchasesReused": true,
+    "originalPackagePurchaseCents": 50000,
+    "originalPackagePurchaseRefundCents": 45000,
+    "originalGiftPurchaseCents": 8000,
+    "originalGiftPurchaseRefundCents": 5600,
+    "availableOriginalPackageUnits": 1,
+    "availableOriginalGiftFaceCents": 3000,
+    "newOfflineQaCashCents": 18000,
+    "newStripePayment": false,
+    "facts": {
+      "total": 31000,
+      "returned": 31000,
+      "commission": 0,
+      "tips": 0,
+      "cash_return": 18000,
+      "payments": 2,
+      "payment_groups": 1
+    },
+    "sources": [
+      {
+        "kind": "cash",
+        "amount_cents": 18000
+      },
+      {
+        "kind": "gift_card",
+        "amount_cents": 3000
+      },
+      {
+        "kind": "package",
+        "amount_cents": 10000
+      }
+    ],
+    "productionChanged": false
+  },
+  "originalPaymentPreservation": {
+    "at": "2026-10-02T14:43:09.409Z",
+    "preservedPaymentFingerprint": "14:0e6bc4cceb3a1ab766cc1486efff59e4",
+    "unchangedSinceBeforeMigration": true,
+    "payments": 14,
+    "nativeGroupReplayVerified": true,
+    "migrations": 179,
+    "sources": 13,
+    "item_receipts": 6,
+    "item_returns": 12,
+    "commission_returns": 11,
+    "reset": false,
+    "productionChanged": false
+  },
+  "limitations": [
+    "Original native group sample used a single service staff member; final custom multi-staff tip variants verified in component/isolated DB tests, not claimed native.",
+    "Historical group idempotency records without fingerprints retain legacy recovery behavior.",
+    "Browser sessionStorage recovery is scoped to the current browser session and membership; clearing it loses the local retry prompt.",
+    "Desk core language shell retains existing five-language behavior; group strings include six locales but full native six-language cashier matrix remains pending."
+  ],
+  "remaining": [
+    "P5 complete authoritative candidate and fee selection, all roles/offline/currency/cross-store/group combinations",
+    "P5 customer merge and four-module day-close/reporting",
+    "P1 successful bank payout and actual automatic batch; successful test bank still externally pending",
+    "P2 remaining unlimited/cross-store/notices/refund matrices",
+    "P3 pending amendments, paid reschedule supplements/excess returns, real voice and remaining cancellation/retention cases",
+    "P4 next-period plan change, future calendar/grants/restart, period-end/keep-current and long-term access",
+    "P6 complete evidence-gated A01–A22 audit; no scope removed"
+  ]
+}

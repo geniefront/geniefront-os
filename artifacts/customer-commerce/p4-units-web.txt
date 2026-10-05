@@ -1,0 +1,17 @@
+
+ RUN  v2.1.9 /Users/naiyouzhu/siteadmin/geniefront-os/apps/web
+
+ ✓ src/pages/Checkout.tips.test.tsx (6 tests) 370ms
+ ✓ src/features/commerce/DepositRetentionActions.test.tsx (5 tests) 750ms
+ ✓ src/components/AppointmentDrawer.test.tsx (10 tests) 449ms
+ ✓ src/features/commerce/DepositPaymentActions.test.tsx (3 tests) 383ms
+ ✓ src/features/commerce/GuestCancellationPanel.test.tsx (2 tests) 247ms
+ ✓ src/features/commerce/AppointmentDepositPanel.test.tsx (3 tests) 263ms
+ ✓ src/features/commerce/CustomerMembershipPlans.test.tsx (3 tests) 160ms
+ ✓ src/features/printing/ReceiptDocument.test.tsx (4 tests) 46ms
+
+ Test Files  8 passed (8)
+      Tests  36 passed (36)
+   Start at  20:48:51
+   Duration  12.33s (transform 658ms, setup 1.50s, collect 4.83s, tests 2.67s, environment 2.43s, prepare 203ms)
+

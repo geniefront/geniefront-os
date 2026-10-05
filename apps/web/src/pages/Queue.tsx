@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { asCents } from '@gf/contracts';
+import {GroupCheckoutButton} from './Checkout';
+import { asCents,checkoutQuoteText } from '@gf/contracts';
 import { useOutletContext, useNavigate, useSearchParams } from 'react-router-dom';
 import { useOpenInternalRoute } from '@/lib/navigation';
 import { toast, Spinner } from '@heroui/react';
@@ -17,19 +18,17 @@ import { useJoinQueue, useQueue, useRollbackQueueStage, useUpdateQueueEntry } fr
 import { useAddTicketItem, useFinishTicketItem, useMoveTicketItemResource, useMoveTicketItemStaff, useOpenTicket, useSaveServiceNote, useStartTicketItem, useTicketsList, useVoidTicket, isOverbookConfirmable, overbookDetail } from '@/features/tickets/api';
 import { OVERRIDE_REASONS } from '@/features/schedule/api';
 import type { Override, OverrideReason } from '@/features/schedule/api';
-import { useCloseTicket, useOpenTickets, centsToDollars, dollarsToCents } from '@/features/checkout/api';
+import { useCloseTicket, useOpenTickets, centsToDollars } from '@/features/checkout/api';
 import { paymentStageFor } from '@/features/checkout/types';
 import type { PaymentStage } from '@/features/checkout/types';
 import { queueNextAction } from '@/features/queue/nextAction';
 import { rotationRank } from '@/features/queue/rotationRank';
 import type { QueueNextAction } from '@/features/queue/nextAction';
-import { buildCheckoutStaffList, computeCheckoutTotals, UNRESOLVED_STAFF_KEY } from '@/features/queue/checkoutMath';
 import { useBeginCleaning, useCompleteCleaning, useRoomsQuery } from '@/features/rooms/api';
 import { useDayCloseQuery } from '@/features/dayclose/api';
 import { settledRevenueCents } from '@/features/queue/kanbanMetrics';
 import { completeQueueService, resolveQueueRoomId } from '@/features/queue/completeService';
 import { assignDefaultRooms, roomSeatability } from '@/features/queue/roomAvailability';
-import { inlineGiftCardFields } from '@/features/queue/inlinePayment';
 import { useRotationQuery, useRotationCheckIn, useRotationCheckOut, useRotationSetBreak } from '@/features/rotation/api';
 import type { RotationEntryState } from '@/features/rotation/types';
 import type { QueueEntry } from '@/features/queue/types';
@@ -48,7 +47,6 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QRCodeZoomModal } from '@/components/QRCodeZoomModal';
 import { useCanWrite } from '@/lib/permissions';
-import { parsePercent } from '@/lib/validation';
 import { GuardedButton } from '@/components/ui/GuardedButton';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { fuzzySearch } from '@/lib/fuzzySearch';
@@ -77,7 +75,7 @@ export {
   canRollbackTo, hasPendingForms,
 } from './queue/model';
 
-import { ROLLBACK_REASONS, PAYMENT_METHOD_LABEL_KEYS, CONTRAINDICATION_NONE, CONTRAINDICATION_TAGS, FOCUS_AREA_TAGS, AVOID_AREA_NONE, AVOID_AREA_TAGS, AROMA_OIL_OPTIONS, AROMA_OIL_DEFAULT, STRENGTH_OPTIONS, STRENGTH_DEFAULT, STAGE_ORDER, STAGE_NAME_KEYS, canRollbackTo, hasPendingForms } from './queue/model';
+import { ROLLBACK_REASONS, CONTRAINDICATION_NONE, CONTRAINDICATION_TAGS, FOCUS_AREA_TAGS, AVOID_AREA_NONE, AVOID_AREA_TAGS, AROMA_OIL_OPTIONS, AROMA_OIL_DEFAULT, STRENGTH_OPTIONS, STRENGTH_DEFAULT, STAGE_ORDER, STAGE_NAME_KEYS, canRollbackTo, hasPendingForms } from './queue/model';
 import type { TagOption, KanbanStage, KanbanItem, AddOnItem } from './queue/model';
 import { AttendanceModal } from './queue/AttendanceModal';
 import { KanbanBoard } from './queue/KanbanBoard';
@@ -292,7 +290,7 @@ function QueueContent() {
     const request = shareFormMutation.mutateAsync({
       customerId: null,
       appointmentId: item.appointmentId ?? null,
-      locale: language,
+      locale: language === 'zh-Hant' ? 'zh-Hans' : language,
     }).then((created) => {
       setFormShares((current) => ({ ...current, [item.id]: created }));
       return created;
@@ -510,7 +508,6 @@ function QueueContent() {
    */
   const openTicketsQ = useOpenTickets();
   const checkoutSettings = openTicketsQ.data?.checkoutSettings;
-  const allowTipSplitOverride = checkoutSettings?.allowTipSplitOverride !== false;
 
   const activeSummaryId = checkInModal.isOpen && can('customer.view_health_form')
     ? completedCheckInForms.find((form) => form.submissionId === aiSummarySubmissionId)?.submissionId ?? completedCheckInForms[0]?.submissionId ?? null : null;
@@ -629,61 +626,7 @@ function QueueContent() {
   });
 
   // 4. Checkout Tender Modal (Step 4 -> Step 5: Ready Checkout -> Completed)
-  const [checkoutModal, setCheckoutModal] = useState<{
-    isOpen: boolean;
-    item: KanbanItem | null;
-    discountDollars: string;
-    // 税费与信用卡手续费
-    taxRatePercent: string;
-    taxCalculationMode: 'exclusive' | 'inclusive';
-    enableCardSurcharge: boolean;
-    cardSurchargePercent: string;
-    // 小费与多技师分账
-    tipMode: 'total_split' | 'custom_per_staff';
-    tipPercentage: number;
-    totalTipDollars: string;
-    splitStrategy: 'proportional' | 'equal';
-    customStaffTips: Record<string, string>;
-    // 支付通道与Gift Card
-    paymentMethod: 'card' | 'cash' | 'gift_card' | 'apple_pay';
-    /**
-     * 本次收款的阶段。
-     *
-     * 看板此前一律按 `combined` 发起收款，门店只要把结账时机设为
-     * 先服务后小费，收银必然被服务端拒绝。阶段由工单事实推导，
-     * 决定金额口径、可用支付方式与幂等键。
-     */
-    paymentStage: PaymentStage;
-    tenderedDollars: string;
-    keepChange: boolean;
-    giftCardCode: string;
-    giftCardId: string;
-    giftCardVerified: boolean;
-    giftCardBalanceCents: number;
-    isVerifyingGiftCard: boolean;
-  }>({
-    isOpen: false,
-    item: null,
-    discountDollars: '0',
-    taxRatePercent: '0',
-    taxCalculationMode: 'exclusive' as 'exclusive' | 'inclusive',
-    enableCardSurcharge: false,
-    cardSurchargePercent: '3.0',
-    tipMode: 'total_split',
-    tipPercentage: 15,
-    totalTipDollars: '',
-    splitStrategy: 'proportional',
-    customStaffTips: {},
-    paymentMethod: 'card',
-    paymentStage: 'combined',
-    tenderedDollars: '',
-    keepChange: false,
-    giftCardCode: '',
-    giftCardId: '',
-    giftCardVerified: false,
-    giftCardBalanceCents: 0,
-    isVerifyingGiftCard: false,
-  });
+  const [checkoutModal,setCheckoutModal]=useState<{isOpen:boolean;item:KanbanItem|null;paymentStage:PaymentStage}>({isOpen:false,item:null,paymentStage:'combined'});
 
   // 5. Reverse Rollback Warning Modal (Backward Stage Move)
   /**
@@ -1563,31 +1506,9 @@ function QueueContent() {
    * 小费阶段的服务款已经收过，本次应收基数为零，因此现金实收默认值也必须清零 ——
    * 沿用整单金额会让前台照着一个已经收过的数字再收一遍。
    */
-  const openCheckoutModal = (item: KanbanItem, stage: PaymentStage) => {
-    const isTipOnly = stage === 'tip';
-    setCheckoutModal({
-      isOpen: true,
-      item,
-      discountDollars: '0',
-      taxRatePercent: checkoutSettings?.salesTaxRatePercent || '0',
-      taxCalculationMode: checkoutSettings?.taxCalculationMode ?? 'exclusive',
-      enableCardSurcharge: false,
-      cardSurchargePercent: '3.0',
-      tipMode: 'total_split',
-      tipPercentage: 15,
-      totalTipDollars: '',
-      splitStrategy: 'proportional',
-      customStaffTips: {},
-      paymentMethod: 'card',
-      paymentStage: stage,
-      tenderedDollars: isTipOnly ? '' : centsToDollars(item.priceCents),
-      keepChange: false,
-      giftCardCode: '',
-      giftCardId: '',
-      giftCardVerified: false,
-      giftCardBalanceCents: 0,
-      isVerifyingGiftCard: false,
-    });
+  const openCheckoutModal = (item:KanbanItem,stage:PaymentStage) => {
+    if(!item.ticketId&&!item.rawTicket?.ticketId){toast.danger(t('queue.quCoNoTicket'));return;}
+    setCheckoutModal({isOpen:true,item,paymentStage:stage});
   };
 
   /**
@@ -2085,198 +2006,11 @@ function QueueContent() {
     await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms()]);
   };
 
-  // 4. Checkout Tender Confirm Submit
-  const handleConfirmCheckout = async () => {
-    const { item, paymentMethod, paymentStage, tenderedDollars, keepChange, giftCardCode, giftCardId, giftCardVerified, giftCardBalanceCents } = checkoutModal;
-    if (!item) return;
-    if (closeTicketMutation.isPending) return;
-
-    /*
-     * 服务端拒绝以礼品卡或客户储值支付小费。在这里提前拦下，
-     * 前台就不必先填完整个弹窗再去读一条校验失败。
-     */
-    if (paymentStage === 'tip' && paymentMethod === 'gift_card') {
-      toast.danger(t('queue.quCoStageTipNoStoredValue'));
-      return;
-    }
-
-    if (!item.ticketId) {
-      toast.danger(t('queue.quCoNoTicket'));
-      return;
-    }
-
-    const baseCents = item.priceCents || 0;
-    /*
-     * 与弹窗渲染共用同一份计算。分账明细、税额、手续费一律取自这里 ——
-     * 前台屏幕上看到的数字就是发往服务端的数字。
-     */
-    const staffList = buildCheckoutStaffList(
-      {
-        serviceName: item.serviceName,
-        priceCents: baseCents,
-        staffId: item.staffId,
-        staffName: item.staffName,
-        rawTicket: item.rawTicket,
-        addOns: item.addOns,
-      },
-      t('queue.quLeadTherapist'),
-      (name) => t('queue.quAddOnPrefix', { p0: name }),
-    );
-    const totals = computeCheckoutTotals({
-      staffList,
-      baseCents,
-      discountDollars: checkoutModal.discountDollars,
-      taxRatePercent: checkoutModal.taxRatePercent,
-      taxCalculationMode: checkoutSettings?.taxCalculationMode ?? 'exclusive',
-      enableCardSurcharge: checkoutModal.enableCardSurcharge,
-      cardSurchargePercent: checkoutModal.cardSurchargePercent,
-      paymentMethod,
-      tipMode: checkoutModal.tipMode,
-      tipPercentage: checkoutModal.tipPercentage,
-      totalTipDollars: checkoutModal.totalTipDollars,
-      splitStrategy: checkoutModal.splitStrategy,
-      customStaffTips: checkoutModal.customStaffTips,
-      paymentStage,
-      tipBaseCents: baseCents,
-    });
-
-    let tipCents = totals.totalTipCents;
-    let finalTotalCents = totals.chargedTotalCents;
-
-    if (checkoutModal.tipMode === 'custom_per_staff' && tipCents > 0
-      && totals.tipAllocations.every((allocation) => allocation.allocatedTipCents === 0)) {
-      toast.danger(t('queue.quCoTipSplitEmpty'));
-      return;
-    }
-
-    const isCash = paymentMethod === 'cash';
-    const tenderedCents = isCash ? dollarsToCents(tenderedDollars || '0') : undefined;
-    if (tenderedCents !== undefined && tenderedCents < finalTotalCents) {
-      toast.danger(t('queue.quCoInsufficientCash', {
-        p0: centsToDollars(tenderedCents),
-        p1: centsToDollars(finalTotalCents),
-      }));
-      return;
-    }
-
-    /*
-     * 「不用找了」必须落成小费，且计入实收金额 ——
-     * 不记录的话打烊点钞会平白多出这笔钱，而账面上无法解释。
-     */
-    const cashRemainder = tenderedCents === undefined ? 0 : tenderedCents - finalTotalCents;
-    const keepChangeCents = isCash && keepChange && cashRemainder > 0 ? cashRemainder : 0;
-    tipCents += keepChangeCents;
-    finalTotalCents += keepChangeCents;
-
-    /*
-     * 小费分账按 membershipId 上报。
-     * 此前这里把技师姓名当成 membershipId 发了出去，重名还会被并成一个人。
-     * 归属不明的占位行不发送，其余尾差补到第一位，保证各行之和等于小费总额。
-     */
-    const tipSplits = allowTipSplitOverride
-      ? totals.tipAllocations
-          .filter((allocation) => allocation.membershipId !== UNRESOLVED_STAFF_KEY && allocation.allocatedTipCents > 0)
-          .map((allocation) => ({
-            staffMembershipId: allocation.membershipId,
-            staffName: allocation.name,
-            amountCents: allocation.allocatedTipCents,
-          }))
-      : [];
-    if (tipSplits.length > 0) {
-      const assigned = tipSplits.reduce((sum, split) => sum + split.amountCents, 0);
-      const remainder = tipCents - assigned;
-      if (remainder < 0) {
-        toast.danger(t('queue.quCoTipSplitOverflow'));
-        return;
-      }
-      if (remainder > 0) tipSplits[0]!.amountCents += remainder;
-    }
-
-    const giftCard = inlineGiftCardFields(
-      paymentMethod,
-      { giftCardCode, giftCardId, giftCardVerified, giftCardBalanceCents },
-      finalTotalCents,
-    );
-    if (!giftCard.ok) {
-      toast.danger(
-        giftCard.reason === 'overspend'
-          ? t('checkout.giftCardOverspend', {
-            p0: centsToDollars(finalTotalCents),
-            p1: centsToDollars(giftCardBalanceCents),
-          })
-          : t('queue.quGiftCardRequired'),
-      );
-      return;
-    }
-
-    /*
-     * ⚠️ 结账弹窗里的税率与刷卡附加费是**可编辑的**，打错一个字符
-     * `parseFloat` 会给出一个看起来合理的错数（`8.2o` → 8.2），
-     * 而这一单就按错的税率收了，且事后只能靠对账发现。
-     */
-    const taxRate = parsePercent(paymentStage === 'tip' ? '0' : checkoutModal.taxRatePercent, { allowEmpty: true, max: 100, maxDecimals: 4, fractionalBp: true });
-    const surchargeRate = parsePercent(paymentStage !== 'tip' && checkoutModal.enableCardSurcharge && ['card', 'apple_pay'].includes(paymentMethod) ? checkoutModal.cardSurchargePercent : '0', { allowEmpty: true, max: 100, maxDecimals: 4, fractionalBp: true });
-    if (!taxRate.ok || !surchargeRate.ok) {
-      toast.danger(t(!taxRate.ok ? 'queue.quTaxRateInvalid' : 'queue.quSurchargeRateInvalid'));
-      return;
-    }
-
-    try {
-      const receipt = await closeTicketMutation.mutateAsync({
-        ticketId: item.ticketId,
-        discountCents: totals.discountCents,
-        taxCents: totals.taxCents,
-        taxRateBp: taxRate.value,
-        taxCalculationMode: checkoutSettings?.taxCalculationMode || 'exclusive',
-        surchargeCents: totals.cardSurchargeCents,
-        surchargeRateBp: surchargeRate.value,
-        tipTotalCents: tipCents,
-        ...(tipSplits.length > 0 ? { tipSplits } : {}),
-        /*
-         * ⚠️ 幂等键必须稳定。超时重试若换了键，客人会被扣两次款，
-         * 而这类错误往往要到对账时才被发现。此前这里没有传，
-         * 每次重试都会拿到一个新的随机键，幂等保护形同虚设。
-         */
-        paymentStage,
-        /*
-         * ⚠️ 幂等键必须稳定，且必须包含收款阶段。超时重试若换了键，
-         * 客人会被扣两次款；而两个阶段共用一个键，第二笔会被判为重放 ——
-         * 小费收不进来，且服务端不会报错，只有对账时才发现。
-         */
-        idempotencyKey: `queue-pay-${item.ticketId}-${paymentStage}`,
-        payments: [
-          {
-            method: paymentMethod === 'apple_pay' ? 'card' : paymentMethod,
-            amountCents: finalTotalCents,
-            tipCents,
-            ...(tenderedCents !== undefined ? { tenderedCents } : {}),
-            changeCents: isCash && !keepChange ? cashRemainder : 0,
-            keepChange: Boolean(keepChangeCents),
-            ...(giftCard.giftCardId ? { giftCardId: giftCard.giftCardId } : {}),
-            ...(giftCard.giftCardCode ? { giftCardCode: giftCard.giftCardCode } : {}),
-          },
-        ],
-      });
-
-      setCheckoutModal((prev) => ({ ...prev, isOpen: false, item: null }));
-
-      const successKey = paymentStage === 'service'
-        ? 'queue.quCoStageServiceDone'
-        : paymentStage === 'tip'
-          ? 'queue.quCoStageTipDone'
-          : 'queue.quCheckoutDone';
-      toast.success(t(successKey, { p0: item.customerName }), {
-        description: t('queue.quCheckoutDetail', {
-          p0: centsToDollars(finalTotalCents),
-          p1: t(PAYMENT_METHOD_LABEL_KEYS[paymentMethod]),
-        }),
-      });
-
-      if (checkoutSettings?.autoPrintReceipt !== false) navigate(`/print/receipt/${receipt.ticketId}`);
-      await Promise.allSettled([refetchTickets(), refetchSchedule(), refetchRooms(), refetchQueue(), openTicketsQ.refetch()]);
-    } catch (err: any) {
-      toast.danger(`${t('queue.quCheckoutFailed')} ${errorMessage(err) || t('queue.quNetworkError3')}`);
-    }
+  // Shared workbench has already committed the exact quoted financial request.
+  const handleCheckoutSettled=async(receipt:import('@/features/checkout/types').CloseResult)=>{
+    setCheckoutModal(prev=>({...prev,isOpen:false,item:null}));
+    if(checkoutSettings?.autoPrintReceipt!==false)navigate(`/print/receipt/${receipt.ticketId}`);
+    await Promise.allSettled([refetchTickets(),refetchSchedule(),refetchRooms(),refetchQueue(),openTicketsQ.refetch()]);
   };
 
   // 5. Reverse Rollback Confirm Submit
@@ -2402,6 +2136,14 @@ function QueueContent() {
 
   return (
     <div className="flex flex-col h-full space-y-3.5">
+      {closeTicketMutation.pendingPayment&&<div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 shrink-0">
+        <p>{checkoutQuoteText(language,'unknown')}</p>
+        <GuardedButton permission="ticket.write" isPending={closeTicketMutation.isPending} onClick={async()=>{
+          try{const receipt=await closeTicketMutation.mutateAsync(closeTicketMutation.pendingPayment!);setCheckoutModal(prev=>({...prev,isOpen:false,item:null}));navigate(`/print/receipt/${receipt.ticketId}`);}
+          catch(err){toast.danger(errorMessage(err));}
+        }}>{checkoutQuoteText(language,'retrySaved')}</GuardedButton>
+      </div>}
+      <GroupCheckoutButton/>
       {/* 顶部标题与运营全局统计仪表 */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
@@ -2714,14 +2456,11 @@ function QueueContent() {
       />
 
 
-      <CheckoutModal
-        state={checkoutModal}
-        checkoutSettings={checkoutSettings}
-        allowTipSplitOverride={allowTipSplitOverride}
-        isPending={closeTicketMutation.isPending}
-        onChange={setCheckoutModal}
-        onConfirm={handleConfirmCheckout}
-      />
+      <CheckoutModal isOpen={checkoutModal.isOpen}
+        ticketId={checkoutModal.item?.ticketId??checkoutModal.item?.rawTicket?.ticketId??null}
+        onOpenChange={open=>setCheckoutModal(prev=>({...prev,isOpen:open,...(!open?{item:null}:{})}))}
+        onSettled={handleCheckoutSettled}/>
+
 
 
       <RollbackStageModal

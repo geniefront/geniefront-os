@@ -1,0 +1,60 @@
+{
+  "at": "2026-10-02T04:37:42.810661+00:00",
+  "scope": "P1 account payout facts and SDK reconciliation foundation; P2 online package purchase preparation",
+  "phaseComplete": false,
+  "goalComplete": false,
+  "productionPublished": false,
+  "runtimePreservedDatabaseMigration": 176,
+  "stageMigration": 177,
+  "stageMigrationPromoted": false,
+  "checks": {
+    "apiFiles": 14,
+    "apiTests": 346,
+    "payoutIsolatedTests": 8,
+    "typecheckPackages": 16,
+    "guards": true,
+    "diffCheck": true
+  },
+  "coverage": [
+    "automatic source batch count/net receipt after complete SDK pagination",
+    "manual payout has no invented source allocation",
+    "wrong mode/currency and immutable financial amount rejected",
+    "paid payout can later fail; original debit and return credit retained",
+    "same notification replay after SDK state change remains recoverable",
+    "RLS reads explicit shared same-org account once; original payout owner remains stable",
+    "cross-org account mapping rejected",
+    "failed automatic payout with confirmed return does not wait for an inapplicable source batch"
+  ],
+  "actualSandbox": {
+    "readOnlyVerified": true,
+    "availableUsdCents": 0,
+    "pendingUsdCents": 178797,
+    "existingPayouts": 0,
+    "defaultTestBankCount": 1,
+    "newPayoutCreated": false,
+    "signedPayoutVerified": false
+  },
+  "nextRequired": [
+    "add durable payout discovery and pending/failure reconciliation tasks",
+    "add account-level read-only UI with source receipt/status and six-language copy",
+    "migration empty/legacy replay before incremental promotion of 177",
+    "complete actual online $500/10 package purchase using official available-balance test card; then actual payout and genuine signed callbacks",
+    "verify original package snapshots after template edits, source service consumption/refund, and remaining full P1/P2/P4/P5/P6 scope"
+  ],
+  "realPurchasePreparation": {
+    "templateId": "c7d1eca6-a1c8-4926-bedf-6f080913950d",
+    "newQaCatalogEntryOnly": true,
+    "checkoutCreated": false,
+    "paymentCompleted": false,
+    "buyerBrowserSession": "commerce-package-payout-purchase",
+    "privateState": "ignored 0600 file",
+    "customerPurchaseTermsNeedUiImprovement": true,
+    "customerScreenshotInspected": true
+  },
+  "historicalFailures": [
+    "initial migration used payout_read policy name; renamed to tenant_isolation SELECT policy without relaxing access",
+    "test tenant contexts initially omitted nullable membershipId; corrected",
+    "initial read-only Balance.retrieve call put request options in the params slot; corrected to explicit empty params plus merchant options; no funds moved",
+    "direct admin connection import in API test failed the constitution guard; moved structural fixture setup into a guarded DB QA helper limited to localhost58332 gf_commerce_stage_ci"
+  ]
+}

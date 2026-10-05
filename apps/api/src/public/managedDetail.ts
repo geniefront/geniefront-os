@@ -1,3 +1,5 @@
+import {depositRequestDetails} from '../commerce/depositRequestDetails';
+import {depositPaymentSources} from '../commerce/depositSources';
 /**
  * Guest management-detail payload. Only what the manage page needs.
  * Never includes customer phone/email, staff legal name, notes, or tenant ids.
@@ -7,6 +9,8 @@ import { pickText } from '@gf/contracts';
 import type { PublicShopRow } from '@gf/db';
 import type postgres from 'postgres';
 import { guestRescheduleShapeReason } from './managedAvailability';
+import {depositGuestBalances} from '../commerce/depositGuests';
+import {loadGuestCancellationDetails} from '../commerce/guestCancellationDetails';
 
 export interface GuestActions {
   canReschedule: boolean;
@@ -14,6 +18,12 @@ export interface GuestActions {
   canRebook: boolean;
   reason: string | null;
   rescheduleCountLeft: number | null;
+}
+
+/** A purchased deposit keeps its agreed cancellation deadline when the store changes settings. */
+export function depositCancellationCutoff(policy:Record<string,unknown>|null|undefined,fallback:number):number{
+  const value=policy?.cancelCutoffHours;
+  return typeof value==='number'&&Number.isFinite(value)&&value>=0?value:fallback;
 }
 
 export interface GuestPolicyArgs {
@@ -127,15 +137,27 @@ export async function loadManagedBookingDetail(
   locale: string,
 ): Promise<Record<string, unknown> | null> {
   const [appt] = await tx<{
-    id: string; status: string;
+    id: string; status: string;party_size:number;deposit_status:string;
     self_reschedule_count: number;
     starts_at: string; ends_at: string; created_at: string;
   }[]>`
-    select id, status, self_reschedule_count, created_at::text,
+    select id, status, party_size,deposit_status,self_reschedule_count, created_at::text,
            starts_at::text as starts_at, ends_at::text as ends_at
       from appointments
      where id = ${appointmentId} and location_id = ${shop.locationId}`;
   if (!appt) return null;
+
+  const [held]=await tx<{id:string;status:string;amount_cents:number;currency:string;expires_at:string;reserved_cents:number;balance:number;
+    current_required:number;commerce_frozen:boolean;policy_snapshot:Record<string,unknown>;checkout_url:string|null;payable:boolean;applied:number;refunded:number;retained:number;service_settled:boolean;waived_at:string|null;order_id:string|null}[]>`
+    select h.id,h.status,h.amount_cents,h.currency,h.expires_at::text,h.reserved_cents,h.commerce_frozen,
+      coalesce((select required_cents from commerce_deposit_requotes where hold_id=h.id order by revision desc limit 1),h.amount_cents) as current_required,h.policy_snapshot,h.waived_at::text,h.order_id,p.checkout_url,
+      h.status='pending' and h.expires_at>now() as payable,
+      (select coalesce(sum(amount_cents),0)::int from commerce_deposit_ledger where hold_id=h.id) as balance,
+      (select -coalesce(sum(amount_cents),0)::int from commerce_deposit_ledger where hold_id=h.id and entry in('applied','restored')) as applied,
+      (select -coalesce(sum(amount_cents),0)::int from commerce_deposit_ledger where hold_id=h.id and entry='refund') as refunded,
+      (select -coalesce(sum(amount_cents),0)::int from commerce_deposit_ledger where hold_id=h.id and entry in('retained','retention_released')) as retained,
+      exists(select 1 from tickets t where t.appointment_id=h.appointment_id and t.status<>'voided' and t.service_settled_at is not null) as service_settled
+    from commerce_appointment_holds h left join commerce_payments p on p.order_id=h.order_id where h.appointment_id=${appt.id}`;
 
   const items = await tx<{
     service_id: string; name: unknown; addon_ids: string[]; details: Record<string, unknown>;
@@ -143,9 +165,9 @@ export async function loadManagedBookingDetail(
     duration_min: number; price_cents_snapshot: number;
     specialist: unknown;
     membership_id: string | null;
-    resource_id: string | null;
+    resource_id: string | null;status:string;
   }[]>`
-    select s.id as service_id, s.name, ai.addon_ids, ai.details,
+    select s.id as service_id,s.name,ai.addon_ids,ai.details,ai.status,
            ai.starts_at::text as starts_at, ai.ends_at::text as ends_at,
            ai.duration_min, ai.price_cents_snapshot,
            case when ai.is_request then sp.display_name else null end as specialist,
@@ -162,18 +184,20 @@ export async function loadManagedBookingDetail(
   const addonName = new Map(addonRows.map((r) => [r.id, pickText(r.name, locale)]));
 
   const { startsAt, endsAt, durationMin } = bookingWindow(appt);
-  const priceCents = items.reduce((n, i) => n + i.price_cents_snapshot, 0);
+  const originalPriceCents=items.reduce((n,i)=>n+i.price_cents_snapshot,0);
+  const priceCents = items.filter(i=>i.status!=='cancelled').reduce((n, i) => n + i.price_cents_snapshot, 0);
   const cfg = shop.onlineBooking;
+  const cancelCutoffHours=depositCancellationCutoff(held?.policy_snapshot,cfg.cancelCutoffHours);
   const actions = guestActions({
     status: appt.status,
     startsAt,
     createdAt: appt.created_at,
-    cancelCutoffHours: cfg.cancelCutoffHours,
+    cancelCutoffHours,
     rescheduleEnabled: cfg.rescheduleEnabled,
     rescheduleCutoffHours: cfg.rescheduleCutoffHours,
     selfRescheduleMax: cfg.selfRescheduleMax,
     selfRescheduleCount: appt.self_reschedule_count,
-    shapeReason: guestRescheduleShapeReason(items),
+    shapeReason: guestRescheduleShapeReason(items.filter(i=>i.status!=='cancelled')),
   });
 
   // A multi-specialist execution is one purchased service, with one total price.
@@ -189,6 +213,7 @@ export async function loadManagedBookingDetail(
     return {
       serviceId: first.service_id,
       guestIndex: Array.isArray(guests) ? Math.min(...guests) : Number(first.details?.publicGuestIndex ?? 0),
+      status:first.status,
       ...(Array.isArray(guests) ? { guestIndices: guests } : {}),
       name: pickText(first.name, locale), addonIds,
       addonNames: addonIds.map(id => addonName.get(id)).filter(Boolean),
@@ -197,18 +222,44 @@ export async function loadManagedBookingDetail(
       specialistName: group.map(item => item.specialist ? pickText(item.specialist, locale) : '').filter(Boolean).join(' + ') || null,
     };
   });
+  const cancellations=await tx<{guest_index:number}[]>`select guest_index from appointment_guest_cancellations where appointment_id=${appt.id}`;
+  const request=held?await depositRequestDetails(tx,{locationId:shop.locationId},held.id):null;
+  const paymentSources=held?await depositPaymentSources(tx,{locationId:shop.locationId},held.id):[];
+  const available=held?.commerce_frozen||held?.waived_at?0:paymentSources.reduce((n,p)=>n+p.availableCents,0);
+  const guestBalances=held?await depositGuestBalances(tx,{locationId:shop.locationId},held.id):null;
+  const originalAllocation=held?.policy_snapshot.guestAllocation as {method:string;guests:Array<{guestIndex:number;serviceTotalCents:number;amountCents:number}>}|undefined;
+  const guestAllocation=originalAllocation&&Array.isArray(originalAllocation.guests)?{...originalAllocation,guests:originalAllocation.guests.map(g=>({...g,
+    cancelled:cancellations.some(c=>c.guest_index===g.guestIndex),refundStatus:guestBalances?.find(b=>b.guestIndex===g.guestIndex)?.refundStatus??null}))}:null;
+  const [ticket]=await tx`select id from tickets where appointment_id=${appt.id} and status<>'voided' limit 1`;
+  const cancellationDetails=await loadGuestCancellationDetails(tx,shop.locationId,appt.id,
+    {partySize:appt.party_size,status:appt.status,depositStatus:appt.deposit_status},
+    items.map((item,index)=>({groupKey:typeof item.details.serviceExecutionGroup==='string'?item.details.serviceExecutionGroup:`item:${index}`,
+      priceCents:item.price_cents_snapshot,status:item.status,details:item.details})),{moneyVisible:true,ticketExists:!!ticket});
+  if(cancellationDetails.guestCancellation&&!actions.canCancel){cancellationDetails.guestCancellation.enabled=false;
+    cancellationDetails.guestCancellation.reason??=actions.reason??'appointment_not_editable';}
   return {
     bookingId: appt.id,
     status: appt.status,
+    ...cancellationDetails,
+    ...(held?{deposit:{status:held.waived_at?'waived':held.commerce_frozen?'review':held.status,financialStatus:held.status,amountCents:request?.amountCents??held.amount_cents,currency:held.currency.toUpperCase(),
+      availableCents:available,excessCents:held.service_settled?available:Math.max(0,available-Math.max(0,held.current_required-held.applied)),appliedCents:held.applied,refundedCents:held.refunded,retainedCents:held.retained,expiresAt:request?.expiresAt??held.expires_at,
+      serviceRemainingCents:held.service_settled||['cancelled','no_show'].includes(appt.status)?0:
+        Math.max(0,priceCents-(held.waived_at?0:held.status==='pending'?(request?.amountCents??held.amount_cents):available+held.applied)),
+      checkoutUrl:request?.checkoutUrl??null,paymentMethod:request?.channel==='online'?'online':'frontdesk',
+      ...(!held.service_settled&&!['cancelled','no_show','done'].includes(appt.status)&&request?.purpose==='supplement'&&['open','expired'].includes(request.state)?{additionalPayment:{amountCents:request.amountCents,expiresAt:request.expiresAt,state:request.state,checkoutUrl:request.checkoutUrl,paymentMethod:request.channel==='online'?'online':'frontdesk'}}:{}),
+      policy:{cancelCutoffHours:held.policy_snapshot.cancelCutoffHours,
+        notice:held.policy_snapshot.cancellationPolicyNotice??'',retainAfterCutoff:held.policy_snapshot.retainAfterCutoff===true},
+      ...(guestAllocation?{guestAllocation}:{})}}:{ }),
     startsAt,
     endsAt,
     timezone: shop.timezone,
     durationMin,
     priceCents,
+    originalPriceCents,
     specialistName: items[0]?.specialist ? pickText(items[0].specialist, locale) : null,
     items: displayItems,
     policy: {
-      cancelCutoffHours: cfg.cancelCutoffHours,
+      cancelCutoffHours,
       rescheduleEnabled: cfg.rescheduleEnabled,
       rescheduleCutoffHours: cfg.rescheduleCutoffHours,
       selfRescheduleMax: cfg.selfRescheduleMax,

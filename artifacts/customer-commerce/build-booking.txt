@@ -1,0 +1,20 @@
+$ node ../../scripts/prepare-heroui.mjs
+HeroUI Pro 1.0.0-beta.10: ready
+$ vite build
+vite v6.4.3 building for production...
+transforming...
+✓ 2062 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                 0.90 kB │ gzip:   0.44 kB
+dist/assets/index-BdCV1Zl8.css                494.11 kB │ gzip:  51.00 kB
+dist/assets/AppointmentPreview-DxLjQycL.js      5.61 kB │ gzip:   1.81 kB
+dist/assets/vendor-react-DPl8Sss8.js           47.55 kB │ gzip:  16.52 kB
+dist/assets/vendor-query-CqXhrGLo.js           67.50 kB │ gzip:  22.06 kB
+dist/assets/index-CnncZVVy.js               1,328.39 kB │ gzip: 362.70 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 2.45s

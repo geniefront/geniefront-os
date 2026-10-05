@@ -1,0 +1,45 @@
+$ turbo run typecheck
+• turbo 2.10.10
+
+   • Packages in scope: @gf/ai, @gf/api, @gf/aws, @gf/booking, @gf/brightdata, @gf/contracts, @gf/db, @gf/ios, @gf/ipad, @gf/marketing, @gf/payroll, @gf/phone-input, @gf/platform, @gf/rotation, @gf/scheduling, @gf/web, @gf/yelp
+   • Running typecheck in 17 packages
+   • Remote caching disabled
+
+@gf/payroll:typecheck: cache hit, replaying logs bbb6807b94c574c9
+@gf/payroll:typecheck: $ tsc --noEmit
+@gf/marketing:typecheck: cache hit, replaying logs 7a4c1a968e926a58
+@gf/platform:typecheck: cache hit, replaying logs 58d9a9a7d35b97a9
+@gf/aws:typecheck: cache hit, replaying logs 15f4d7e5bf371c40
+@gf/platform:typecheck: $ tsc --noEmit
+@gf/contracts:typecheck: cache hit, replaying logs 2bb7155a656880eb
+@gf/scheduling:typecheck: cache hit, replaying logs 524078050a82366f
+@gf/contracts:typecheck: $ tsc --noEmit
+@gf/rotation:typecheck: cache hit, replaying logs 0611684b11fea3e1
+@gf/scheduling:typecheck: $ tsc --noEmit
+@gf/ios:typecheck: cache hit, replaying logs 4daafc80c2561170
+@gf/marketing:typecheck: $ tsc --noEmit
+@gf/db:typecheck: cache miss, executing 0057dcb84d97a44e
+@gf/rotation:typecheck: $ tsc --noEmit
+@gf/ios:typecheck: $ echo '尚未开始，占位 workspace'
+@gf/ios:typecheck: 尚未开始，占位 workspace
+@gf/yelp:typecheck: cache hit, replaying logs 93c431933876ce86
+@gf/aws:typecheck: $ tsc --noEmit
+@gf/brightdata:typecheck: cache hit, replaying logs 869056c68cefc3fd
+@gf/yelp:typecheck: $ tsc --noEmit
+@gf/api:typecheck: cache miss, executing 11914e95a4f88999
+@gf/booking:typecheck: cache hit, replaying logs 25b2e281d549dcd2
+@gf/ai:typecheck: cache hit, replaying logs a9c083d9ddb0cb4c
+@gf/ipad:typecheck: cache hit, replaying logs c1b3ce6408a7904a
+@gf/web:typecheck: cache hit, replaying logs a3ba748871fcc792
+@gf/ai:typecheck: $ tsc --noEmit
+@gf/brightdata:typecheck: $ tsc --noEmit
+@gf/booking:typecheck: $ tsc --noEmit
+@gf/web:typecheck: $ tsc --noEmit
+@gf/ipad:typecheck: $ tsc --noEmit
+@gf/db:typecheck: $ tsc --noEmit
+@gf/api:typecheck: $ tsc --noEmit
+
+ Tasks:    16 successful, 16 total
+Cached:    14 cached, 16 total
+  Time:    9.671s 
+

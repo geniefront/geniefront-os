@@ -22,6 +22,10 @@ import {
   Btn, CallShop, Card, Dock, Loading, Note, PhoneLink, Progress, Shell, Topbar, type BookStep,
 } from '../components/Chrome';
 import { useLanguage } from '../lib/i18n';
+import {AppointmentDeposit} from '../components/AppointmentDeposit';
+import {depositText} from '@gf/contracts';
+import {quoteAppointmentDeposit,allocateAppointmentDepositByGuest} from '@gf/payroll';
+import {loadManagedBooking} from '../lib/api';
 
 export type Draft = {
   serviceId: string | null;
@@ -50,6 +54,7 @@ export function BookPage() {
   const [availBusy, setAvailBusy] = useState(false);
   const [staffChoices, setStaffChoices] = useState<Availability['staff']>([]);
   const [banner, setBanner] = useState<string | null>(null);
+  const [contact,setContact]=useState<BookingContact>();
   const [done, setDone] = useState<{
     bookingId: string; manageToken: string | null; summary?:ManagedBooking; status?:string;
   } | null>(null);
@@ -192,7 +197,7 @@ export function BookPage() {
       };
       setDone(payload);
       if (slug) saveLastBooking({ ...payload, shopSlug: slug });
-      reportBooked();
+      if(!out.summary?.deposit||['paid','refunded'].includes(out.summary.deposit.status))reportBooked();
       setIdem(crypto.randomUUID());
       setStep('success');
       try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { /* jsdom */ }
@@ -325,6 +330,12 @@ export function BookPage() {
             openedAt={openedAt.current}
             onSubmit={submit}
             onBack={() => setStep('time')}
+            initialContact={contact} onContactChange={setContact}
+            onRefreshQuote={async()=>{
+              await Promise.all([shopQuery.refetch({throwOnError:true}),catalogQuery.refetch({throwOnError:true}),bundlesQuery.refetch({throwOnError:true})]);
+              setIdem(crypto.randomUUID());setDraft(d=>({...d,startsAt:null}));setStep('time');
+              if(draft.date)await loadSlots(draft.date,draft.serviceId??'',draft.addonIds,draft.staffId,draft.bundleId);
+            }}
           />
         )}
 
@@ -684,7 +695,7 @@ function slotPeriod(startsAt: string, timezone: string): 'morning' | 'afternoon'
 export interface BookingContact {name:string;phone:string;email:string;notes:string;smsOptIn:boolean;bookingSmsConsent?:boolean}
 
 export function ConfirmStep({
-  shop, service, addons, bundle, startsAt, staffId, openedAt, onSubmit, onBack, party, initialContact, onContactChange, onReviewChange, appointmentSummary, notesMaxLength = 500,
+  shop, service, addons, bundle, startsAt, staffId, openedAt, onSubmit, onBack, onRefreshQuote,party, initialContact, onContactChange, onReviewChange, appointmentSummary, notesMaxLength = 500,
 }: {
   shop: Shop;
   service: Service | null;
@@ -694,6 +705,7 @@ export function ConfirmStep({
   initialContact?: BookingContact;
   onContactChange?: (value:BookingContact)=>void;
   onReviewChange?: (value:boolean)=>void;
+  onRefreshQuote?:()=>Promise<void>;
   party?: { items: BookInput["items"]; partySize: number; priceCents: number; durationMin: number };
   /** 组合套餐（U10）。传了就走 bundleSelections，不传走单项 items。 */
   bundle?: { id: string; version?: number; name: string; priceCents: number; originalTotalCents: number; durationMin: number };
@@ -711,6 +723,8 @@ export function ConfirmStep({
   const [notes, setNotes] = useState(initialContact?.notes ?? '');
   const [smsOptIn] = useState(false);
   const [bookingSmsConsent,setBookingSmsConsent]=useState(initialContact?.bookingSmsConsent ?? false);
+  const [depositAccepted,setDepositAccepted]=useState(false);
+  const [quoteRefreshNeeded,setQuoteRefreshNeeded]=useState(false);
   const [website, setWebsite] = useState('');
   const [token, setToken] = useState<string | null>(null);
   const [botErr, setBotErr] = useState(false);
@@ -744,8 +758,24 @@ export function ConfirmStep({
     };
   }, [shop.turnstileSiteKey]);
 
+  const mins = party ? party.durationMin : bundle
+    ? bundle.durationMin
+    : (service?.durationMin ?? 0) + addons.reduce((n, a) => n + a.durationMin, 0);
+  const cents = party ? party.priceCents : bundle
+    ? bundle.priceCents
+    : (service?.priceCents ?? 0) + addons.reduce((n, a) => n + a.priceCents, 0);
+  const needsDeposit=shop.onlineBooking.depositRequired===true;
+  let depositAmountCents:number|null=null;
+  try{if(needsDeposit)depositAmountCents=quoteAppointmentDeposit(cents,shop.onlineBooking.depositMethod==='percentage'
+    ?{percentBps:shop.onlineBooking.depositPercentBps}:{fixedAmountCents:shop.onlineBooking.depositAmountCents??2000});}catch{}
+  let guestDeposits:ReturnType<typeof allocateAppointmentDepositByGuest>|null=null;
+  try{if(party&&party.partySize>1&&depositAmountCents&&party.items.every(i=>i.quotedPriceCents!==undefined))
+    guestDeposits=allocateAppointmentDepositByGuest(party.partySize,party.items.map((i,index)=>({groupKey:String(index),priceCents:i.quotedPriceCents!,
+      guestIndices:i.guestIndices??[i.guestIndex??0]})),depositAmountCents);}catch{}
+  useEffect(()=>setDepositAccepted(false),[shop.onlineBooking.depositPolicyVersion,depositAmountCents,cents]);
+  const depositReady=!quoteRefreshNeeded&&(!needsDeposit||Boolean(depositAmountCents&&shop.onlineBooking.depositPolicyVersion&&depositAccepted));
   const e164 = toE164(phone);
-  const ready = notes.length <= notesMaxLength && name.trim().length > 0 && (!email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) && e164 !== null && (token !== null || !shop.turnstileSiteKey);
+  const ready = notes.length <= notesMaxLength && name.trim().length > 0 && (!email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) && e164 !== null && (token !== null || !shop.turnstileSiteKey)&&depositReady;
 
   async function go() {
     if (!ready || inflight.current) return;
@@ -767,13 +797,16 @@ export function ConfirmStep({
           ? { items: [], bundleSelections: [{ bundleId: bundle.id, startsAt, ...(bundle.version ? {expectedVersion:bundle.version} : {}) }] }
           : { items: [{ serviceId: service!.id, addonIds: addons.map((a) => a.id), staffId, startsAt }] }),
         partySize: party?.partySize ?? 1,
+        ...(needsDeposit&&depositAmountCents&&shop.onlineBooking.depositPolicyVersion?{depositConsent:{accepted:true as const,
+          policyVersion:shop.onlineBooking.depositPolicyVersion,serviceTotalCents:cents,amountCents:depositAmountCents}}:{}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         website,
         formElapsedMs: Date.now() - openedAt,
       });
     } catch (e) {
       setReviewing(false);
-      setErr(confirmError(e, shop, t));
+      setErr(confirmError(e, shop, t,locale));
+      if(e instanceof ApiError&&['deposit_quote_changed','deposit_policy_consent_required'].includes(String(e.details.reason))){setDepositAccepted(false);setQuoteRefreshNeeded(true);}
       if (widgetId.current) { tsApi.current?.reset(widgetId.current); setToken(null); }
     } finally {
       inflight.current = false;
@@ -781,12 +814,6 @@ export function ConfirmStep({
     }
   }
 
-  const mins = party ? party.durationMin : bundle
-    ? bundle.durationMin
-    : (service?.durationMin ?? 0) + addons.reduce((n, a) => n + a.durationMin, 0);
-  const cents = party ? party.priceCents : bundle
-    ? bundle.priceCents
-    : (service?.priceCents ?? 0) + addons.reduce((n, a) => n + a.priceCents, 0);
   const displayName = party ? `${t('Guests')}: ${party.partySize} · ${t('Services')}: ${party.items.length}` : bundle ? bundle.name : (service?.name ?? '');
 
   return (
@@ -804,6 +831,21 @@ export function ConfirmStep({
         </div>
         {reviewing && err && <Note warn>{err}</Note>}
         {reviewing && <div className="review-contact"><div className="summary-heading"><h2>{t('Contact')}</h2><Button variant="ghost" onPress={()=>setReviewing(false)}>{t('Edit contact')}</Button></div><p>{name}</p><p>{formatPhoneDisplay(phone)}</p>{email&&<p>{email}</p>}{notes&&<p className="whitespace-pre-wrap">{notes}</p>}</div>}
+        {needsDeposit&&<section className="my-4 rounded-xl border border-[var(--line)] p-4 space-y-3" aria-label={depositText(locale,'required')}>
+          {depositAmountCents&&shop.onlineBooking.depositPolicyVersion?<>
+            <h2 className="font-semibold">{depositText(locale,'required')}: {money(depositAmountCents,shop.currency)}</h2>
+            <p className="text-sm">{depositText(locale,'remaining')}: {money(cents-depositAmountCents,shop.currency)}</p>
+            {guestDeposits&&<div className="text-sm"><h3 className="font-medium">{depositText(locale,'guestAllocation')}</h3><ol>{guestDeposits.guests.map(g=><li key={g.guestIndex} className="flex justify-between gap-3"><span>{t('Guest')} {g.guestIndex+1}</span><span>{money(g.amountCents,shop.currency)}</span></li>)}</ol></div>}
+            <p className="text-sm">{depositText(locale,'holdNotice')}</p>
+            <p className="text-sm">{depositText(locale,'refundBefore').replace('{hours}',String(shop.onlineBooking.cancelCutoffHours))}</p>
+            <p className="text-sm">{depositText(locale,shop.onlineBooking.retainDepositAfterCutoff?'lateRetain':'lateReview')}</p>
+            {shop.onlineBooking.cancellationPolicyNotice&&<p className="text-sm whitespace-pre-wrap">{shop.onlineBooking.cancellationPolicyNotice}</p>}
+            <label className="flex items-start gap-3 text-sm"><input type="checkbox" className="mt-1" checked={depositAccepted} onChange={e=>setDepositAccepted(e.target.checked)}/>{depositText(locale,'acknowledge')}</label>
+          </>:<Note warn>{depositText(locale,'unavailable')}</Note>}
+        </section>}
+        {quoteRefreshNeeded&&onRefreshQuote&&<Btn disabled={busy} onClick={()=>{
+          setBusy(true);void onRefreshQuote().catch(()=>setErr(t('Something went wrong. Please try again or contact the shop.'))).finally(()=>setBusy(false));
+        }}>{t('Try again')}</Btn>}
         <div className={`mt-4 grid gap-3 ${reviewing ? 'hidden' : ''}`}>
           <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm font-semibold"> {t("Name")} <Input className="field-control mt-2" value={name}
@@ -847,9 +889,10 @@ export function ConfirmStep({
   );
 }
 
-function confirmError(e: unknown, _shop: Shop, t:(key:string)=>string): string {
+function confirmError(e: unknown, _shop: Shop, t:(key:string)=>string,locale:string): string {
   if (!(e instanceof ApiError)) return t('Something went wrong. Please try again or contact the shop.');
   const reason = String(e.details['reason'] ?? '');
+  if(reason==='deposit_quote_changed'||reason==='deposit_policy_consent_required')return depositText(locale,'quoteChanged');
   if (reason === 'bot_check_failed') return t('Security check failed. Please try again.');
   if (e.isRateLimited) return t('Too many attempts. Please wait and try again or contact the shop.');
   if (reason === 'too_soon') return t('That time is too soon. Please contact the shop.');
@@ -869,22 +912,39 @@ export function SuccessStep({
   children?:ReactNode;
   calendarUrl?:string;
 }) {
-  const { t } = useLanguage();
+  const { t,locale } = useLanguage();
+  const paymentQuery=useQuery({queryKey:['booked-deposit',slug,done.bookingId,done.manageToken,locale],
+    enabled:Boolean(done.summary?.deposit&&done.manageToken),retry:false,
+    queryFn:()=>loadManagedBooking(slug,done.manageToken!,locale),
+    refetchInterval:q=>['pending','refund_pending'].includes(q.state.data?.booking.deposit?.status??done.summary?.deposit?.status??'')?5000:false});
+  const summary=paymentQuery.data?.booking??done.summary,deposit=summary?.deposit;
+  const appointmentStatus=summary?.status??done.status;
+  const reportedDeposit=useRef<string|null>(null);
+  useEffect(()=>{
+    if(done.summary?.deposit?.status==='pending'&&deposit?.status==='paid'&&appointmentStatus==='booked'&&reportedDeposit.current!==done.bookingId){
+      reportedDeposit.current=done.bookingId;reportBooked();
+    }
+  },[done.bookingId,done.summary?.deposit?.status,deposit?.status,appointmentStatus]);
+  const awaiting=deposit&&['pending','expired','cancelled','review'].includes(deposit.status);
+  const notConfirmed=Boolean(awaiting||appointmentStatus==='cancelled'||appointmentStatus==='no_show');
+  const headline=deposit&&notConfirmed?depositText(locale,(appointmentStatus==='cancelled'&&deposit.status==='paid'?'cancelled':deposit.status) as 'pending'|'expired'|'cancelled'|'review'|'refund_pending'|'refunded'):
+    appointmentStatus&&appointmentStatus!=='booked'?t(appointmentStatus==='done'?'completed':appointmentStatus):t('step.booked','You are booked');
   return (
     <section className="confirmation-page">
       <header className="appointment-hero">
-        <span className="confirmation-check" aria-hidden="true">✓</span>
-        <p className="appointment-eyebrow">{t("Appointment confirmed")}</p>
-        <h1>{done.status && done.status !== 'booked' ? t(done.status) : t('step.booked', 'You are booked')}</h1>
-        <p>{t("We look forward to seeing you.")}</p>
+        <span className="confirmation-check" aria-hidden="true">{notConfirmed?'…':'✓'}</span>
+        <p className="appointment-eyebrow">{notConfirmed?headline:t("Appointment confirmed")}</p>
+        <h1>{headline}</h1>
+        {!notConfirmed&&<p>{t("We look forward to seeing you.")}</p>}
       </header>
       <div className="confirmation-details">
         {children}
+        {deposit&&summary&&<AppointmentDeposit deposit={deposit} serviceCents={summary.priceCents} timezone={shop.timezone}/>}
         {showSummary && done.summary && <Card><h2 className="summary-date">{dateOf(done.summary.startsAt,shop.timezone)}</h2><p>{timeOf(done.summary.startsAt,shop.timezone)}</p>{done.summary.items.map((item,index)=><p className="mt-3" key={index}>{item.name} · {money(item.priceCents,shop.currency)}</p>)}<div className="bag-total"><span>{t('Total')}</span><strong>{money(done.summary.priceCents,shop.currency)}</strong></div></Card>}
       </div>
       <div className="confirmation-actions">
         {done.manageToken && <Link className="appointment-primary-link" to={hostedManagePath(slug, done.manageToken)} target={isEmbedded()?'_blank':undefined} rel="noreferrer">{t("Edit appointment")} <span aria-hidden="true">→</span></Link>}
-        {calendarUrl && <a className="appointment-secondary-link" href={calendarUrl} download="appointment.ics">{t("Add to calendar")} <span aria-hidden="true">↗</span></a>}
+        {calendarUrl && !notConfirmed && <a className="appointment-secondary-link" href={calendarUrl} download="appointment.ics">{t("Add to calendar")} <span aria-hidden="true">↗</span></a>}
       </div>
       <p className="appointment-help">{t("Keep this page to manage your appointment.")}</p>
       <div className="appointment-footer-actions"><button type="button" onClick={onAgain}>{t("Book another")}</button>{shop.phone && <span>{t("Questions? Call")} <PhoneLink shop={shop} /></span>}</div>
