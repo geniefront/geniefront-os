@@ -70,6 +70,7 @@ done
 
 COMMIT="$(git rev-parse --short HEAD)"
 TAG="${GF_IMAGE_TAG:-${COMMIT}-$(date -u +%Y%m%d%H%M%S)}"
+[[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || { echo "✗ 无效镜像标签"; exit 1; }
 IMAGE="geniefront/api:${TAG}"
 
 G=$'\033[32m'; R=$'\033[31m'; D=$'\033[2m'; N=$'\033[0m'
@@ -132,7 +133,10 @@ for host in "${HOSTS[@]}"; do
     esac
     COPYFILE_DISABLE=1 tar --no-xattrs --exclude='./index.html' -czf - -C "apps/${app}/dist" . | \
       ssh "$host" "tar -xzf - -C '${REMOTE_DIR}/${remote_app}'"
-    scp -q "apps/${app}/dist/index.html" "$host:${REMOTE_DIR}/${remote_app}/index.html"
+    # Publish by rename: readers never see a partially uploaded document, and
+    # a root-owned index left by a past migration need not be opened for writing.
+    scp -q "apps/${app}/dist/index.html" "$host:${REMOTE_DIR}/${remote_app}/.index-${TAG}.html"
+    ssh "$host" "mv -f '${REMOTE_DIR}/${remote_app}/.index-${TAG}.html' '${REMOTE_DIR}/${remote_app}/index.html'"
   done
 
   ssh "$host" "
