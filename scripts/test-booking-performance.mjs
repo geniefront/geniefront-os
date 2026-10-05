@@ -14,6 +14,11 @@ const name = `gf-booking-performance-${process.pid}-${randomBytes(3).toString('h
 const password = randomBytes(24).toString('hex');
 const appPassword = randomBytes(24).toString('hex');
 const full = process.argv.includes('--full');
+const filesIndex = process.argv.indexOf('--files');
+const selectedFiles = filesIndex < 0 ? [] : process.argv.slice(filesIndex + 1);
+if (selectedFiles.some(path => !/^src\/[A-Za-z0-9_./-]+\.test\.ts$/.test(path))) {
+  throw new Error('Expected API test file paths after --files');
+}
 // Existing commerce clock fixtures require this exact disposable target.
 const database = full ? 'gf_commerce_stage_ci' : 'gf_booking_performance_test';
 const baseEnv = Object.fromEntries(['PATH', 'HOME', 'PNPM_HOME', 'TMPDIR', 'LANG', 'DOCKER_HOST', 'DOCKER_CONTEXT']
@@ -57,12 +62,12 @@ try {
   };
   console.log(`Isolated booking regression database: ${address}/${database}`);
   run(process.execPath, ['--import', 'tsx', 'packages/db/src/migrate.ts'], env);
-  if (full) {
+  if (full && !selectedFiles.length) {
     run('pnpm', ['db:seed'], env);
     run('pnpm', ['--filter', '@gf/db', 'exec', 'vitest', 'run'], env);
   }
   run('pnpm', ['--filter', '@gf/api', 'exec', 'vitest', 'run',
-    ...(full ? [] : ['src/voiceV2.test.ts', 'src/public.test.ts'])], env);
+    ...(selectedFiles.length ? selectedFiles : full ? [] : ['src/voiceV2.test.ts', 'src/public.test.ts'])], env);
   // Full suites may leave a different tenant fixture last; restore the voice
   // fixture before the real worker/process isolation check.
   if (full) run('pnpm', ['--filter', '@gf/api', 'exec', 'vitest', 'run', 'src/voiceV2.test.ts'], env);
