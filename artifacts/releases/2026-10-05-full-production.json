@@ -1,0 +1,313 @@
+{
+  "at": "2026-10-05T17:00:35.975Z",
+  "deployedCommit": "66e25e363d83c1c3cceb0afe90354d4eff0360ff",
+  "image": "geniefront/api:full-20261005T164000Z",
+  "hosts": [
+    "gf-a",
+    "gf-b"
+  ],
+  "migrations": {
+    "before": 151,
+    "after": 188,
+    "applied": 37
+  },
+  "backup": {
+    "encrypted": true,
+    "downloadDecryptVerified": true,
+    "restoreVerified": true,
+    "applicationArchive": "/opt/geniefront/releases/full-20261005T164000Z/before-app.tar.gz"
+  },
+  "commerceFinancialRecords": {
+    "orders": 0,
+    "payments": 0,
+    "memberships": 0
+  },
+  "businessPreservation": [
+    {
+      "table": "appointments",
+      "before": 31,
+      "after": 31,
+      "unchanged": true
+    },
+    {
+      "table": "appointment_items",
+      "before": 42,
+      "after": 42,
+      "unchanged": true
+    },
+    {
+      "table": "customers",
+      "before": 27,
+      "after": 27,
+      "unchanged": true
+    },
+    {
+      "table": "tickets",
+      "before": 0,
+      "after": 0,
+      "unchanged": true
+    },
+    {
+      "table": "ticket_items",
+      "before": 0,
+      "after": 0,
+      "unchanged": true
+    },
+    {
+      "table": "payments",
+      "before": 0,
+      "after": 0,
+      "unchanged": true
+    },
+    {
+      "table": "customer_packages",
+      "before": 0,
+      "after": 0,
+      "unchanged": true
+    },
+    {
+      "table": "customer_credit_ledger",
+      "before": 0,
+      "after": 0,
+      "unchanged": true
+    },
+    {
+      "table": "gift_cards",
+      "before": 0,
+      "after": 0,
+      "unchanged": true
+    },
+    {
+      "table": "billing_accounts",
+      "before": 1,
+      "after": 1,
+      "unchanged": true
+    },
+    {
+      "table": "phone_calls",
+      "before": 105,
+      "after": 105,
+      "unchanged": true
+    },
+    {
+      "table": "locations",
+      "before": 1,
+      "after": 1,
+      "unchanged": true
+    }
+  ],
+  "browser": [
+    {
+      "name": "booking",
+      "url": "https://book.geniefront.com/va-zhi-zi-massage",
+      "status": 200,
+      "title": "Zhi Zi Massage · Online booking",
+      "loadedMs": 1178,
+      "serviceRows": 4,
+      "errors": [],
+      "api": [
+        {
+          "path": "/public/v1/hosted/shops/va-zhi-zi-massage",
+          "status": 200,
+          "atMs": 532
+        },
+        {
+          "path": "/public/v1/bundles",
+          "status": 200,
+          "atMs": 678
+        },
+        {
+          "path": "/public/v1/services",
+          "status": 200,
+          "atMs": 688
+        }
+      ]
+    },
+    {
+      "name": "desk",
+      "url": "https://desk.geniefront.com/",
+      "status": 200,
+      "title": "GenieFront",
+      "loadedMs": 1890,
+      "serviceRows": 0,
+      "errors": [],
+      "api": []
+    },
+    {
+      "name": "marketing",
+      "url": "https://www.geniefront.com/",
+      "status": 200,
+      "title": "GenieFront OS — The AI Front Desk Built for Asian-Owned Beauty & Wellness Shops",
+      "loadedMs": 1999,
+      "serviceRows": 0,
+      "errors": [],
+      "api": []
+    },
+    {
+      "name": "platform",
+      "url": "https://ops.geniefront.com/",
+      "status": 200,
+      "title": "GenieFront Ops",
+      "loadedMs": 1837,
+      "serviceRows": 0,
+      "errors": [],
+      "api": []
+    },
+    {
+      "name": "kiosk",
+      "url": "https://kiosk.geniefront.com/pair",
+      "status": 200,
+      "title": "GenieFront iPad Kiosk",
+      "loadedMs": 1866,
+      "serviceRows": 0,
+      "errors": [],
+      "api": []
+    }
+  ],
+  "latency": {
+    "at": "2026-10-05T16:58:22.761Z",
+    "count": 24,
+    "p95": 106,
+    "max": 125,
+    "failures": [],
+    "samples": [
+      {
+        "path": "/health",
+        "status": 200,
+        "ms": 25
+      },
+      {
+        "path": "/public/v1/services?locale=en",
+        "status": 200,
+        "ms": 125
+      },
+      {
+        "path": "/health",
+        "status": 200,
+        "ms": 25
+      },
+      {
+        "path": "/public/v1/services?locale=en",
+        "status": 200,
+        "ms": 83
+      },
+      {
+        "path": "/health",
+        "status": 200,
+        "ms": 25
+      },
+      {
+        "path": "/public/v1/services?locale=en",
+        "status": 200,
+        "ms": 79
+      },
+      {
+        "path": "/health",
+        "status": 200,
+        "ms": 26
+      },
+      {
+        "path": "/public/v1/services?locale=en",
+        "status": 200,
+        "ms": 81
+      },
+      {
+        "path": "/health",
+        "status": 200,
+        "ms": 25
+      },
+      {
+        "path": "/public/v1/services?locale=en",
+        "status": 200,
+        "ms": 79
+      },
+      {
+        "path": "/health",
+        "status": 200,
+        "ms": 28
+      },
+      {
+        "path": "/public/v1/services?locale=en",
+        "status": 200,
+        "ms": 78
+      },
+      {
+        "path": "/health",
+        "status": 200,
+        "ms": 30
+      },
+      {
+        "path": "/public/v1/services?locale=en",
+        "status": 200,
+        "ms": 82
+      },
+      {
+        "path": "/health",
+        "status": 200,
+        "ms": 22
+      },
+      {
+        "path": "/public/v1/services?locale=en",
+        "status": 200,
+        "ms": 87
+      },
+      {
+        "path": "/health",
+        "status": 200,
+        "ms": 29
+      },
+      {
+        "path": "/public/v1/services?locale=en",
+        "status": 200,
+        "ms": 78
+      },
+      {
+        "path": "/health",
+        "status": 200,
+        "ms": 38
+      },
+      {
+        "path": "/public/v1/services?locale=en",
+        "status": 200,
+        "ms": 97
+      },
+      {
+        "path": "/health",
+        "status": 200,
+        "ms": 26
+      },
+      {
+        "path": "/public/v1/services?locale=en",
+        "status": 200,
+        "ms": 75
+      },
+      {
+        "path": "/health",
+        "status": 200,
+        "ms": 26
+      },
+      {
+        "path": "/public/v1/services?locale=en",
+        "status": 200,
+        "ms": 106
+      }
+    ]
+  },
+  "observedSnapshotRefreshMs": [
+    1594,
+    1883
+  ],
+  "postDeployCaddy": {
+    "observationFrom": "2026-10-05T16:56:25Z",
+    "http5xx": 0,
+    "healthCheckTimeouts": 0
+  },
+  "runtimeFlags": {
+    "customerCommerceEnabled": false,
+    "productionCommerceWebhooksConfigured": false
+  },
+  "ci": {
+    "deployedCommit": "success",
+    "url": "https://github.com/geniefront/geniefront-os/actions/runs/37344523437"
+  }
+}
