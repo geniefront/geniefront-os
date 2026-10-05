@@ -11,6 +11,7 @@ import {buildContext} from './actor';
 import {dispatch} from './bus';
 import {dispatchSystem} from './test/systemDispatch';
 import {quoteAppointmentDeposit} from '@gf/payroll';
+import {addDays,businessDateOf,wallMinuteToInstant} from '@gf/scheduling';
 import {appointmentDepositPolicy} from './commerce/depositPolicy';
 import {loadDepositAdjustmentQuote} from './commerce/depositAdjustmentQuote';
 import {depositPaymentSources} from './commerce/depositSources';
@@ -26,8 +27,14 @@ let ctx:Awaited<ReturnType<typeof buildContext>>,serviceId:string,extraId:string
 interface Hold{holdId:string;appointmentId:string;amountCents:number;serviceTotalCents:number;expiresAt:string;}
 interface Order{orderId:string;paymentId:string;assetId:string|null;status:string;}
 const run=async<T=unknown>(name:string,input:unknown,key=randomUUID())=>(await dispatch<T>(name,input,ctx,{idempotencyKey:key})).result;
-let hour=1100;
-const future=()=>new Date(Date.now()+(hour+=3)*3600000).toISOString();
+let futureSlot=0;
+// Web-source fixtures must stay inside shop hours regardless of the time the
+// suite starts or a DST boundary. Keep distinct slots without drifting to 01:00.
+const future=()=>{
+ const index=futureSlot++,timezone='America/Los_Angeles';
+ const date=addDays(businessDateOf(new Date(),timezone,'03:00'),10+Math.floor(index/4));
+ return wallMinuteToInstant(date,timezone,600+(index%4)*120).toISOString();
+};
 async function hold(two=false,startsAt=future(),email=false){
  const [loc]=await withTenant(tenant,tx=>tx`select settings from locations where id=${tenant.locationId}`),policy=appointmentDepositPolicy(readOnlineBooking(loc!.settings));
  const total=two?15000:10000,amount=quoteAppointmentDeposit(total,policy.method==='percentage'?{percentBps:policy.percentBps!}:{fixedAmountCents:policy.fixedAmountCents!});
