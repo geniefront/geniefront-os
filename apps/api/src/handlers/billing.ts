@@ -414,9 +414,8 @@ registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
   /**
    * 试用结束时刻。**id 类语义**：`null` = 明确清空。
    *
-   * 试用一旦转正，Stripe 的 `trial_end` 就不再出现在订阅对象上，
-   * 这时候必须真的写回 null —— 留着旧值的话「这家店试用到什么时候」
-   * 在客服那边会得到一个早就过期的答案。
+   * Stripe 会保留历史 trial_end；编排层在订阅不再 trialing 时传 null，
+   * 必须真的清空，不能继续把历史试用日期当作当前权益。
    */
   const trialEndsAt = isoOf(input.trialEndsAt, acct.trial_ends_at);
   const cancelAtPeriodEnd = input.cancelAtPeriodEnd ?? acct.cancel_at_period_end;

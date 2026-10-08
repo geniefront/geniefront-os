@@ -51,7 +51,7 @@ import { maybeAutoTopup } from '../billing/autoTopup';
 import { billingPortalUrl, safePortalReturnUrl, safeReturnUrls } from '../links';
 import { isZhLocale, ownerLocaleOf, type OwnerLocale } from '../email/locale';
 import { ownerShopOf, type OwnerShop } from '../email/ownerShop';
-import { resolveWebhookTenant } from './tenant';
+import { invoiceStripeRefs, resolveWebhookTenant } from './tenant';
 import {
   renderTrialEnding, renderPaymentFailed, renderSubscriptionCanceled, formatWhen,
 } from '../email/render';
@@ -921,6 +921,14 @@ export function registerStripeRoutes(
        */
       case 'invoice.paid':
       case 'invoice.payment_succeeded': {
+        // Payment can arrive without subscription.updated (or before it).
+        // Fetch current Stripe truth, never infer active from an old paid invoice.
+        const { subscriptionId } = invoiceStripeRefs(
+          event.data.object as unknown as Record<string, unknown>);
+        if (subscriptionId) {
+          const sub = await stripeClient().subscriptions.retrieve(subscriptionId);
+          await syncSubscription(sub, ctx, event.id);
+        }
         await recordInvoice(event.data.object, ctx, 'paid');
         return 'invoice_recorded';
       }
@@ -1322,9 +1330,10 @@ export function registerStripeRoutes(
       plan,
       subscriptionStatus: mapSubscriptionStatus(sub.status),
       currentPeriodEnd: periodEndSec ? new Date(periodEndSec * 1000).toISOString() : null,
-      // 试用转正之后 Stripe 就不再给 trial_end 了 —— 这时候要真的写回 null，
-      // 不能 `?? undefined` 留着旧值（那会让客服看到一个早就过期的日期）
-      trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
+      // Stripe retains historical trial_end after conversion; only a trialing
+      // subscription may grant trial entitlements locally.
+      trialEndsAt: sub.status === 'trialing' && sub.trial_end
+        ? new Date(sub.trial_end * 1000).toISOString() : null,
       /**
        * ⭐ 期末取消。Stripe 在这种情况下 **status 仍然是 active** ——
        * 只有这两列能表达「还能用，但到期即止」。不镜像的话界面会一直

@@ -105,6 +105,11 @@ if grep -qE "$DENY" "$RUNTIME_ENV"; then
   exit 1
 fi
 
+if [[ "$TARGET" == production ]]; then
+  log "检查 Stripe 生产订阅回调覆盖"
+  node --env-file="$ENV_FILE" --import tsx apps/api/src/ops/checkStripeWebhook.ts
+fi
+
 log "构建 ${TARGET} 前端（NODE_ENV=production）"
 bash "${ROOT}/deploy/frontend-build.sh" "$VITE_MODE"
 
