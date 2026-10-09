@@ -2,6 +2,13 @@ import { expect, it } from 'vitest';
 import { requestedTimeResult } from './requestedTime';
 
 const input = { date: '2026-09-29', timezone: 'America/New_York', minMinutesAhead: 30 };
+it('with zero notice accepts an offered imminent slot but still rejects past times', () => {
+  const selection = { ...input, minMinutesAhead:0, time:'09:30', times:['09:30', '09:40'] };
+  expect(requestedTimeResult(selection, Date.parse('2026-09-29T13:29:59Z')))
+    .toMatchObject({ available:true, reason:null });
+  expect(requestedTimeResult(selection, Date.parse('2026-09-29T13:30:01Z')))
+    .toMatchObject({ available:false, reason:'too_soon', alternatives:['09:40'] });
+});
 it('does not call 20:00 available when the successful lookup offers only 20:30 and 21:00', () => {
   expect(requestedTimeResult({ ...input, time: '20:00', times: ['20:30', '21:00'] }, Date.parse('2026-09-29T23:35:13Z')))
     .toMatchObject({ available: false, reason: 'too_soon', alternatives: ['20:30', '21:00'] });
