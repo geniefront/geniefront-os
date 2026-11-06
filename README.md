@@ -116,5 +116,3 @@ docs/         ⭐ 全部设计文档与交接
 - 生产环境的 service_role key 与加密密钥只进 GitHub Actions Secret，不落任何 `.env`。
 
 ---
-
-私有仓库，版权所有。
